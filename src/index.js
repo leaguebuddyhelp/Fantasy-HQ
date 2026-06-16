@@ -95,6 +95,15 @@ function commandTitle(league, label) {
   return `${league.name} - ${league.season} ${label}`;
 }
 
+function regularSeasonLastPeriod(league) {
+  const scored = league.settings?.last_scored_leg || league.settings?.leg || 1;
+  const playoffStart = league.settings?.playoff_week_start;
+  if (playoffStart && playoffStart > 1) {
+    return Math.min(scored, playoffStart - 1);
+  }
+  return scored;
+}
+
 function statName(stat) {
   const names = {
     fantasy: "Fantasy",
@@ -138,22 +147,33 @@ function statAverage(stats = {}, key, games) {
   return statValue(stats, key) / games;
 }
 
-function percentage(made, attempted) {
-  if (!attempted) return "-";
-  return (made / attempted).toFixed(3).replace(/^0/, "");
-}
-
 function fixedNumber(value, decimals = 1) {
   const number = Number(value || 0);
   return number.toFixed(decimals).replace(/\.0$/, "");
 }
 
-function tableLine(values, widths) {
-  return values.map((value, index) => String(value).padEnd(widths[index])).join(" ").trimEnd();
+function rankIcon(index) {
+  return ["1.", "2.", "3."][index] || `${index + 1}.`;
 }
 
-function codeTable(headers, rows, widths) {
-  return `\`\`\`\n${tableLine(headers, widths)}\n${rows.map((row) => tableLine(row, widths)).join("\n")}\n\`\`\``;
+function statPill(label, value) {
+  return `**${label}:** ${value}`;
+}
+
+function joinPills(items) {
+  return items.filter(Boolean).join("  |  ");
+}
+
+function playerSummaryLine(playerId, players, detail) {
+  return `**${compactPlayerName(playerId, players, 24)}**${detail ? ` - ${detail}` : ""}`;
+}
+
+function analysisLine(analysis, players) {
+  return playerSummaryLine(
+    analysis.playerId,
+    players,
+    `${fixedNumber(analysis.seasonAvg)} avg, ${fixedNumber(analysis.recentAvg)} recent, ${marketLabel(analysis.marketStatus)}`,
+  );
 }
 
 function compactName(value, maxLength = 14) {
@@ -170,21 +190,15 @@ function compactPlayerName(playerId, players, maxLength = 18) {
 }
 
 function rosterPowerRow(roster, userMap, index, rosters, analytics) {
-  return [
-    index + 1,
-    compactTeamName(roster, userMap, 16),
-    formatRecord(roster.settings),
-    fixedNumber(settingPoints(roster.settings, "fpts")),
-    teamPowerScore(roster, rosters, analytics),
-  ];
+  return `${rankIcon(index)} **${teamLabel(roster, userMap)}** - ${joinPills([
+    statPill("Rec", formatRecord(roster.settings)),
+    statPill("Pts", fixedNumber(settingPoints(roster.settings, "fpts"))),
+    statPill("Power", teamPowerScore(roster, rosters, analytics)),
+  ])}`;
 }
 
 function playerFantasyRow(playerId, points, players, index) {
-  return [
-    index + 1,
-    compactPlayerName(playerId, players, 20),
-    fixedNumber(points),
-  ];
+  return `${rankIcon(index)} ${playerSummaryLine(playerId, players, `${fixedNumber(points)} fantasy`)}`;
 }
 
 function topPlayersForMatchup(matchup, players, limit = 3) {
@@ -203,13 +217,7 @@ function matchupTopPlayer(matchup, players) {
 function rosterPlayerRows(playerIds, players, role, limit = 16) {
   return playerIds.slice(0, limit).map((playerId, index) => {
     const player = players[playerId] || {};
-    return [
-      index + 1,
-      role,
-      compactPlayerName(playerId, players, 20),
-      player.position || player.fantasy_positions?.[0] || "-",
-      player.team || "FA",
-    ];
+    return `${rankIcon(index)} **${compactPlayerName(playerId, players, 22)}** - ${role} - ${player.position || player.fantasy_positions?.[0] || "-"} / ${player.team || "FA"}`;
   });
 }
 
@@ -218,34 +226,6 @@ function fantasyScoreFromStats(stats = {}, scoringSettings = {}) {
     if (typeof stats[key] !== "number") return total;
     return total + stats[key] * Number(value || 0);
   }, 0);
-}
-
-function playerAverageRow(totals, games) {
-  return [
-    fixedNumber(statAverage(totals, "pts", games)),
-    fixedNumber(statAverage(totals, "reb", games)),
-    fixedNumber(statAverage(totals, "ast", games)),
-    fixedNumber(statAverage(totals, "stl", games)),
-    fixedNumber(statAverage(totals, "blk", games)),
-    fixedNumber(statAverage(totals, "tpm", games)),
-    fixedNumber(statAverage(totals, "to", games)),
-    percentage(statValue(totals, "fgm"), statValue(totals, "fga")),
-    percentage(statValue(totals, "ftm"), statValue(totals, "fta")),
-  ];
-}
-
-function playerGameLogRow(item) {
-  return [
-    `P${item.period}`,
-    item.started ? "S" : "B",
-    fixedNumber(item.fantasyPoints),
-    fixedNumber(statValue(item.stats, "pts"), 0),
-    fixedNumber(statValue(item.stats, "reb"), 0),
-    fixedNumber(statValue(item.stats, "ast"), 0),
-    fixedNumber(statValue(item.stats, "stl"), 0),
-    fixedNumber(statValue(item.stats, "blk"), 0),
-    fixedNumber(statValue(item.stats, "tpm"), 0),
-  ];
 }
 
 function projectionRow(projection, league) {
@@ -260,6 +240,25 @@ function projectionRow(projection, league) {
     fixedNumber(statValue(projection, "blk")),
     fixedNumber(statValue(projection, "tpm")),
   ];
+}
+
+function averageStatSummary(totals, games) {
+  return joinPills([
+    statPill("PTS", fixedNumber(statAverage(totals, "pts", games))),
+    statPill("REB", fixedNumber(statAverage(totals, "reb", games))),
+    statPill("AST", fixedNumber(statAverage(totals, "ast", games))),
+    statPill("STL", fixedNumber(statAverage(totals, "stl", games))),
+    statPill("BLK", fixedNumber(statAverage(totals, "blk", games))),
+    statPill("3PM", fixedNumber(statAverage(totals, "tpm", games))),
+  ]);
+}
+
+function weeklyLine(item) {
+  return `P${item.period}: **${fixedNumber(item.fantasyPoints)}** fantasy - ${item.started ? "Started" : "Bench"} - ${joinPills([
+    statPill("PTS", fixedNumber(statValue(item.stats, "pts"), 0)),
+    statPill("REB", fixedNumber(statValue(item.stats, "reb"), 0)),
+    statPill("AST", fixedNumber(statValue(item.stats, "ast"), 0)),
+  ])}`;
 }
 
 function settingPoints(settings = {}, key = "fpts") {
@@ -293,14 +292,14 @@ function sortedStandings(rosters) {
 }
 
 async function getAllPeriodMatchups(league) {
-  const lastPeriod = league.settings?.last_scored_leg || league.settings?.leg || 1;
+  const lastPeriod = regularSeasonLastPeriod(league);
   const periods = Array.from({ length: lastPeriod }, (_, index) => index + 1);
   const pages = await Promise.all(periods.map((period) => sleeper.getMatchups(league.league_id, period)));
   return periods.map((period, index) => ({ period, matchups: pages[index] || [] }));
 }
 
 async function getAllPeriodTransactions(league) {
-  const lastPeriod = league.settings?.last_scored_leg || league.settings?.leg || 1;
+  const lastPeriod = regularSeasonLastPeriod(league);
   const periods = Array.from({ length: lastPeriod }, (_, index) => index + 1);
   const pages = await Promise.all(periods.map((period) => sleeper.getTransactions(league.league_id, period)));
   return periods.map((period, index) => ({ period, transactions: pages[index] || [] }));
@@ -327,7 +326,7 @@ async function statLeaders(league, stat) {
     return fantasyLeadersFromMatchups(await getAllPeriodMatchups(league));
   }
 
-  const lastPeriod = league.settings?.last_scored_leg || league.settings?.leg || 1;
+  const lastPeriod = regularSeasonLastPeriod(league);
   const periods = Array.from({ length: lastPeriod }, (_, index) => index + 1);
   const pages = await Promise.all(periods.map((period) => sleeper.getStats(league.sport || "nfl", league.season, period)));
   const totals = new Map();
@@ -353,7 +352,7 @@ async function optionalSleeperCall(callback, fallback) {
 }
 
 function lastScoredPeriod(league) {
-  return league.settings?.last_scored_leg || league.settings?.leg || 1;
+  return regularSeasonLastPeriod(league);
 }
 
 async function playerSeasonSnapshot(league, playerId, selectedPeriod) {
@@ -595,7 +594,7 @@ function categoryAveragesForRoster(roster, analytics) {
 }
 
 function categoryLabel(key) {
-  const labels = { ast: "AST", blk: "BLK", pts: "PTS", reb: "REB", stl: "STL", to: "TO", tpm: "3PM" };
+  const labels = { ast: "AST", blk: "BLK", fit: "Best Fit", pts: "PTS", reb: "REB", stl: "STL", to: "TO", tpm: "3PM", win_now: "Win Now", youth: "Youth" };
   return labels[key] || key.toUpperCase();
 }
 
@@ -769,11 +768,7 @@ async function handleStandings(interaction) {
   const players = await sleeper.getPlayers(league.sport || "nfl");
   const analytics = await getLeagueAnalytics(league, rosters, players);
   const standings = sortedStandings(rosters);
-  const table = codeTable(
-    ["#", "TEAM", "REC", "PTS", "POWER"],
-    standings.map((roster, index) => rosterPowerRow(roster, userMap, index, rosters, analytics)),
-    [3, 16, 7, 8, 7],
-  );
+  const lines = standings.map((roster, index) => rosterPowerRow(roster, userMap, index, rosters, analytics));
   const leader = standings[0];
   const powerLeader = [...standings].sort((a, b) => teamPowerScore(b, rosters, analytics) - teamPowerScore(a, rosters, analytics))[0];
 
@@ -783,7 +778,7 @@ async function handleStandings(interaction) {
     .setDescription(leader
       ? `Leader: **${teamLabel(leader, userMap)}** | Power: **${teamLabel(powerLeader, userMap)}**`
       : "No rosters found.")
-    .addFields({ name: "Table", value: table, inline: false });
+    .addFields({ name: "Power Board", value: trimValue(lines.join("\n")), inline: false });
   applySeasonFooter(embed, league, interaction);
 
   await interaction.editReply({ embeds: [embed] });
@@ -809,23 +804,11 @@ async function handleMatchups(interaction) {
     const sorted = teams.sort((a, b) => (b.points || 0) - (a.points || 0));
     const [winner, loser] = sorted;
     if (!loser) {
-      return [
-        compactTeamName(rosterMap.get(winner.roster_id), userMap),
-        fixedNumber(winner.points),
-        "-",
-        "-",
-        matchupTopPlayer(winner, players),
-      ];
+      return `**${teamLabel(rosterMap.get(winner.roster_id), userMap)}** - ${fixedNumber(winner.points)} pts\nTop: ${matchupTopPlayer(winner, players)}`;
     }
 
     const margin = Number(winner.points || 0) - Number(loser.points || 0);
-    return [
-      compactTeamName(rosterMap.get(winner.roster_id), userMap),
-      fixedNumber(winner.points),
-      compactTeamName(rosterMap.get(loser.roster_id), userMap),
-      fixedNumber(loser.points),
-      `+${fixedNumber(margin)} | ${matchupTopPlayer(winner, players)}`,
-    ];
+    return `**${teamLabel(rosterMap.get(winner.roster_id), userMap)}** ${fixedNumber(winner.points)} over **${teamLabel(rosterMap.get(loser.roster_id), userMap)}** ${fixedNumber(loser.points)}\nMargin: +${fixedNumber(margin)} | Top: ${matchupTopPlayer(winner, players)}`;
   });
 
   const embed = new EmbedBuilder()
@@ -835,7 +818,7 @@ async function handleMatchups(interaction) {
   if (rows.length) {
     embed.addFields({
       name: "Scoreboard",
-      value: codeTable(["WINNER", "PTS", "OPP", "OPPPTS", "NOTE"], rows, [14, 6, 14, 7, 28]),
+      value: trimValue(rows.join("\n\n")),
       inline: false,
     });
   }
@@ -868,15 +851,9 @@ async function handleRoster(interaction) {
   const starterRows = (roster.starters || [])
     .map((playerId, index) => {
       const slot = starterSlots[index] || "S";
-      if (!playerId || playerId === "0") return [index + 1, slot, "Empty", "-", "-"];
+      if (!playerId || playerId === "0") return `${rankIcon(index)} **Empty** - ${slot}`;
       const player = players[playerId] || {};
-      return [
-        index + 1,
-        slot,
-        compactPlayerName(playerId, players, 20),
-        player.position || player.fantasy_positions?.[0] || "-",
-        player.team || "FA",
-      ];
+      return `${rankIcon(index)} **${compactPlayerName(playerId, players, 22)}** - ${slot} - ${player.position || player.fantasy_positions?.[0] || "-"} / ${player.team || "FA"}`;
     });
   const benchIds = rosterPlayers
     .filter((playerId) => !starters.has(playerId) && !reserve.has(playerId) && !taxi.has(playerId))
@@ -896,14 +873,14 @@ async function handleRoster(interaction) {
       {
         name: "Starters",
         value: starterRows.length
-          ? codeTable(["#", "SLOT", "PLAYER", "POS", "TEAM"], starterRows, [3, 6, 20, 5, 5])
+          ? trimValue(starterRows.join("\n"))
           : "No starters set.",
         inline: false,
       },
       {
         name: "Bench",
         value: benchRows.length
-          ? codeTable(["#", "R", "PLAYER", "POS", "TEAM"], benchRows, [3, 3, 20, 5, 5])
+          ? trimValue(benchRows.join("\n"))
           : "No bench players.",
         inline: false,
       },
@@ -911,11 +888,11 @@ async function handleRoster(interaction) {
     .setFooter({ text: `${user?.display_name || "Unknown Manager"} - Roster ${roster.roster_id}` });
 
   if (taxiRows.length) {
-    embed.addFields({ name: "Taxi", value: codeTable(["#", "R", "PLAYER", "POS", "TEAM"], taxiRows, [3, 3, 20, 5, 5]), inline: false });
+    embed.addFields({ name: "Taxi", value: trimValue(taxiRows.join("\n")), inline: false });
   }
 
   if (reserveRows.length) {
-    embed.addFields({ name: "Reserve", value: codeTable(["#", "R", "PLAYER", "POS", "TEAM"], reserveRows, [3, 3, 20, 5, 5]), inline: false });
+    embed.addFields({ name: "Reserve", value: trimValue(reserveRows.join("\n")), inline: false });
   }
 
   await interaction.editReply({ embeds: [embed] });
@@ -1014,7 +991,7 @@ async function handleLeaders(interaction) {
     .setDescription(rows.length ? `Top ${statLabel.toLowerCase()} players for this season.` : "No data.")
     .addFields({
       name: "Leaderboard",
-      value: rows.length ? codeTable(["#", "PLAYER", stat === "fantasy" ? "FANT" : stat.toUpperCase()], rows, [3, 20, 8]) : "No data.",
+      value: rows.length ? trimValue(rows.join("\n")) : "No data.",
       inline: false,
     });
 
@@ -1065,11 +1042,9 @@ async function handleTeam(interaction) {
   const strengths = ["pts", "reb", "ast", "stl", "blk", "tpm"]
     .filter((key) => !needs.includes(key))
     .slice(0, 3);
-  const recentRows = weeklyScores.slice(-5).map((item) => [
-    `P${item.period}`,
-    fixedNumber(item.matchup.points),
-    topPlayersForMatchup(item.matchup, players, 1)[0] || "-",
-  ]);
+  const recentRows = weeklyScores.slice(-5).map((item) =>
+    `P${item.period}: **${fixedNumber(item.matchup.points)}** pts - ${topPlayersForMatchup(item.matchup, players, 1)[0] || "-"}`,
+  );
 
   const embed = new EmbedBuilder()
     .setTitle(commandTitle(league, teamLabel(roster, userMap)))
@@ -1105,23 +1080,21 @@ async function handleTeam(interaction) {
       {
         name: "Top Players",
         value: playerTotals.length
-          ? codeTable(["#", "PLAYER", "FANT"], playerTotals.map((item, index) => playerFantasyRow(item.playerId, item.total, players, index)), [3, 20, 8])
+          ? trimValue(playerTotals.map((item, index) => playerFantasyRow(item.playerId, item.total, players, index)).join("\n"))
           : "No player data.",
         inline: false,
       },
       {
         name: "Recent Weeks",
-        value: recentRows.length ? codeTable(["WK", "PTS", "TOP PLAYER"], recentRows, [4, 7, 28]) : "No matchup data.",
+        value: recentRows.length ? trimValue(recentRows.join("\n")) : "No matchup data.",
         inline: false,
       },
       {
         name: "Bench Regrets",
         value: regrets.length
-          ? codeTable(
-            ["WK", "PLAYER", "PTS", "LEFT"],
-            regrets.slice(0, 5).map((regret) => [`P${regret.period}`, compactName(regret.label, 20), fixedNumber(regret.points), fixedNumber(regret.swing)]),
-            [4, 20, 6, 6],
-          )
+          ? trimValue(regrets.slice(0, 5).map((regret) =>
+            `P${regret.period}: **${compactName(regret.label, 24)}** - ${fixedNumber(regret.points)} pts, ${fixedNumber(regret.swing)} left`,
+          ).join("\n"))
           : "No obvious bench misses.",
         inline: false,
       },
@@ -1173,26 +1146,22 @@ async function handlePlayer(interaction) {
     ? snapshot.weekly.filter((item) => item.period === selectedPeriod)
     : snapshot.weekly.slice(-5);
   const averageTable = gamesWithStats
-    ? codeTable(
-      ["PTS", "REB", "AST", "STL", "BLK", "3PM", "TO", "FG%", "FT%"],
-      [playerAverageRow(snapshot.totals, gamesWithStats)],
-      [5, 5, 5, 5, 5, 5, 4, 5, 5],
-    )
+    ? averageStatSummary(snapshot.totals, gamesWithStats)
     : "No box-score stats found.";
   const gameLog = shownWeeks.length
-    ? codeTable(
-      ["WK", "R", "FANT", "PTS", "REB", "AST", "STL", "BLK", "3PM"],
-      shownWeeks.map(playerGameLogRow),
-      [4, 2, 6, 4, 4, 4, 4, 4, 4],
-    )
+    ? shownWeeks.map(weeklyLine).join("\n")
     : "No weekly stat data found for this player.";
   const projected = projectionRow(projection, league);
   const projectionLine = projected
-    ? codeTable(
-      ["FANT", "PTS", "REB", "AST", "STL", "BLK", "3PM"],
-      [projected],
-      [6, 5, 5, 5, 5, 5, 5],
-    )
+    ? joinPills([
+      statPill("Fantasy", projected[0]),
+      statPill("PTS", projected[1]),
+      statPill("REB", projected[2]),
+      statPill("AST", projected[3]),
+      statPill("STL", projected[4]),
+      statPill("BLK", projected[5]),
+      statPill("3PM", projected[6]),
+    ])
     : "No projection available.";
   const cacheText = previousCache?.updatedAt ? "Cache refreshed" : "Cached";
 
@@ -1258,19 +1227,18 @@ async function handleCompare(interaction) {
   const startsB = snapshotB.weekly.filter((item) => item.started).length;
   const gamesWithStatsA = snapshotA.weekly.filter((item) => Object.keys(item.stats || {}).length).length || gamesA;
   const gamesWithStatsB = snapshotB.weekly.filter((item) => Object.keys(item.stats || {}).length).length || gamesB;
-  const rows = [
-    ["Fantasy", fixedNumber(snapshotA.fantasyTotal), fixedNumber(snapshotB.fantasyTotal)],
-    ["Avg", fixedNumber(gamesA ? snapshotA.fantasyTotal / gamesA : 0), fixedNumber(gamesB ? snapshotB.fantasyTotal / gamesB : 0)],
-    ["Games", gamesA, gamesB],
-    ["Starts", startsA, startsB],
-    ["PTS/G", fixedNumber(statAverage(snapshotA.totals, "pts", gamesWithStatsA)), fixedNumber(statAverage(snapshotB.totals, "pts", gamesWithStatsB))],
-    ["REB/G", fixedNumber(statAverage(snapshotA.totals, "reb", gamesWithStatsA)), fixedNumber(statAverage(snapshotB.totals, "reb", gamesWithStatsB))],
-    ["AST/G", fixedNumber(statAverage(snapshotA.totals, "ast", gamesWithStatsA)), fixedNumber(statAverage(snapshotB.totals, "ast", gamesWithStatsB))],
-    ["STL/G", fixedNumber(statAverage(snapshotA.totals, "stl", gamesWithStatsA)), fixedNumber(statAverage(snapshotB.totals, "stl", gamesWithStatsB))],
-    ["BLK/G", fixedNumber(statAverage(snapshotA.totals, "blk", gamesWithStatsA)), fixedNumber(statAverage(snapshotB.totals, "blk", gamesWithStatsB))],
-    ["3PM/G", fixedNumber(statAverage(snapshotA.totals, "tpm", gamesWithStatsA)), fixedNumber(statAverage(snapshotB.totals, "tpm", gamesWithStatsB))],
-    ["TO/G", fixedNumber(statAverage(snapshotA.totals, "to", gamesWithStatsA)), fixedNumber(statAverage(snapshotB.totals, "to", gamesWithStatsB))],
-  ];
+  const playerALine = joinPills([
+    statPill("Fantasy", fixedNumber(snapshotA.fantasyTotal)),
+    statPill("Avg", fixedNumber(gamesA ? snapshotA.fantasyTotal / gamesA : 0)),
+    statPill("Games", gamesA),
+    statPill("Starts", startsA),
+  ]);
+  const playerBLine = joinPills([
+    statPill("Fantasy", fixedNumber(snapshotB.fantasyTotal)),
+    statPill("Avg", fixedNumber(gamesB ? snapshotB.fantasyTotal / gamesB : 0)),
+    statPill("Games", gamesB),
+    statPill("Starts", startsB),
+  ]);
 
   const embed = new EmbedBuilder()
     .setTitle(commandTitle(league, "Player Compare"))
@@ -1281,8 +1249,13 @@ async function handleCompare(interaction) {
     ].join("\n"))
     .addFields(
       {
-        name: "Season Snapshot",
-        value: codeTable(["METRIC", compactPlayerName(playerAId, players, 14), compactPlayerName(playerBId, players, 14)], rows, [10, 14, 14]),
+        name: playerName(playerAId, players),
+        value: `${playerALine}\n${averageStatSummary(snapshotA.totals, gamesWithStatsA)}`,
+        inline: false,
+      },
+      {
+        name: playerName(playerBId, players),
+        value: `${playerBLine}\n${averageStatSummary(snapshotB.totals, gamesWithStatsB)}`,
         inline: false,
       },
     );
@@ -1365,11 +1338,11 @@ async function handleTrade(interaction) {
         inline: false,
       },
       {
-        name: "Value",
-        value: codeTable(["SIDE", "NOW", "LONG", "VALUE"], [
-          ["A", fixedNumber(shortA), fixedNumber(longA), fixedNumber(blendA)],
-          ["B", fixedNumber(shortB), fixedNumber(longB), fixedNumber(blendB)],
-        ], [5, 7, 7, 7]),
+        name: "Value Check",
+        value: [
+          `**Side A** - ${joinPills([statPill("Now", fixedNumber(shortA)), statPill("Long", fixedNumber(longA)), statPill("Value", fixedNumber(blendA))])}`,
+          `**Side B** - ${joinPills([statPill("Now", fixedNumber(shortB)), statPill("Long", fixedNumber(longB)), statPill("Value", fixedNumber(blendB))])}`,
+        ].join("\n"),
         inline: false,
       },
       { name: "Why", value: why, inline: false },
@@ -1400,16 +1373,13 @@ async function handleMarket(interaction) {
   }
 
   const fieldFor = (status) => {
-    const rows = groups[status].slice(0, 6).map((analysis, index) => [
-      index + 1,
-      compactPlayerName(analysis.playerId, players, 18),
-      fixedNumber(analysis.seasonAvg),
-      fixedNumber(analysis.recentAvg),
-    ]);
+    const rows = groups[status].slice(0, 6).map((analysis, index) =>
+      `${rankIcon(index)} ${analysisLine(analysis, players)}`,
+    );
     return {
       inline: false,
       name: marketLabel(status),
-      value: rows.length ? codeTable(["#", "PLAYER", "AVG", "REC"], rows, [3, 18, 6, 6]) : "No strong signals.",
+      value: rows.length ? trimValue(rows.join("\n")) : "No strong signals.",
     };
   };
   const statuses = mode === "all" ? ["buy_low", "sell_high", "hold", "fade"] : [mode];
@@ -1433,6 +1403,50 @@ function targetScoreForNeed(analysis, need) {
   return analysis.values.blend;
 }
 
+function rosterForPlayerId(playerId, rosters) {
+  return rosters.find((roster) => (roster.players || []).includes(playerId));
+}
+
+function bestRosterAssetValue(roster, analytics) {
+  return Math.max(...(roster.players || []).map((playerId) => analytics.byPlayer.get(playerId)?.values.blend || 0), 0);
+}
+
+function isTopRosterAsset(playerId, rosters, analytics, count = 2) {
+  const ownerRoster = rosterForPlayerId(playerId, rosters);
+  if (!ownerRoster) return false;
+  const topIds = (ownerRoster.players || [])
+    .map((id) => analytics.byPlayer.get(id))
+    .filter(Boolean)
+    .sort((a, b) => b.values.blend - a.values.blend)
+    .slice(0, count)
+    .map((analysis) => analysis.playerId);
+  return topIds.includes(playerId);
+}
+
+function buildOfferForTarget(target, outgoingPool, aggression) {
+  const multiplier = aggression === "overpay" ? 1.12 : aggression === "value" ? 0.88 : 1;
+  const targetValue = target.values.blend * multiplier;
+  const candidates = outgoingPool
+    .filter((asset) => asset.playerId !== target.playerId)
+    .sort((a, b) => b.values.blend - a.values.blend);
+  const packages = [];
+
+  for (const asset of candidates) {
+    packages.push({ assets: [asset], value: asset.values.blend });
+  }
+
+  for (let i = 0; i < candidates.length; i += 1) {
+    for (let j = i + 1; j < candidates.length; j += 1) {
+      packages.push({ assets: [candidates[i], candidates[j]], value: candidates[i].values.blend + candidates[j].values.blend });
+    }
+  }
+
+  return packages
+    .filter((pkg) => pkg.value >= targetValue * 0.78 && pkg.value <= targetValue * 1.25)
+    .sort((a, b) => Math.abs(targetValue - a.value) - Math.abs(targetValue - b.value))[0] || packages
+    .sort((a, b) => Math.abs(targetValue - a.value) - Math.abs(targetValue - b.value))[0];
+}
+
 async function handleTradeFinder(interaction) {
   const teamQuery = interaction.options.getString("team", true);
   const selectedNeed = interaction.options.getString("need") || "fit";
@@ -1453,22 +1467,30 @@ async function handleTradeFinder(interaction) {
   const outgoingPool = [...ownIds]
     .map((playerId) => analytics.byPlayer.get(playerId))
     .filter(Boolean)
-    .sort((a, b) => a.values.blend - b.values.blend);
+    .sort((a, b) => b.values.blend - a.values.blend);
+  const maxOffer = outgoingPool.slice(0, 3).reduce((sum, asset) => sum + asset.values.blend, 0);
+  const ownBest = bestRosterAssetValue(roster, analytics);
   const targets = [...analytics.byPlayer.values()]
-    .filter((analysis) => !ownIds.has(analysis.playerId) && analysis.weekly.length)
+    .filter((analysis) => {
+      if (ownIds.has(analysis.playerId) || !analysis.weekly.length) return false;
+      if (analysis.values.blend > maxOffer * 1.2) return false;
+      if (aggression !== "overpay" && analysis.values.blend > ownBest * 1.15) return false;
+      if (aggression !== "overpay" && isTopRosterAsset(analysis.playerId, rosters, analytics, 2)) return false;
+      return analysis.seasonAvg >= 6;
+    })
     .sort((a, b) => targetScoreForNeed(b, need) - targetScoreForNeed(a, need))
     .slice(0, 5);
-  const multiplier = aggression === "overpay" ? 1.15 : aggression === "value" ? 0.85 : 1;
   const rows = targets.map((target, index) => {
-    const offer = outgoingPool
-      .filter((asset) => asset.values.blend <= target.values.blend * multiplier)
-      .sort((a, b) => Math.abs((target.values.blend * multiplier) - a.values.blend) - Math.abs((target.values.blend * multiplier) - b.values.blend))[0] || outgoingPool[0];
-    return [
-      index + 1,
-      compactPlayerName(target.playerId, players, 18),
-      fixedNumber(target.values.blend),
-      offer ? compactPlayerName(offer.playerId, players, 18) : "Pick",
-    ];
+    const offer = buildOfferForTarget(target, outgoingPool, aggression);
+    const owner = rosterForPlayerId(target.playerId, rosters);
+    const offerText = offer?.assets?.length
+      ? offer.assets.map((asset) => compactPlayerName(asset.playerId, players, 18)).join(" + ")
+      : "Pick";
+    return `${rankIcon(index)} **${compactPlayerName(target.playerId, players, 22)}** (${owner ? teamLabel(owner, userMap) : "FA"})\nOffer idea: ${offerText}\n${joinPills([
+      statPill("Target", fixedNumber(target.values.blend)),
+      statPill("Offer", fixedNumber(offer?.value || 0)),
+      statPill("Fit", categoryLabel(need)),
+    ])}`;
   });
 
   const embed = new EmbedBuilder()
@@ -1481,12 +1503,12 @@ async function handleTradeFinder(interaction) {
     .addFields(
       {
         name: "Ideas",
-        value: rows.length ? codeTable(["#", "TARGET", "VALUE", "START OFFER"], rows, [3, 18, 7, 18]) : "No targets found.",
+        value: rows.length ? trimValue(rows.join("\n\n")) : "No realistic targets found. Try a different need or use aggression: overpay.",
         inline: false,
       },
       {
         name: "Why",
-        value: `This looks for players who help ${need === "fit" ? "your biggest roster gap" : categoryLabel(need)} and suggests a simple starting offer from your roster.`,
+        value: `Filtered out most top-two roster assets unless aggression is overpay, then priced targets against packages your roster can actually offer.`,
         inline: false,
       },
     );
