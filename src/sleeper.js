@@ -1,4 +1,5 @@
 const BASE_URL = "https://api.sleeper.app/v1";
+const playersCache = new Map();
 
 async function sleeperFetch(path) {
   const response = await fetch(`${BASE_URL}${path}`, {
@@ -73,7 +74,17 @@ async function getDraftTradedPicks(draftId) {
 }
 
 async function getPlayers(sport = "nfl") {
-  return sleeperFetch(`/players/${encodeURIComponent(sport)}`);
+  const cacheKey = String(sport || "nfl").toLowerCase();
+  const cached = playersCache.get(cacheKey);
+  const maxAgeMs = 6 * 60 * 60 * 1000;
+
+  if (cached && Date.now() - cached.createdAt < maxAgeMs) {
+    return cached.players;
+  }
+
+  const players = await sleeperFetch(`/players/${encodeURIComponent(sport)}`);
+  playersCache.set(cacheKey, { createdAt: Date.now(), players });
+  return players;
 }
 
 async function getSportState(sport = "nfl") {

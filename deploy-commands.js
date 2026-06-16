@@ -28,6 +28,14 @@ function teamOption(name, description, required = true) {
       .setAutocomplete(true);
 }
 
+function playerOption(option) {
+  return option
+    .setName("player")
+    .setDescription("Choose a rostered player from the connected league.")
+    .setRequired(true)
+    .setAutocomplete(true);
+}
+
 const commands = [
   new SlashCommandBuilder()
     .setName("connect")
@@ -134,6 +142,12 @@ const commands = [
   new SlashCommandBuilder()
     .setName("draft")
     .setDescription("Show draft recap and pick results.")
+    .addStringOption(seasonOption),
+  new SlashCommandBuilder()
+    .setName("player")
+    .setDescription("Show player season stats, weekly game log, projections, and cache the data.")
+    .addStringOption(playerOption)
+    .addIntegerOption(periodOption)
     .addStringOption(seasonOption),
   new SlashCommandBuilder()
     .setName("compare")

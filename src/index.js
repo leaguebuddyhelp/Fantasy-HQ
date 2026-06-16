@@ -3,7 +3,12 @@ require("dotenv").config();
 const { Client, EmbedBuilder, Events, GatewayIntentBits } = require("discord.js");
 const { readConfig } = require("./config");
 const sleeper = require("./sleeper");
-const { getGuildConfig, setGuildLeague } = require("./store");
+const {
+  getGuildConfig,
+  getPlayerStatsSnapshot,
+  setGuildLeague,
+  setPlayerStatsSnapshot,
+} = require("./store");
 const {
   byRosterId,
   byUserId,
@@ -111,6 +116,32 @@ function statName(stat) {
   return names[stat] || stat.toUpperCase();
 }
 
+function playerName(playerId, players) {
+  const player = players[playerId];
+  if (!player) return playerId;
+  return player.full_name || `${player.first_name || ""} ${player.last_name || ""}`.trim() || playerId;
+}
+
+function playerBioLine(playerId, players) {
+  const player = players[playerId] || {};
+  const parts = [
+    player.position || player.fantasy_positions?.[0],
+    player.team,
+    player.age ? `${player.age} yrs` : null,
+    player.years_exp != null ? `${player.years_exp} exp` : null,
+    player.injury_status ? `Injury: ${player.injury_status}` : null,
+  ].filter(Boolean);
+
+  return parts.length ? parts.join(" | ") : compactPlayerLabel(playerId, players);
+}
+
+function statLine(stats = {}, statsList = ["pts", "reb", "ast", "stl", "blk", "tpm", "to"]) {
+  const lines = statsList
+    .filter((key) => stats[key] != null)
+    .map((key) => `${statName(key)}: ${shortNumber(stats[key])}`);
+  return lines.join(" | ") || "No box stats.";
+}
+
 function settingPoints(settings = {}, key = "fpts") {
   const whole = settings[key] ?? 0;
   const decimal = settings[`${key}_decimal`] ?? 0;
@@ -204,6 +235,81 @@ async function statLeaders(league, stat) {
   return [...totals.entries()]
     .map(([playerId, total]) => ({ playerId, total }))
     .sort((a, b) => b.total - a.total);
+}
+
+async function optionalSleeperCall(callback, fallback) {
+  try {
+    return await callback();
+  } catch (error) {
+    console.warn(error.message);
+    return fallback;
+  }
+}
+
+function lastScoredPeriod(league) {
+  return league.settings?.last_scored_leg || league.settings?.leg || 1;
+}
+
+async function playerSeasonSnapshot(league, playerId, selectedPeriod) {
+  const lastPeriod = lastScoredPeriod(league);
+  const periodCount = Math.max(lastPeriod, selectedPeriod || 1);
+  const periods = Array.from({ length: periodCount }, (_, index) => index + 1);
+  const sport = league.sport || "nfl";
+  const [matchupPages, statsPages] = await Promise.all([
+    Promise.all(periods.map((period) =>
+      optionalSleeperCall(
+        async () => ({ period, matchups: await sleeper.getMatchups(league.league_id, period) }),
+        { period, matchups: [] },
+      ),
+    )),
+    Promise.all(periods.map((period) =>
+      optionalSleeperCall(
+        async () => ({ period, stats: await sleeper.getStats(sport, league.season, period) }),
+        { period, stats: {} },
+      ),
+    )),
+  ]);
+  const weekly = [];
+  const totals = {};
+
+  for (const { period, matchups } of matchupPages) {
+    const matchup = matchups.find((item) => Object.prototype.hasOwnProperty.call(item.players_points || {}, playerId));
+    const stats = statsPages.find((page) => page.period === period)?.stats?.[playerId] || {};
+    const fantasyPoints = matchup?.players_points?.[playerId];
+
+    for (const [key, value] of Object.entries(stats)) {
+      if (typeof value === "number") {
+        totals[key] = (totals[key] || 0) + value;
+      }
+    }
+
+    if (fantasyPoints != null || Object.keys(stats).length) {
+      weekly.push({
+        period,
+        fantasyPoints: fantasyPoints == null ? null : Number(fantasyPoints),
+        rosterId: matchup?.roster_id || null,
+        started: matchup?.starters?.includes(playerId) || false,
+        stats,
+      });
+    }
+  }
+
+  const fantasyTotal = weekly.reduce((sum, item) => sum + Number(item.fantasyPoints || 0), 0);
+
+  return {
+    fantasyTotal,
+    lastPeriod,
+    totals,
+    weekly,
+  };
+}
+
+async function playerProjection(league, playerId, period) {
+  const projections = await optionalSleeperCall(
+    () => sleeper.getProjections(league.sport || "nfl", league.season, period),
+    {},
+  );
+  return projections?.[playerId] || null;
 }
 
 function rosterBenchRegrets(roster, matchupPages, players) {
@@ -794,6 +900,87 @@ async function handleDraft(interaction) {
   await interaction.editReply({ embeds: [embed] });
 }
 
+async function handlePlayer(interaction) {
+  const playerId = interaction.options.getString("player", true);
+  const selectedPeriod = interaction.options.getInteger("week");
+  const { league, users, rosters } = await getSeasonBundle(interaction, { preferCompleted: true });
+  const players = await sleeper.getPlayers(league.sport || "nfl");
+  const player = players[playerId];
+
+  if (!player) {
+    await interaction.editReply(`No player matched "${playerId}". Pick one of the autocomplete suggestions for /player.`);
+    return;
+  }
+
+  const projectionPeriod = selectedPeriod || lastScoredPeriod(league);
+  const [snapshot, projection] = await Promise.all([
+    playerSeasonSnapshot(league, playerId, selectedPeriod),
+    playerProjection(league, playerId, projectionPeriod),
+  ]);
+  const previousCache = getPlayerStatsSnapshot(league.league_id, league.season, playerId);
+  const cached = setPlayerStatsSnapshot(league.league_id, league.season, playerId, {
+    player: {
+      name: playerName(playerId, players),
+      position: player.position || player.fantasy_positions?.[0] || null,
+      team: player.team || null,
+    },
+    fantasyTotal: snapshot.fantasyTotal,
+    totals: snapshot.totals,
+    weekly: snapshot.weekly,
+  });
+  const userMap = byUserId(users);
+  const roster = rosters.find((item) => (item.players || []).includes(playerId));
+  const manager = roster ? teamLabel(roster, userMap) : "Free Agent";
+  const shownWeeks = selectedPeriod
+    ? snapshot.weekly.filter((item) => item.period === selectedPeriod)
+    : snapshot.weekly.slice(-8);
+  const gameLog = shownWeeks.map((item) => {
+    const role = item.started ? "Start" : "Bench";
+    return `P${item.period} | ${role} | ${shortNumber(item.fantasyPoints)} fantasy | ${statLine(item.stats, ["pts", "reb", "ast"])}`;
+  });
+  const totalStats = statLine(snapshot.totals);
+  const projectionLine = projection
+    ? [
+      projection.pts != null ? `PTS ${shortNumber(projection.pts)}` : null,
+      projection.reb != null ? `REB ${shortNumber(projection.reb)}` : null,
+      projection.ast != null ? `AST ${shortNumber(projection.ast)}` : null,
+      projection.fpts != null ? `FANT ${shortNumber(projection.fpts)}` : null,
+    ].filter(Boolean).join(" | ")
+    : "No projection available.";
+  const cacheText = previousCache?.updatedAt
+    ? `Updated local stat cache. Previous cache: ${new Date(previousCache.updatedAt).toLocaleString("en-US", { timeZone: "America/New_York" })}`
+    : "Saved this player to the local stat cache.";
+
+  const embed = new EmbedBuilder()
+    .setTitle(commandTitle(league, playerName(playerId, players)))
+    .setColor(0x00ceb8)
+    .setDescription(`${playerBioLine(playerId, players)}\nRostered by: **${manager}**`)
+    .addFields(
+      {
+        name: "Season",
+        value: [
+          `Fantasy: ${shortNumber(snapshot.fantasyTotal)}`,
+          `Games with data: ${snapshot.weekly.length}`,
+          totalStats,
+        ].join("\n"),
+        inline: false,
+      },
+      {
+        name: selectedPeriod ? `Period ${selectedPeriod}` : "Recent Game Log",
+        value: trimValue(gameLog.join("\n"), "No weekly stat data found for this player.", 1000),
+        inline: false,
+      },
+      {
+        name: `Projection - Period ${projectionPeriod}`,
+        value: projectionLine,
+        inline: false,
+      },
+    )
+    .setFooter({ text: `${seasonFooter(league, requestedSeason(interaction))} ${cacheText} Cache entries: ${cached.weekly.length} weeks.` });
+
+  await interaction.editReply({ embeds: [embed] });
+}
+
 async function handleCompare(interaction) {
   const { league, users, rosters } = await getSeasonBundle(interaction, { preferCompleted: true });
   const teamA = findRosterByTeam(interaction.options.getString("team_a", true), users, rosters);
@@ -823,6 +1010,45 @@ async function handleCompare(interaction) {
   applySeasonFooter(embed, league, interaction);
 
   await interaction.editReply({ embeds: [embed] });
+}
+
+async function handlePlayerAutocomplete(interaction) {
+  try {
+    const focused = interaction.options.getFocused().toLowerCase();
+    const { league, rosters } = await getSeasonBundle(interaction, { preferCompleted: true });
+    const players = await sleeper.getPlayers(league.sport || "nfl");
+    const rosteredIds = [...new Set(rosters.flatMap((roster) => roster.players || []))]
+      .filter((playerId) => playerId && playerId !== "0");
+    const choices = rosteredIds
+      .map((playerId) => {
+        const player = players[playerId] || {};
+        const name = playerName(playerId, players);
+        const label = compactPlayerLabel(playerId, players);
+        const search = [
+          name,
+          player.first_name,
+          player.last_name,
+          player.position,
+          player.team,
+          playerId,
+        ].filter(Boolean).join(" ").toLowerCase();
+
+        return {
+          name: label.slice(0, 100),
+          value: String(playerId),
+          search,
+        };
+      })
+      .filter((choice) => !focused || choice.search.includes(focused))
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .slice(0, 25)
+      .map(({ name, value }) => ({ name, value }));
+
+    await interaction.respond(choices);
+  } catch (error) {
+    console.error(error);
+    await interaction.respond([]);
+  }
 }
 
 async function handleRosterAutocomplete(interaction) {
@@ -866,6 +1092,7 @@ const handlers = {
   league: handleLeague,
   leaders: handleLeaders,
   matchups: handleMatchups,
+  player: handlePlayer,
   playoffs: handlePlayoffs,
   recap: handleRecap,
   roster: handleRoster,
@@ -880,7 +1107,9 @@ client.once(Events.ClientReady, (readyClient) => {
 
 client.on(Events.InteractionCreate, async (interaction) => {
   if (interaction.isAutocomplete()) {
-    if (["roster", "team", "compare"].includes(interaction.commandName)) {
+    if (interaction.commandName === "player") {
+      await handlePlayerAutocomplete(interaction);
+    } else if (["roster", "team", "compare"].includes(interaction.commandName)) {
       await handleRosterAutocomplete(interaction);
     }
     return;
