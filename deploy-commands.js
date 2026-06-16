@@ -28,13 +28,46 @@ function teamOption(name, description, required = true) {
       .setAutocomplete(true);
 }
 
-function playerOption(name = "player", description = "Choose a rostered player from the connected league.") {
+function playerOption(name = "player", description = "Choose a rostered player from the connected league.", required = true) {
   return (option) =>
     option
       .setName(name)
       .setDescription(description)
-      .setRequired(true)
+      .setRequired(required)
       .setAutocomplete(true);
+}
+
+function pickOption(name, description) {
+  return (option) =>
+    option
+      .setName(name)
+      .setDescription(description)
+      .setRequired(false)
+      .addChoices(
+        { name: "No pick", value: "none" },
+        { name: "1st", value: "first" },
+        { name: "2nd", value: "second" },
+        { name: "3rd", value: "third" },
+        { name: "1st + 2nd", value: "first_second" },
+      );
+}
+
+function needOption(option) {
+  return option
+    .setName("need")
+    .setDescription("What the team wants to improve.")
+    .setRequired(false)
+    .addChoices(
+      { name: "Best Fit", value: "fit" },
+      { name: "Points", value: "pts" },
+      { name: "Rebounds", value: "reb" },
+      { name: "Assists", value: "ast" },
+      { name: "Steals", value: "stl" },
+      { name: "Blocks", value: "blk" },
+      { name: "Threes", value: "tpm" },
+      { name: "Youth", value: "youth" },
+      { name: "Win Now", value: "win_now" },
+    );
 }
 
 const commands = [
@@ -138,6 +171,53 @@ const commands = [
     .setDescription("Compare two players in the selected season.")
     .addStringOption(playerOption("player_a", "First player."))
     .addStringOption(playerOption("player_b", "Second player."))
+    .addStringOption(seasonOption),
+  new SlashCommandBuilder()
+    .setName("market")
+    .setDescription("Show buy-low, sell-high, hold, and fade player signals.")
+    .addStringOption((option) =>
+      option
+        .setName("mode")
+        .setDescription("Market view.")
+        .setRequired(false)
+        .addChoices(
+          { name: "All", value: "all" },
+          { name: "Buy Low", value: "buy_low" },
+          { name: "Sell High", value: "sell_high" },
+          { name: "Hold", value: "hold" },
+          { name: "Fade", value: "fade" },
+        ),
+    )
+    .addStringOption(teamOption("team", "Optional team filter.", false))
+    .addStringOption(seasonOption),
+  new SlashCommandBuilder()
+    .setName("trade")
+    .setDescription("Quick trade builder with players and picks.")
+    .addStringOption(playerOption("a1", "Side A player 1."))
+    .addStringOption(playerOption("b1", "Side B player 1."))
+    .addStringOption(playerOption("a2", "Side A player 2.", false))
+    .addStringOption(playerOption("a3", "Side A player 3.", false))
+    .addStringOption(playerOption("b2", "Side B player 2.", false))
+    .addStringOption(playerOption("b3", "Side B player 3.", false))
+    .addStringOption(pickOption("a_pick", "Pick added to Side A."))
+    .addStringOption(pickOption("b_pick", "Pick added to Side B."))
+    .addStringOption(seasonOption),
+  new SlashCommandBuilder()
+    .setName("tradefinder")
+    .setDescription("Find realistic trade targets for a team.")
+    .addStringOption(teamOption("team", "Team to build trade ideas for."))
+    .addStringOption(needOption)
+    .addStringOption((option) =>
+      option
+        .setName("aggression")
+        .setDescription("How aggressive the suggested offer should be.")
+        .setRequired(false)
+        .addChoices(
+          { name: "Fair", value: "fair" },
+          { name: "Value", value: "value" },
+          { name: "Overpay", value: "overpay" },
+        ),
+    )
     .addStringOption(seasonOption),
 ].map((command) => command.toJSON());
 

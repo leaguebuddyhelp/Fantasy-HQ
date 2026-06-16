@@ -169,13 +169,13 @@ function compactPlayerName(playerId, players, maxLength = 18) {
   return compactName(playerName(playerId, players), maxLength);
 }
 
-function rosterSummaryRow(roster, userMap, index) {
+function rosterPowerRow(roster, userMap, index, rosters, analytics) {
   return [
     index + 1,
-    compactTeamName(roster, userMap, 18),
+    compactTeamName(roster, userMap, 16),
     formatRecord(roster.settings),
     fixedNumber(settingPoints(roster.settings, "fpts")),
-    fixedNumber(settingPoints(roster.settings, "ppts")),
+    teamPowerScore(roster, rosters, analytics),
   ];
 }
 
@@ -418,6 +418,232 @@ async function playerProjection(league, playerId, period) {
   return projections?.[playerId] || null;
 }
 
+function averageFantasy(weekly = []) {
+  return weekly.length
+    ? weekly.reduce((sum, item) => sum + Number(item.fantasyPoints || 0), 0) / weekly.length
+    : 0;
+}
+
+function recentFantasy(weekly = [], count = 5) {
+  return averageFantasy(weekly.slice(-count));
+}
+
+function ageScore(player = {}) {
+  const age = Number(player.age || 0);
+  if (!age) return 8;
+  if (age <= 22) return 18;
+  if (age <= 25) return 16;
+  if (age <= 28) return 12;
+  if (age <= 31) return 7;
+  return 3;
+}
+
+function playerRisk(player = {}, weekly = []) {
+  if (player.injury_status) return "injury";
+  if (weekly.length < 5) return "thin data";
+  if (ageScore(player) <= 4) return "age";
+  return "normal";
+}
+
+function playerMarketStatus(seasonAvg, recentAvg, projection = null) {
+  const projectedFantasy = projection?.fpts;
+  if (seasonAvg >= 1 && recentAvg <= seasonAvg * 0.78 && (projectedFantasy == null || projectedFantasy >= recentAvg)) return "buy_low";
+  if (seasonAvg >= 1 && recentAvg >= seasonAvg * 1.3) return "sell_high";
+  if (seasonAvg < 8 && recentAvg < 8) return "fade";
+  return "hold";
+}
+
+function marketLabel(status) {
+  const labels = {
+    buy_low: "Buy Low",
+    fade: "Fade",
+    hold: "Hold",
+    sell_high: "Sell High",
+  };
+  return labels[status] || "Hold";
+}
+
+function dynastyTag(player = {}, seasonAvg = 0, recentAvg = 0) {
+  const age = Number(player.age || 0);
+  if (seasonAvg >= 35 && age && age <= 28) return "Elite cornerstone";
+  if (seasonAvg >= 28 && age && age <= 30) return "Prime producer";
+  if (seasonAvg >= 24 && age >= 31) return "Win-now veteran";
+  if (recentAvg > seasonAvg * 1.2 && age && age <= 25) return "Rising asset";
+  if (seasonAvg < 10 && age && age <= 23) return "Stash";
+  if (seasonAvg < 10 && age >= 30) return "Declining risk";
+  return "Depth piece";
+}
+
+function pickValue(pick, mode = "blend") {
+  const values = {
+    first: { short: 2, long: 24, blend: 13 },
+    first_second: { short: 3, long: 34, blend: 19 },
+    none: { short: 0, long: 0, blend: 0 },
+    second: { short: 1, long: 11, blend: 6 },
+    third: { short: 0, long: 5, blend: 3 },
+  };
+  return values[pick || "none"]?.[mode] ?? 0;
+}
+
+function pickLabel(pick) {
+  const labels = {
+    first: "1st",
+    first_second: "1st + 2nd",
+    none: "No pick",
+    second: "2nd",
+    third: "3rd",
+  };
+  return labels[pick || "none"] || "No pick";
+}
+
+function playerTradeValues(analysis) {
+  const projection = analysis.projection?.fpts ?? analysis.recentAvg;
+  const shortTerm = analysis.seasonAvg * 1.6 + analysis.recentAvg * 1.2 + projection * 0.8;
+  const longTerm = shortTerm * 0.55 + ageScore(analysis.player) * 2.2 - (analysis.player.injury_status ? 8 : 0);
+  return {
+    blend: shortTerm * 0.6 + longTerm * 0.4,
+    longTerm,
+    shortTerm,
+  };
+}
+
+async function getLeagueAnalytics(league, rosters, players) {
+  const matchupPages = await getAllPeriodMatchups(league);
+  const currentPeriod = lastScoredPeriod(league);
+  const periods = Array.from({ length: currentPeriod }, (_, index) => index + 1);
+  const [projections, statsPages] = await Promise.all([
+    optionalSleeperCall(
+      () => sleeper.getProjections(league.sport || "nfl", league.season, currentPeriod),
+      {},
+    ),
+    Promise.all(periods.map((period) =>
+      optionalSleeperCall(
+        async () => ({ period, stats: await sleeper.getStats(league.sport || "nfl", league.season, period) }),
+        { period, stats: {} },
+      ),
+    )),
+  ]);
+  const rosteredIds = [...new Set(rosters.flatMap((roster) => roster.players || []))]
+    .filter((playerId) => playerId && playerId !== "0");
+  const byPlayer = new Map();
+
+  for (const playerId of rosteredIds) {
+    const weekly = [];
+    const totals = {};
+    let starts = 0;
+
+    for (const { period, matchups } of matchupPages) {
+      const matchup = matchups.find((item) => Object.prototype.hasOwnProperty.call(item.players_points || {}, playerId));
+      const stats = statsPages.find((page) => page.period === period)?.stats?.[playerId] || {};
+      for (const [key, value] of Object.entries(stats)) {
+        if (typeof value === "number") {
+          totals[key] = (totals[key] || 0) + value;
+        }
+      }
+      if (!matchup) continue;
+      const started = matchup.starters?.includes(playerId) || false;
+      if (started) starts += 1;
+      weekly.push({
+        fantasyPoints: Number(matchup.players_points[playerId] || 0),
+        period,
+        rosterId: matchup.roster_id,
+        started,
+        stats,
+      });
+    }
+
+    const player = players[playerId] || {};
+    const seasonAvg = averageFantasy(weekly);
+    const recentAvg = recentFantasy(weekly);
+    const projection = projections?.[playerId] || null;
+    const status = playerMarketStatus(seasonAvg, recentAvg, projection);
+    const analysis = {
+      dynastyTag: dynastyTag(player, seasonAvg, recentAvg),
+      marketStatus: status,
+      player,
+      playerId,
+      projection,
+      recentAvg,
+      risk: playerRisk(player, weekly),
+      seasonAvg,
+      starts,
+      totals,
+      weekly,
+    };
+    analysis.values = playerTradeValues(analysis);
+    byPlayer.set(playerId, analysis);
+  }
+
+  return { byPlayer, matchupPages, projections };
+}
+
+function categoryAveragesForRoster(roster, analytics) {
+  const totals = {};
+  let count = 0;
+
+  for (const playerId of roster.players || []) {
+    const analysis = analytics.byPlayer.get(playerId);
+    if (!analysis?.weekly.length) continue;
+    count += 1;
+    const games = analysis.weekly.length;
+    for (const key of ["pts", "reb", "ast", "stl", "blk", "tpm", "to"]) {
+      totals[key] = (totals[key] || 0) + statAverage(analysis.totals, key, games);
+    }
+  }
+
+  return { count, totals };
+}
+
+function categoryLabel(key) {
+  const labels = { ast: "AST", blk: "BLK", pts: "PTS", reb: "REB", stl: "STL", to: "TO", tpm: "3PM" };
+  return labels[key] || key.toUpperCase();
+}
+
+function teamNeeds(roster, rosters, analytics) {
+  const profiles = rosters.map((item) => ({ roster: item, profile: categoryAveragesForRoster(item, analytics) }));
+  const current = profiles.find((item) => item.roster.roster_id === roster.roster_id)?.profile;
+  if (!current?.count) return ["fit"];
+
+  const averages = {};
+  for (const key of ["pts", "reb", "ast", "stl", "blk", "tpm"]) {
+    averages[key] = profiles.reduce((sum, item) => sum + Number(item.profile.totals[key] || 0), 0) / Math.max(profiles.length, 1);
+  }
+
+  return Object.entries(averages)
+    .map(([key, leagueAvg]) => ({ key, gap: leagueAvg - Number(current.totals[key] || 0) }))
+    .filter((item) => item.gap > 0)
+    .sort((a, b) => b.gap - a.gap)
+    .slice(0, 3)
+    .map((item) => item.key);
+}
+
+function teamPowerScore(roster, rosters, analytics) {
+  const standings = sortedStandings(rosters);
+  const maxFpts = Math.max(...rosters.map((item) => settingPoints(item.settings, "fpts")), 1);
+  const maxPpts = Math.max(...rosters.map((item) => settingPoints(item.settings, "ppts")), 1);
+  const recordGames = (roster.settings?.wins || 0) + (roster.settings?.losses || 0) + (roster.settings?.ties || 0);
+  const winPct = recordGames ? ((roster.settings?.wins || 0) + (roster.settings?.ties || 0) * 0.5) / recordGames : 0;
+  const rankScore = 1 - standings.findIndex((item) => item.roster_id === roster.roster_id) / Math.max(standings.length - 1, 1);
+  const recent = (roster.players || [])
+    .map((playerId) => analytics.byPlayer.get(playerId)?.recentAvg || 0)
+    .sort((a, b) => b - a)
+    .slice(0, 8)
+    .reduce((sum, value) => sum + value, 0);
+  const maxRecent = Math.max(...rosters.map((item) => (item.players || [])
+    .map((playerId) => analytics.byPlayer.get(playerId)?.recentAvg || 0)
+    .sort((a, b) => b - a)
+    .slice(0, 8)
+    .reduce((sum, value) => sum + value, 0)), 1);
+
+  return Math.round(100 * (
+    (settingPoints(roster.settings, "fpts") / maxFpts) * 0.35 +
+    winPct * 0.2 +
+    (settingPoints(roster.settings, "ppts") / maxPpts) * 0.15 +
+    (recent / maxRecent) * 0.15 +
+    rankScore * 0.15
+  ));
+}
+
 function rosterBenchRegrets(roster, matchupPages, players) {
   const regrets = [];
 
@@ -540,19 +766,22 @@ async function connectLeague(interaction, leagueId) {
 async function handleStandings(interaction) {
   const { league, users, rosters } = await getSeasonBundle(interaction, { preferCompleted: true });
   const userMap = byUserId(users);
+  const players = await sleeper.getPlayers(league.sport || "nfl");
+  const analytics = await getLeagueAnalytics(league, rosters, players);
   const standings = sortedStandings(rosters);
   const table = codeTable(
-    ["#", "TEAM", "REC", "PTS", "POT"],
-    standings.map((roster, index) => rosterSummaryRow(roster, userMap, index)),
-    [3, 18, 7, 8, 8],
+    ["#", "TEAM", "REC", "PTS", "POWER"],
+    standings.map((roster, index) => rosterPowerRow(roster, userMap, index, rosters, analytics)),
+    [3, 16, 7, 8, 7],
   );
   const leader = standings[0];
+  const powerLeader = [...standings].sort((a, b) => teamPowerScore(b, rosters, analytics) - teamPowerScore(a, rosters, analytics))[0];
 
   const embed = new EmbedBuilder()
     .setTitle(commandTitle(league, "Standings"))
     .setColor(0x00ceb8)
     .setDescription(leader
-      ? `Leader: **${teamLabel(leader, userMap)}** | ${formatRecord(leader.settings)} | ${shortNumber(settingPoints(leader.settings, "fpts"))} pts`
+      ? `Leader: **${teamLabel(leader, userMap)}** | Power: **${teamLabel(powerLeader, userMap)}**`
       : "No rosters found.")
     .addFields({ name: "Table", value: table, inline: false });
   applySeasonFooter(embed, league, interaction);
@@ -812,6 +1041,7 @@ async function handleTeam(interaction) {
     getAllPeriodTransactions(league),
     sleeper.getPlayers(league.sport || "nfl"),
   ]);
+  const analytics = await getLeagueAnalytics(league, rosters, players);
   const userMap = byUserId(users);
   const txCount = transactionPages.reduce((sum, page) =>
     sum + page.transactions.filter((tx) => (tx.roster_ids || []).includes(roster.roster_id)).length, 0);
@@ -820,10 +1050,21 @@ async function handleTeam(interaction) {
     .filter((item) => item.matchup);
   const bestWeek = [...weeklyScores].sort((a, b) => Number(b.matchup.points || 0) - Number(a.matchup.points || 0))[0];
   const regrets = rosterBenchRegrets(roster, matchupPages, players);
-  const potentialGap = settingPoints(roster.settings, "ppts") - settingPoints(roster.settings, "fpts");
   const playerTotals = fantasyLeadersFromMatchups(
     weeklyScores.map((item) => ({ period: item.period, matchups: [item.matchup] })),
   ).slice(0, 8);
+  const needs = teamNeeds(roster, rosters, analytics);
+  const power = teamPowerScore(roster, rosters, analytics);
+  const rosterAnalyses = (roster.players || [])
+    .map((playerId) => analytics.byPlayer.get(playerId))
+    .filter(Boolean)
+    .sort((a, b) => b.values.blend - a.values.blend);
+  const tradeChip = rosterAnalyses.find((item) => item.values.blend >= 20 && item.marketStatus === "sell_high") || rosterAnalyses[2] || rosterAnalyses[0];
+  const replaceable = [...rosterAnalyses].reverse().find((item) => item.weekly.length >= 3) || rosterAnalyses[rosterAnalyses.length - 1];
+  const rosterType = power >= 85 ? "Contender" : power >= 72 ? "Fringe contender" : power >= 58 ? "Middle trap" : "Rebuilder";
+  const strengths = ["pts", "reb", "ast", "stl", "blk", "tpm"]
+    .filter((key) => !needs.includes(key))
+    .slice(0, 3);
   const recentRows = weeklyScores.slice(-5).map((item) => [
     `P${item.period}`,
     fixedNumber(item.matchup.points),
@@ -841,18 +1082,18 @@ async function handleTeam(interaction) {
           `Points: **${shortNumber(settingPoints(roster.settings, "fpts"))}**`,
           `Potential: **${shortNumber(settingPoints(roster.settings, "ppts"))}**`,
           `Against: **${shortNumber(settingPoints(roster.settings, "fpts_against"))}**`,
-          `Streak: **${roster.metadata?.streak || "N/A"}**`,
+          `Power: **${power}** | Type: **${rosterType}**`,
         ].join("\n"),
         inline: true,
       },
       {
-        name: "Manager Notes",
+        name: "Roster Read",
         value: [
-          `Waiver: #${roster.settings?.waiver_position ?? "N/A"}`,
-          `Moves: ${roster.settings?.total_moves ?? 0}`,
-          `Transactions: ${txCount}`,
-          `Potential Gap: ${shortNumber(potentialGap)}`,
-          `Roster: ${(roster.players || []).length} players`,
+          `Strengths: ${strengths.map(categoryLabel).join(", ") || "None obvious"}`,
+          `Needs: ${needs.map(categoryLabel).join(", ") || "Best player available"}`,
+          `Trade chip: ${tradeChip ? compactPlayerName(tradeChip.playerId, players, 18) : "N/A"}`,
+          `Replaceable: ${replaceable ? compactPlayerName(replaceable.playerId, players, 18) : "N/A"}`,
+          `Moves: ${roster.settings?.total_moves ?? 0} | Transactions: ${txCount}`,
         ].join("\n"),
         inline: true,
       },
@@ -924,6 +1165,9 @@ async function handlePlayer(interaction) {
   const games = snapshot.weekly.length;
   const starts = snapshot.weekly.filter((item) => item.started).length;
   const fantasyAverage = games ? snapshot.fantasyTotal / games : 0;
+  const recentAvg = recentFantasy(snapshot.weekly);
+  const tag = dynastyTag(player, fantasyAverage, recentAvg);
+  const marketStatus = playerMarketStatus(fantasyAverage, recentAvg, projection);
   const gamesWithStats = snapshot.weekly.filter((item) => Object.keys(item.stats || {}).length).length || games;
   const shownWeeks = selectedPeriod
     ? snapshot.weekly.filter((item) => item.period === selectedPeriod)
@@ -961,7 +1205,8 @@ async function handlePlayer(interaction) {
         name: "Snapshot",
         value: [
           `Fantasy: **${shortNumber(snapshot.fantasyTotal)}** total | **${fixedNumber(fantasyAverage)}** avg`,
-          `Games: **${games}** | Starts: **${starts}** | Role: **S=start, B=bench**`,
+          `Recent: **${fixedNumber(recentAvg)}** | Games: **${games}** | Starts: **${starts}**`,
+          `Dynasty: **${tag}** | Market: **${marketLabel(marketStatus)}**`,
         ].join("\n"),
         inline: false,
       },
@@ -1038,6 +1283,210 @@ async function handleCompare(interaction) {
       {
         name: "Season Snapshot",
         value: codeTable(["METRIC", compactPlayerName(playerAId, players, 14), compactPlayerName(playerBId, players, 14)], rows, [10, 14, 14]),
+        inline: false,
+      },
+    );
+  applySeasonFooter(embed, league, interaction);
+
+  await interaction.editReply({ embeds: [embed] });
+}
+
+function tradeSideFromOptions(interaction, prefix) {
+  return ["1", "2", "3"]
+    .map((index) => interaction.options.getString(`${prefix}${index}`))
+    .filter(Boolean);
+}
+
+function tradeSideValue(playerIds, pick, analytics, mode) {
+  return playerIds.reduce((sum, playerId) => sum + Number(analytics.byPlayer.get(playerId)?.values?.[mode] || 0), 0) + pickValue(pick, mode);
+}
+
+function tradeSideLabel(playerIds, pick, players) {
+  const playerNames = playerIds.map((playerId) => compactPlayerName(playerId, players, 20));
+  if (pick && pick !== "none") playerNames.push(pickLabel(pick));
+  return playerNames.join(", ") || "No assets";
+}
+
+function winnerLabel(diff, labelA = "Side A", labelB = "Side B") {
+  if (Math.abs(diff) < 5) return "Even";
+  return diff > 0 ? labelA : labelB;
+}
+
+async function handleTrade(interaction) {
+  const { league, rosters } = await getSeasonBundle(interaction, { preferCompleted: true });
+  const players = await sleeper.getPlayers(league.sport || "nfl");
+  const analytics = await getLeagueAnalytics(league, rosters, players);
+  const sideA = tradeSideFromOptions(interaction, "a");
+  const sideB = tradeSideFromOptions(interaction, "b");
+  const pickA = interaction.options.getString("a_pick") || "none";
+  const pickB = interaction.options.getString("b_pick") || "none";
+
+  if (!sideA.length || !sideB.length) {
+    await interaction.editReply("Add at least one player to each side.");
+    return;
+  }
+
+  const shortA = tradeSideValue(sideA, pickA, analytics, "shortTerm");
+  const shortB = tradeSideValue(sideB, pickB, analytics, "shortTerm");
+  const longA = tradeSideValue(sideA, pickA, analytics, "longTerm");
+  const longB = tradeSideValue(sideB, pickB, analytics, "longTerm");
+  const blendA = tradeSideValue(sideA, pickA, analytics, "blend");
+  const blendB = tradeSideValue(sideB, pickB, analytics, "blend");
+  const whoWins = winnerLabel(blendA - blendB);
+  const shortWinner = winnerLabel(shortA - shortB);
+  const longWinner = winnerLabel(longA - longB);
+  const bestAssetA = sideA.map((playerId) => analytics.byPlayer.get(playerId)).filter(Boolean).sort((a, b) => b.values.blend - a.values.blend)[0];
+  const bestAssetB = sideB.map((playerId) => analytics.byPlayer.get(playerId)).filter(Boolean).sort((a, b) => b.values.blend - a.values.blend)[0];
+  const why = [
+    whoWins === "Even"
+      ? "The blended value is close enough that roster fit should decide it."
+      : `${whoWins} has the stronger blended asset value.`,
+    shortWinner !== longWinner ? `Short-term and long-term value split because picks/youth matter more over time.` : `Short-term and long-term point to the same side.`,
+    bestAssetA && bestAssetB
+      ? `Best assets: ${compactPlayerName(bestAssetA.playerId, players)} vs ${compactPlayerName(bestAssetB.playerId, players)}.`
+      : null,
+  ].filter(Boolean).join(" ");
+
+  const embed = new EmbedBuilder()
+    .setTitle(commandTitle(league, "Trade Builder"))
+    .setColor(0x00ceb8)
+    .setDescription([
+      `Side A: **${tradeSideLabel(sideA, pickA, players)}**`,
+      `Side B: **${tradeSideLabel(sideB, pickB, players)}**`,
+    ].join("\n"))
+    .addFields(
+      {
+        name: "Verdict",
+        value: [
+          `Who wins: **${whoWins}**`,
+          `Short term: **${shortWinner}**`,
+          `Long term: **${longWinner}**`,
+        ].join("\n"),
+        inline: false,
+      },
+      {
+        name: "Value",
+        value: codeTable(["SIDE", "NOW", "LONG", "VALUE"], [
+          ["A", fixedNumber(shortA), fixedNumber(longA), fixedNumber(blendA)],
+          ["B", fixedNumber(shortB), fixedNumber(longB), fixedNumber(blendB)],
+        ], [5, 7, 7, 7]),
+        inline: false,
+      },
+      { name: "Why", value: why, inline: false },
+    );
+  applySeasonFooter(embed, league, interaction);
+
+  await interaction.editReply({ embeds: [embed] });
+}
+
+async function handleMarket(interaction) {
+  const mode = interaction.options.getString("mode") || "all";
+  const teamQuery = interaction.options.getString("team");
+  const { league, users, rosters } = await getSeasonBundle(interaction, { preferCompleted: true });
+  const players = await sleeper.getPlayers(league.sport || "nfl");
+  const analytics = await getLeagueAnalytics(league, rosters, players);
+  const roster = teamQuery ? findRosterByTeam(teamQuery, users, rosters) : null;
+  const allowed = roster ? new Set(roster.players || []) : null;
+  const groups = { buy_low: [], fade: [], hold: [], sell_high: [] };
+
+  for (const analysis of analytics.byPlayer.values()) {
+    if (allowed && !allowed.has(analysis.playerId)) continue;
+    if (!analysis.weekly.length) continue;
+    groups[analysis.marketStatus].push(analysis);
+  }
+
+  for (const list of Object.values(groups)) {
+    list.sort((a, b) => Math.abs(b.recentAvg - b.seasonAvg) - Math.abs(a.recentAvg - a.seasonAvg));
+  }
+
+  const fieldFor = (status) => {
+    const rows = groups[status].slice(0, 6).map((analysis, index) => [
+      index + 1,
+      compactPlayerName(analysis.playerId, players, 18),
+      fixedNumber(analysis.seasonAvg),
+      fixedNumber(analysis.recentAvg),
+    ]);
+    return {
+      inline: false,
+      name: marketLabel(status),
+      value: rows.length ? codeTable(["#", "PLAYER", "AVG", "REC"], rows, [3, 18, 6, 6]) : "No strong signals.",
+    };
+  };
+  const statuses = mode === "all" ? ["buy_low", "sell_high", "hold", "fade"] : [mode];
+  const embed = new EmbedBuilder()
+    .setTitle(commandTitle(league, "Market"))
+    .setColor(0x00ceb8)
+    .setDescription(roster ? `Filtered to **${teamLabel(roster, byUserId(users))}**.` : "Buy-low and sell-high signals from season vs recent form.");
+  embed.addFields(statuses.map(fieldFor));
+  applySeasonFooter(embed, league, interaction);
+
+  await interaction.editReply({ embeds: [embed] });
+}
+
+function targetScoreForNeed(analysis, need) {
+  if (need === "youth") return ageScore(analysis.player) + analysis.values.longTerm * 0.2;
+  if (need === "win_now") return analysis.values.shortTerm;
+  if (need && need !== "fit") {
+    const games = analysis.weekly.length || 1;
+    return statAverage(analysis.totals, need, games) * 10 + analysis.values.blend * 0.15;
+  }
+  return analysis.values.blend;
+}
+
+async function handleTradeFinder(interaction) {
+  const teamQuery = interaction.options.getString("team", true);
+  const selectedNeed = interaction.options.getString("need") || "fit";
+  const aggression = interaction.options.getString("aggression") || "fair";
+  const { league, users, rosters } = await getSeasonBundle(interaction, { preferCompleted: true });
+  const roster = findRosterByTeam(teamQuery, users, rosters);
+  if (!roster) {
+    await interaction.editReply("No team matched that choice.");
+    return;
+  }
+
+  const players = await sleeper.getPlayers(league.sport || "nfl");
+  const analytics = await getLeagueAnalytics(league, rosters, players);
+  const userMap = byUserId(users);
+  const needs = teamNeeds(roster, rosters, analytics);
+  const need = selectedNeed === "fit" ? needs[0] || "fit" : selectedNeed;
+  const ownIds = new Set(roster.players || []);
+  const outgoingPool = [...ownIds]
+    .map((playerId) => analytics.byPlayer.get(playerId))
+    .filter(Boolean)
+    .sort((a, b) => a.values.blend - b.values.blend);
+  const targets = [...analytics.byPlayer.values()]
+    .filter((analysis) => !ownIds.has(analysis.playerId) && analysis.weekly.length)
+    .sort((a, b) => targetScoreForNeed(b, need) - targetScoreForNeed(a, need))
+    .slice(0, 5);
+  const multiplier = aggression === "overpay" ? 1.15 : aggression === "value" ? 0.85 : 1;
+  const rows = targets.map((target, index) => {
+    const offer = outgoingPool
+      .filter((asset) => asset.values.blend <= target.values.blend * multiplier)
+      .sort((a, b) => Math.abs((target.values.blend * multiplier) - a.values.blend) - Math.abs((target.values.blend * multiplier) - b.values.blend))[0] || outgoingPool[0];
+    return [
+      index + 1,
+      compactPlayerName(target.playerId, players, 18),
+      fixedNumber(target.values.blend),
+      offer ? compactPlayerName(offer.playerId, players, 18) : "Pick",
+    ];
+  });
+
+  const embed = new EmbedBuilder()
+    .setTitle(commandTitle(league, "Trade Finder"))
+    .setColor(0x00ceb8)
+    .setDescription([
+      `Team: **${teamLabel(roster, userMap)}**`,
+      `Need: **${need === "fit" ? "Best Fit" : categoryLabel(need)}** | Aggression: **${aggression}**`,
+    ].join("\n"))
+    .addFields(
+      {
+        name: "Ideas",
+        value: rows.length ? codeTable(["#", "TARGET", "VALUE", "START OFFER"], rows, [3, 18, 7, 18]) : "No targets found.",
+        inline: false,
+      },
+      {
+        name: "Why",
+        value: `This looks for players who help ${need === "fit" ? "your biggest roster gap" : categoryLabel(need)} and suggests a simple starting offer from your roster.`,
         inline: false,
       },
     );
@@ -1123,11 +1572,14 @@ const handlers = {
   connect: handleConnect,
   league: handleLeague,
   leaders: handleLeaders,
+  market: handleMarket,
   matchups: handleMatchups,
   player: handlePlayer,
   roster: handleRoster,
   standings: handleStandings,
   team: handleTeam,
+  trade: handleTrade,
+  tradefinder: handleTradeFinder,
   transactions: handleTransactions,
 };
 
@@ -1137,9 +1589,9 @@ client.once(Events.ClientReady, (readyClient) => {
 
 client.on(Events.InteractionCreate, async (interaction) => {
   if (interaction.isAutocomplete()) {
-    if (["player", "compare"].includes(interaction.commandName)) {
+    if (["player", "compare", "trade"].includes(interaction.commandName)) {
       await handlePlayerAutocomplete(interaction);
-    } else if (["roster", "team"].includes(interaction.commandName)) {
+    } else if (["roster", "team", "market", "tradefinder"].includes(interaction.commandName)) {
       await handleRosterAutocomplete(interaction);
     }
     return;
