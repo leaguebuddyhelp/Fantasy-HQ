@@ -42,7 +42,7 @@ Sleeper's public API is read-only and does not require an API key.
 1. Start the bot.
 2. Run `/connect username:<sleeper username>`.
 3. Copy the `league_id` from the league you want.
-4. Run `/useleague league_id:<league id>`.
+4. Run `/setleague league_id:<league id>`.
 5. Run `/league` to confirm the server is connected.
 
 The saved league is per Discord server. The local `SLEEPER_LEAGUE_ID` value is only used as a fallback.
@@ -50,7 +50,8 @@ The saved league is per Discord server. The local `SLEEPER_LEAGUE_ID` value is o
 ## Commands
 
 - `/connect username:<name> season:<year>` - Lists Sleeper leagues for a username.
-- `/useleague league_id:<id>` - Connects this Discord server to a Sleeper league.
+- `/setleague league_id:<id>` - Connects this Discord server to a Sleeper league.
+- `/useleague league_id:<id>` - Alias for `/setleague`.
 - `/league` - Shows the connected Sleeper league.
 - `/standings` - Shows league standings by wins and fantasy points.
 - `/matchups week:<number>` - Shows weekly matchups. If week is omitted, the bot uses Sleeper's current NFL week.

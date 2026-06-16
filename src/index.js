@@ -220,6 +220,7 @@ const handlers = {
   league: handleLeague,
   matchups: handleMatchups,
   roster: handleRoster,
+  setleague: handleUseLeague,
   standings: handleStandings,
   transactions: handleTransactions,
   useleague: handleUseLeague,

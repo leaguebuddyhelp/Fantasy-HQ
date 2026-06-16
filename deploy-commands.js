@@ -29,6 +29,15 @@ const commands = [
         .setRequired(true),
     ),
   new SlashCommandBuilder()
+    .setName("setleague")
+    .setDescription("Connect this Discord server to a Sleeper league ID.")
+    .addStringOption((option) =>
+      option
+        .setName("league_id")
+        .setDescription("Sleeper league ID.")
+        .setRequired(true),
+    ),
+  new SlashCommandBuilder()
     .setName("league")
     .setDescription("Show the Sleeper league connected to this Discord server."),
   new SlashCommandBuilder()
