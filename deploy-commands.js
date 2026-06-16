@@ -58,15 +58,15 @@ function needOption(option) {
     .setDescription("What the team wants to improve.")
     .setRequired(false)
     .addChoices(
-      { name: "Best Fit", value: "fit" },
+      { name: "Whatever Helps Most", value: "fit" },
       { name: "Points", value: "pts" },
       { name: "Rebounds", value: "reb" },
       { name: "Assists", value: "ast" },
       { name: "Steals", value: "stl" },
       { name: "Blocks", value: "blk" },
       { name: "Threes", value: "tpm" },
-      { name: "Youth", value: "youth" },
-      { name: "Win Now", value: "win_now" },
+      { name: "Younger Players", value: "youth" },
+      { name: "Help Now", value: "win_now" },
     );
 }
 
@@ -107,7 +107,7 @@ const commands = [
     .setDescription("Show the Sleeper league connected to this Discord server."),
   new SlashCommandBuilder()
     .setName("standings")
-    .setDescription("Show Sleeper league standings.")
+    .setDescription("Show standings with a simple team strength note.")
     .addStringOption(seasonOption),
   new SlashCommandBuilder()
     .setName("matchups")
@@ -157,12 +157,12 @@ const commands = [
     .addStringOption(seasonOption),
   new SlashCommandBuilder()
     .setName("team")
-    .setDescription("Show a historical team dashboard.")
+    .setDescription("Show a team summary and what they need.")
     .addStringOption(teamOption("team", "Choose a team from the selected season."))
     .addStringOption(seasonOption),
   new SlashCommandBuilder()
     .setName("player")
-    .setDescription("Show player season stats, weekly game log, projections, and cache the data.")
+    .setDescription("Show a player summary, stats, and trend.")
     .addStringOption(playerOption())
     .addIntegerOption(periodOption)
     .addStringOption(seasonOption),
@@ -174,25 +174,25 @@ const commands = [
     .addStringOption(seasonOption),
   new SlashCommandBuilder()
     .setName("market")
-    .setDescription("Show buy-low, sell-high, hold, and fade player signals.")
+    .setDescription("Show players to ask about, hot players, steady players, and avoids.")
     .addStringOption((option) =>
       option
         .setName("mode")
-        .setDescription("Market view.")
+        .setDescription("Which player list to show.")
         .setRequired(false)
         .addChoices(
           { name: "All", value: "all" },
-          { name: "Buy Low", value: "buy_low" },
-          { name: "Sell High", value: "sell_high" },
+          { name: "Worth Asking About", value: "buy_low" },
+          { name: "Hot Right Now", value: "sell_high" },
           { name: "Hold", value: "hold" },
-          { name: "Fade", value: "fade" },
+          { name: "Avoid", value: "fade" },
         ),
     )
     .addStringOption(teamOption("team", "Optional team filter.", false))
     .addStringOption(seasonOption),
   new SlashCommandBuilder()
     .setName("trade")
-    .setDescription("Quick trade builder with players and picks.")
+    .setDescription("Quickly check who wins a trade.")
     .addStringOption(playerOption("a1", "Side A player 1."))
     .addStringOption(playerOption("b1", "Side B player 1."))
     .addStringOption(playerOption("a2", "Side A player 2.", false))
@@ -204,17 +204,17 @@ const commands = [
     .addStringOption(seasonOption),
   new SlashCommandBuilder()
     .setName("tradefinder")
-    .setDescription("Find realistic trade targets for a team.")
+    .setDescription("Find simple trade ideas for a team.")
     .addStringOption(teamOption("team", "Team to build trade ideas for."))
     .addStringOption(needOption)
     .addStringOption((option) =>
       option
-        .setName("aggression")
-        .setDescription("How aggressive the suggested offer should be.")
+        .setName("offer_style")
+        .setDescription("How much you are willing to offer.")
         .setRequired(false)
         .addChoices(
           { name: "Fair", value: "fair" },
-          { name: "Value", value: "value" },
+          { name: "Try Cheap", value: "value" },
           { name: "Overpay", value: "overpay" },
         ),
     )

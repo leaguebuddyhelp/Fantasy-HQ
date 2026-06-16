@@ -172,7 +172,7 @@ function analysisLine(analysis, players) {
   return playerSummaryLine(
     analysis.playerId,
     players,
-    `${fixedNumber(analysis.seasonAvg)} avg, ${fixedNumber(analysis.recentAvg)} recent, ${marketLabel(analysis.marketStatus)}`,
+    `${fixedNumber(analysis.seasonAvg)} season, ${fixedNumber(analysis.recentAvg)} recent`,
   );
 }
 
@@ -193,7 +193,7 @@ function rosterPowerRow(roster, userMap, index, rosters, analytics) {
   return `${rankIcon(index)} **${teamLabel(roster, userMap)}** - ${joinPills([
     statPill("Rec", formatRecord(roster.settings)),
     statPill("Pts", fixedNumber(settingPoints(roster.settings, "fpts"))),
-    statPill("Power", teamPowerScore(roster, rosters, analytics)),
+    statPill("Strength", teamPowerScore(roster, rosters, analytics)),
   ])}`;
 }
 
@@ -468,12 +468,22 @@ function playerMarketStatus(seasonAvg, recentAvg, projection = null) {
 
 function marketLabel(status) {
   const labels = {
-    buy_low: "Buy Low",
-    fade: "Fade",
+    buy_low: "Worth Asking About",
+    fade: "Avoid",
     hold: "Hold",
-    sell_high: "Sell High",
+    sell_high: "Hot Right Now",
   };
   return labels[status] || "Hold";
+}
+
+function simplePlayerStatus(status) {
+  const labels = {
+    buy_low: "Worth asking about",
+    fade: "Avoid for now",
+    hold: "Steady",
+    sell_high: "Running hot",
+  };
+  return labels[status] || "Steady";
 }
 
 function dynastyTag(player = {}, seasonAvg = 0, recentAvg = 0) {
@@ -484,6 +494,15 @@ function dynastyTag(player = {}, seasonAvg = 0, recentAvg = 0) {
   if (recentAvg > seasonAvg * 1.2 && age && age <= 25) return "Rising asset";
   if (seasonAvg < 10 && age && age <= 23) return "Stash";
   if (seasonAvg < 10 && age >= 30) return "Declining risk";
+  return "Depth piece";
+}
+
+function simplePlayerType(tag) {
+  if (["Elite cornerstone", "Prime producer"].includes(tag)) return "Core player";
+  if (tag === "Win-now veteran") return "Win-now player";
+  if (tag === "Rising asset") return "Trending up";
+  if (tag === "Stash") return "Stash";
+  if (tag === "Declining risk") return "Risky veteran";
   return "Depth piece";
 }
 
@@ -797,9 +816,9 @@ async function handleStandings(interaction) {
     .setTitle(commandTitle(league, "Standings"))
     .setColor(0x00ceb8)
     .setDescription(leader
-      ? `Leader: **${teamLabel(leader, userMap)}** | Power: **${teamLabel(powerLeader, userMap)}**`
+      ? `First place: **${teamLabel(leader, userMap)}** | Strongest team: **${teamLabel(powerLeader, userMap)}**`
       : "No rosters found.")
-    .addFields({ name: "Power Board", value: trimValue(lines.join("\n")), inline: false });
+    .addFields({ name: "Teams", value: trimValue(lines.join("\n")), inline: false });
   applySeasonFooter(embed, league, interaction);
 
   await interaction.editReply({ embeds: [embed] });
@@ -1059,7 +1078,7 @@ async function handleTeam(interaction) {
     .sort((a, b) => b.values.blend - a.values.blend);
   const tradeChip = rosterAnalyses.find((item) => item.values.blend >= 20 && item.marketStatus === "sell_high") || rosterAnalyses[2] || rosterAnalyses[0];
   const replaceable = [...rosterAnalyses].reverse().find((item) => item.weekly.length >= 3) || rosterAnalyses[rosterAnalyses.length - 1];
-  const rosterType = power >= 85 ? "Contender" : power >= 72 ? "Fringe contender" : power >= 58 ? "Middle trap" : "Rebuilder";
+  const rosterType = power >= 85 ? "Title threat" : power >= 72 ? "Playoff team" : power >= 58 ? "Needs a move" : "Building";
   const strengths = ["pts", "reb", "ast", "stl", "blk", "tpm"]
     .filter((key) => !needs.includes(key))
     .slice(0, 3);
@@ -1072,23 +1091,23 @@ async function handleTeam(interaction) {
     .setColor(0x00ceb8)
     .addFields(
       {
-        name: "Snapshot",
+        name: "Team Snapshot",
         value: [
           `Record: **${formatRecord(roster.settings)}**`,
           `Points: **${shortNumber(settingPoints(roster.settings, "fpts"))}**`,
           `Potential: **${shortNumber(settingPoints(roster.settings, "ppts"))}**`,
           `Against: **${shortNumber(settingPoints(roster.settings, "fpts_against"))}**`,
-          `Power: **${power}** | Type: **${rosterType}**`,
+          `Strength: **${power}** | Read: **${rosterType}**`,
         ].join("\n"),
         inline: true,
       },
       {
-        name: "Roster Read",
+        name: "Quick Read",
         value: [
-          `Strengths: ${strengths.map(categoryLabel).join(", ") || "None obvious"}`,
+          `Good at: ${strengths.map(categoryLabel).join(", ") || "No clear edge"}`,
           `Needs: ${needs.map(categoryLabel).join(", ") || "Best player available"}`,
-          `Trade chip: ${tradeChip ? compactPlayerName(tradeChip.playerId, players, 18) : "N/A"}`,
-          `Replaceable: ${replaceable ? compactPlayerName(replaceable.playerId, players, 18) : "N/A"}`,
+          `Could shop: ${tradeChip ? compactPlayerName(tradeChip.playerId, players, 18) : "N/A"}`,
+          `End of bench: ${replaceable ? compactPlayerName(replaceable.playerId, players, 18) : "N/A"}`,
           `Moves: ${roster.settings?.total_moves ?? 0} | Transactions: ${txCount}`,
         ].join("\n"),
         inline: true,
@@ -1111,7 +1130,7 @@ async function handleTeam(interaction) {
         inline: false,
       },
       {
-        name: "Bench Regrets",
+        name: "Points Left On Bench",
         value: regrets.length
           ? trimValue(regrets.slice(0, 5).map((regret) =>
             `P${regret.period}: **${compactName(regret.label, 24)}** - ${fixedNumber(regret.points)} pts, ${fixedNumber(regret.swing)} left`,
@@ -1192,16 +1211,16 @@ async function handlePlayer(interaction) {
     .setDescription(`${playerBioLine(playerId, players)}\nRostered by: **${manager}**`)
     .addFields(
       {
-        name: "Snapshot",
+        name: "Player Snapshot",
         value: [
           `Fantasy: **${fixedNumber(fantasyAverage)}** avg | **${shortNumber(snapshot.averages.fantasyTotal || snapshot.fantasyTotal)}** total`,
-          `Recent league avg: **${fixedNumber(recentAvg)}** | GP: **${games}** | Starts tracked: **${starts}**`,
-          `Dynasty: **${tag}** | Market: **${marketLabel(marketStatus)}**`,
+          `Recent avg: **${fixedNumber(recentAvg)}** | GP: **${games}** | League starts tracked: **${starts}**`,
+          `Type: **${simplePlayerType(tag)}** | Trend: **${simplePlayerStatus(marketStatus)}**`,
         ].join("\n"),
         inline: false,
       },
       {
-        name: "Per-Game Stats",
+        name: "Season Avg",
         value: averageTable,
         inline: false,
       },
@@ -1333,9 +1352,9 @@ async function handleTrade(interaction) {
   const bestAssetB = sideB.map((playerId) => analytics.byPlayer.get(playerId)).filter(Boolean).sort((a, b) => b.values.blend - a.values.blend)[0];
   const why = [
     whoWins === "Even"
-      ? "The blended value is close enough that roster fit should decide it."
-      : `${whoWins} has the stronger blended asset value.`,
-    shortWinner !== longWinner ? `Short-term and long-term value split because picks/youth matter more over time.` : `Short-term and long-term point to the same side.`,
+      ? "The deal is close enough that team fit should decide it."
+      : `${whoWins} gets the better overall side.`,
+    shortWinner !== longWinner ? `The answer changes by timeline because picks and younger players matter more later.` : `Both timelines point to the same side.`,
     bestAssetA && bestAssetB
       ? `Best assets: ${compactPlayerName(bestAssetA.playerId, players)} vs ${compactPlayerName(bestAssetB.playerId, players)}.`
       : null,
@@ -1353,16 +1372,16 @@ async function handleTrade(interaction) {
         name: "Verdict",
         value: [
           `Who wins: **${whoWins}**`,
-          `Short term: **${shortWinner}**`,
-          `Long term: **${longWinner}**`,
+          `Helps more now: **${shortWinner}**`,
+          `Better later: **${longWinner}**`,
         ].join("\n"),
         inline: false,
       },
       {
-        name: "Value Check",
+        name: "Simple Score",
         value: [
-          `**Side A** - ${joinPills([statPill("Now", fixedNumber(shortA)), statPill("Long", fixedNumber(longA)), statPill("Value", fixedNumber(blendA))])}`,
-          `**Side B** - ${joinPills([statPill("Now", fixedNumber(shortB)), statPill("Long", fixedNumber(longB)), statPill("Value", fixedNumber(blendB))])}`,
+          `**Side A** - ${joinPills([statPill("Today", fixedNumber(shortA)), statPill("Future", fixedNumber(longA)), statPill("Overall", fixedNumber(blendA))])}`,
+          `**Side B** - ${joinPills([statPill("Today", fixedNumber(shortB)), statPill("Future", fixedNumber(longB)), statPill("Overall", fixedNumber(blendB))])}`,
         ].join("\n"),
         inline: false,
       },
@@ -1407,7 +1426,7 @@ async function handleMarket(interaction) {
   const embed = new EmbedBuilder()
     .setTitle(commandTitle(league, "Market"))
     .setColor(0x00ceb8)
-    .setDescription(roster ? `Filtered to **${teamLabel(roster, byUserId(users))}**.` : "Buy-low and sell-high signals from season vs recent form.");
+    .setDescription(roster ? `Filtered to **${teamLabel(roster, byUserId(users))}**.` : "Quick player trend list based on season average vs recent games.");
   embed.addFields(statuses.map(fieldFor));
   applySeasonFooter(embed, league, interaction);
 
@@ -1470,7 +1489,7 @@ function buildOfferForTarget(target, outgoingPool, aggression) {
 async function handleTradeFinder(interaction) {
   const teamQuery = interaction.options.getString("team", true);
   const selectedNeed = interaction.options.getString("need") || "fit";
-  const aggression = interaction.options.getString("aggression") || "fair";
+  const aggression = interaction.options.getString("offer_style") || interaction.options.getString("aggression") || "fair";
   const { league, users, rosters } = await getSeasonBundle(interaction, { preferCompleted: true });
   const roster = findRosterByTeam(teamQuery, users, rosters);
   if (!roster) {
@@ -1506,10 +1525,10 @@ async function handleTradeFinder(interaction) {
     const offerText = offer?.assets?.length
       ? offer.assets.map((asset) => compactPlayerName(asset.playerId, players, 18)).join(" + ")
       : "Pick";
-    return `${rankIcon(index)} **${compactPlayerName(target.playerId, players, 22)}** (${owner ? teamLabel(owner, userMap) : "FA"})\nOffer idea: ${offerText}\n${joinPills([
-      statPill("Target", fixedNumber(target.values.blend)),
-      statPill("Offer", fixedNumber(offer?.value || 0)),
-      statPill("Fit", categoryLabel(need)),
+    return `${rankIcon(index)} **${compactPlayerName(target.playerId, players, 22)}** (${owner ? teamLabel(owner, userMap) : "FA"})\nTry offering: ${offerText}\n${joinPills([
+      statPill("Target score", fixedNumber(target.values.blend)),
+      statPill("Offer score", fixedNumber(offer?.value || 0)),
+      statPill("Helps", categoryLabel(need)),
     ])}`;
   });
 
@@ -1518,17 +1537,17 @@ async function handleTradeFinder(interaction) {
     .setColor(0x00ceb8)
     .setDescription([
       `Team: **${teamLabel(roster, userMap)}**`,
-      `Need: **${need === "fit" ? "Best Fit" : categoryLabel(need)}** | Aggression: **${aggression}**`,
+      `Looking for: **${need === "fit" ? "Whatever helps most" : categoryLabel(need)}** | Offer style: **${aggression === "value" ? "Try cheap" : aggression}**`,
     ].join("\n"))
     .addFields(
       {
-        name: "Ideas",
-        value: rows.length ? trimValue(rows.join("\n\n")) : "No realistic targets found. Try a different need or use aggression: overpay.",
+        name: "Trade Ideas",
+        value: rows.length ? trimValue(rows.join("\n\n")) : "No realistic targets found. Try a different need or use offer_style: overpay.",
         inline: false,
       },
       {
-        name: "Why",
-        value: `Filtered out most top-two roster assets unless aggression is overpay, then priced targets against packages your roster can actually offer.`,
+        name: "How To Read This",
+        value: "These are starting points, not guaranteed accepts. The bot avoids most star players unless you choose overpay.",
         inline: false,
       },
     );
