@@ -228,6 +228,24 @@ function fantasyScoreFromStats(stats = {}, scoringSettings = {}) {
   }, 0);
 }
 
+function seasonPlayerAverages(stats = {}, league) {
+  const games = Number(stats.gp || 0);
+  const fantasyTotal = fantasyScoreFromStats(stats, league.scoring_settings || {});
+  const avg = (key) => (games ? statValue(stats, key) / games : 0);
+  return {
+    ast: avg("ast"),
+    blk: avg("blk"),
+    fantasyAvg: games ? fantasyTotal / games : 0,
+    fantasyTotal,
+    games,
+    pts: avg("pts"),
+    reb: avg("reb"),
+    stl: avg("stl"),
+    to: avg("to"),
+    tpm: avg("tpm"),
+  };
+}
+
 function projectionRow(projection, league) {
   if (!projection) return null;
   const fantasy = projection.fpts ?? fantasyScoreFromStats(projection, league.scoring_settings);
@@ -322,23 +340,11 @@ function fantasyLeadersFromMatchups(matchupPages) {
 }
 
 async function statLeaders(league, stat) {
-  if (stat === "fantasy") {
-    return fantasyLeadersFromMatchups(await getAllPeriodMatchups(league));
-  }
-
-  const lastPeriod = regularSeasonLastPeriod(league);
-  const periods = Array.from({ length: lastPeriod }, (_, index) => index + 1);
-  const pages = await Promise.all(periods.map((period) => sleeper.getStats(league.sport || "nfl", league.season, period)));
-  const totals = new Map();
-
-  for (const statsByPlayer of pages) {
-    for (const [playerId, stats] of Object.entries(statsByPlayer || {})) {
-      totals.set(playerId, (totals.get(playerId) || 0) + Number(stats?.[stat] || 0));
-    }
-  }
-
-  return [...totals.entries()]
-    .map(([playerId, total]) => ({ playerId, total }))
+  const statsByPlayer = await sleeper.getSeasonStats(league.sport || "nfl", league.season);
+  const key = stat === "fantasy" ? "fantasyAvg" : stat;
+  return Object.entries(statsByPlayer || {})
+    .map(([playerId, stats]) => ({ playerId, total: seasonPlayerAverages(stats, league)[key] || 0 }))
+    .filter((item) => item.total > 0)
     .sort((a, b) => b.total - a.total);
 }
 
@@ -360,7 +366,7 @@ async function playerSeasonSnapshot(league, playerId, selectedPeriod) {
   const periodCount = Math.max(lastPeriod, selectedPeriod || 1);
   const periods = Array.from({ length: periodCount }, (_, index) => index + 1);
   const sport = league.sport || "nfl";
-  const [matchupPages, statsPages] = await Promise.all([
+  const [matchupPages, statsPages, seasonStats] = await Promise.all([
     Promise.all(periods.map((period) =>
       optionalSleeperCall(
         async () => ({ period, matchups: await sleeper.getMatchups(league.league_id, period) }),
@@ -373,20 +379,18 @@ async function playerSeasonSnapshot(league, playerId, selectedPeriod) {
         { period, stats: {} },
       ),
     )),
+    optionalSleeperCall(
+      () => sleeper.getSeasonStats(sport, league.season),
+      {},
+    ),
   ]);
   const weekly = [];
-  const totals = {};
+  const totals = seasonStats?.[playerId] || {};
 
   for (const { period, matchups } of matchupPages) {
     const matchup = matchups.find((item) => Object.prototype.hasOwnProperty.call(item.players_points || {}, playerId));
     const stats = statsPages.find((page) => page.period === period)?.stats?.[playerId] || {};
     const fantasyPoints = matchup?.players_points?.[playerId];
-
-    for (const [key, value] of Object.entries(stats)) {
-      if (typeof value === "number") {
-        totals[key] = (totals[key] || 0) + value;
-      }
-    }
 
     if (fantasyPoints != null || Object.keys(stats).length) {
       weekly.push({
@@ -400,8 +404,10 @@ async function playerSeasonSnapshot(league, playerId, selectedPeriod) {
   }
 
   const fantasyTotal = weekly.reduce((sum, item) => sum + Number(item.fantasyPoints || 0), 0);
+  const averages = seasonPlayerAverages(totals, league);
 
   return {
+    averages,
     fantasyTotal,
     lastPeriod,
     totals,
@@ -425,6 +431,14 @@ function averageFantasy(weekly = []) {
 
 function recentFantasy(weekly = [], count = 5) {
   return averageFantasy(weekly.slice(-count));
+}
+
+function recentStatsFantasy(weekly = [], league, count = 5) {
+  const scores = weekly
+    .filter((item) => Object.keys(item.stats || {}).length)
+    .slice(-count)
+    .map((item) => fantasyScoreFromStats(item.stats, league.scoring_settings || {}));
+  return scores.length ? scores.reduce((sum, value) => sum + value, 0) / scores.length : recentFantasy(weekly, count);
 }
 
 function ageScore(player = {}) {
@@ -510,7 +524,7 @@ async function getLeagueAnalytics(league, rosters, players) {
   const matchupPages = await getAllPeriodMatchups(league);
   const currentPeriod = lastScoredPeriod(league);
   const periods = Array.from({ length: currentPeriod }, (_, index) => index + 1);
-  const [projections, statsPages] = await Promise.all([
+  const [projections, statsPages, seasonStats] = await Promise.all([
     optionalSleeperCall(
       () => sleeper.getProjections(league.sport || "nfl", league.season, currentPeriod),
       {},
@@ -521,6 +535,10 @@ async function getLeagueAnalytics(league, rosters, players) {
         { period, stats: {} },
       ),
     )),
+    optionalSleeperCall(
+      () => sleeper.getSeasonStats(league.sport || "nfl", league.season),
+      {},
+    ),
   ]);
   const rosteredIds = [...new Set(rosters.flatMap((roster) => roster.players || []))]
     .filter((playerId) => playerId && playerId !== "0");
@@ -552,8 +570,10 @@ async function getLeagueAnalytics(league, rosters, players) {
     }
 
     const player = players[playerId] || {};
-    const seasonAvg = averageFantasy(weekly);
-    const recentAvg = recentFantasy(weekly);
+    const seasonTotals = seasonStats?.[playerId] || totals;
+    const averages = seasonPlayerAverages(seasonTotals, league);
+    const seasonAvg = averages.fantasyAvg || averageFantasy(weekly);
+    const recentAvg = recentStatsFantasy(weekly, league);
     const projection = projections?.[playerId] || null;
     const status = playerMarketStatus(seasonAvg, recentAvg, projection);
     const analysis = {
@@ -564,9 +584,11 @@ async function getLeagueAnalytics(league, rosters, players) {
       projection,
       recentAvg,
       risk: playerRisk(player, weekly),
+      seasonTotals,
+      seasonAverages: averages,
       seasonAvg,
       starts,
-      totals,
+      totals: seasonTotals,
       weekly,
     };
     analysis.values = playerTradeValues(analysis);
@@ -584,9 +606,8 @@ function categoryAveragesForRoster(roster, analytics) {
     const analysis = analytics.byPlayer.get(playerId);
     if (!analysis?.weekly.length) continue;
     count += 1;
-    const games = analysis.weekly.length;
     for (const key of ["pts", "reb", "ast", "stl", "blk", "tpm", "to"]) {
-      totals[key] = (totals[key] || 0) + statAverage(analysis.totals, key, games);
+      totals[key] = (totals[key] || 0) + Number(analysis.seasonAverages?.[key] || 0);
     }
   }
 
@@ -1135,13 +1156,13 @@ async function handlePlayer(interaction) {
   const userMap = byUserId(users);
   const roster = rosters.find((item) => (item.players || []).includes(playerId));
   const manager = roster ? teamLabel(roster, userMap) : "Free Agent";
-  const games = snapshot.weekly.length;
+  const games = snapshot.averages.games || snapshot.weekly.length;
   const starts = snapshot.weekly.filter((item) => item.started).length;
-  const fantasyAverage = games ? snapshot.fantasyTotal / games : 0;
-  const recentAvg = recentFantasy(snapshot.weekly);
+  const fantasyAverage = snapshot.averages.fantasyAvg || (games ? snapshot.fantasyTotal / games : 0);
+  const recentAvg = recentStatsFantasy(snapshot.weekly, league);
   const tag = dynastyTag(player, fantasyAverage, recentAvg);
   const marketStatus = playerMarketStatus(fantasyAverage, recentAvg, projection);
-  const gamesWithStats = snapshot.weekly.filter((item) => Object.keys(item.stats || {}).length).length || games;
+  const gamesWithStats = snapshot.averages.games || snapshot.weekly.filter((item) => Object.keys(item.stats || {}).length).length || games;
   const shownWeeks = selectedPeriod
     ? snapshot.weekly.filter((item) => item.period === selectedPeriod)
     : snapshot.weekly.slice(-5);
@@ -1173,8 +1194,8 @@ async function handlePlayer(interaction) {
       {
         name: "Snapshot",
         value: [
-          `Fantasy: **${shortNumber(snapshot.fantasyTotal)}** total | **${fixedNumber(fantasyAverage)}** avg`,
-          `Recent: **${fixedNumber(recentAvg)}** | Games: **${games}** | Starts: **${starts}**`,
+          `Fantasy: **${fixedNumber(fantasyAverage)}** avg | **${shortNumber(snapshot.averages.fantasyTotal || snapshot.fantasyTotal)}** total`,
+          `Recent league avg: **${fixedNumber(recentAvg)}** | GP: **${games}** | Starts tracked: **${starts}**`,
           `Dynasty: **${tag}** | Market: **${marketLabel(marketStatus)}**`,
         ].join("\n"),
         inline: false,
@@ -1221,23 +1242,23 @@ async function handleCompare(interaction) {
     playerSeasonSnapshot(league, playerAId),
     playerSeasonSnapshot(league, playerBId),
   ]);
-  const gamesA = snapshotA.weekly.length;
-  const gamesB = snapshotB.weekly.length;
+  const gamesA = snapshotA.averages.games || snapshotA.weekly.length;
+  const gamesB = snapshotB.averages.games || snapshotB.weekly.length;
   const startsA = snapshotA.weekly.filter((item) => item.started).length;
   const startsB = snapshotB.weekly.filter((item) => item.started).length;
-  const gamesWithStatsA = snapshotA.weekly.filter((item) => Object.keys(item.stats || {}).length).length || gamesA;
-  const gamesWithStatsB = snapshotB.weekly.filter((item) => Object.keys(item.stats || {}).length).length || gamesB;
+  const gamesWithStatsA = snapshotA.averages.games || snapshotA.weekly.filter((item) => Object.keys(item.stats || {}).length).length || gamesA;
+  const gamesWithStatsB = snapshotB.averages.games || snapshotB.weekly.filter((item) => Object.keys(item.stats || {}).length).length || gamesB;
   const playerALine = joinPills([
-    statPill("Fantasy", fixedNumber(snapshotA.fantasyTotal)),
-    statPill("Avg", fixedNumber(gamesA ? snapshotA.fantasyTotal / gamesA : 0)),
-    statPill("Games", gamesA),
-    statPill("Starts", startsA),
+    statPill("Avg", fixedNumber(snapshotA.averages.fantasyAvg)),
+    statPill("Total", fixedNumber(snapshotA.averages.fantasyTotal)),
+    statPill("GP", gamesA),
+    statPill("Starts tracked", startsA),
   ]);
   const playerBLine = joinPills([
-    statPill("Fantasy", fixedNumber(snapshotB.fantasyTotal)),
-    statPill("Avg", fixedNumber(gamesB ? snapshotB.fantasyTotal / gamesB : 0)),
-    statPill("Games", gamesB),
-    statPill("Starts", startsB),
+    statPill("Avg", fixedNumber(snapshotB.averages.fantasyAvg)),
+    statPill("Total", fixedNumber(snapshotB.averages.fantasyTotal)),
+    statPill("GP", gamesB),
+    statPill("Starts tracked", startsB),
   ]);
 
   const embed = new EmbedBuilder()
@@ -1397,8 +1418,7 @@ function targetScoreForNeed(analysis, need) {
   if (need === "youth") return ageScore(analysis.player) + analysis.values.longTerm * 0.2;
   if (need === "win_now") return analysis.values.shortTerm;
   if (need && need !== "fit") {
-    const games = analysis.weekly.length || 1;
-    return statAverage(analysis.totals, need, games) * 10 + analysis.values.blend * 0.15;
+    return Number(analysis.seasonAverages?.[need] || 0) * 10 + analysis.values.blend * 0.15;
   }
   return analysis.values.blend;
 }

@@ -95,6 +95,10 @@ async function getStats(sport, season, period) {
   return sleeperFetch(`/stats/${encodeURIComponent(sport)}/regular/${encodeURIComponent(season)}/${encodeURIComponent(period)}`);
 }
 
+async function getSeasonStats(sport, season) {
+  return sleeperFetch(`/stats/${encodeURIComponent(sport)}/regular/${encodeURIComponent(season)}`);
+}
+
 async function getProjections(sport, season, period) {
   return sleeperFetch(`/projections/${encodeURIComponent(sport)}/regular/${encodeURIComponent(season)}/${encodeURIComponent(period)}`);
 }
@@ -126,6 +130,7 @@ module.exports = {
   getPlayers,
   getProjections,
   getRosters,
+  getSeasonStats,
   getSportState,
   getStats,
   getTransactions,
