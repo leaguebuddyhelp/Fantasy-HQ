@@ -88,6 +88,29 @@ function applySeasonFooter(embed, league, interaction) {
   return embed;
 }
 
+function commandTitle(league, label) {
+  return `${league.name} - ${league.season} ${label}`;
+}
+
+function rankPrefix(index) {
+  return ["1.", "2.", "3."][index] || `${index + 1}.`;
+}
+
+function statName(stat) {
+  const names = {
+    fantasy: "Fantasy",
+    pts: "Points",
+    reb: "Rebounds",
+    ast: "Assists",
+    stl: "Steals",
+    blk: "Blocks",
+    tpm: "Threes",
+    to: "Turnovers",
+  };
+
+  return names[stat] || stat.toUpperCase();
+}
+
 function settingPoints(settings = {}, key = "fpts") {
   const whole = settings[key] ?? 0;
   const decimal = settings[`${key}_decimal`] ?? 0;
@@ -111,7 +134,7 @@ function trimValue(value, fallback = "No data.", maxLength = 1024) {
 }
 
 function teamSummaryLine(roster, userMap) {
-  return `**${teamLabel(roster, userMap)}** - ${formatRecord(roster.settings)} - ${shortNumber(settingPoints(roster.settings, "fpts"))} pts`;
+  return `**${teamLabel(roster, userMap)}** | ${formatRecord(roster.settings)} | ${shortNumber(settingPoints(roster.settings, "fpts"))} pts`;
 }
 
 function sortedStandings(rosters) {
@@ -265,7 +288,7 @@ async function handleConnect(interaction) {
   const lines = leagues.map((league) => {
     const teams = league.total_rosters ? `, ${league.total_rosters} teams` : "";
     const sportLabel = league.sport ? `${league.sport.toUpperCase()}, ` : "";
-    return `**${league.name}** (${sportLabel}${league.season}${teams})\nConnect: \`/connect league_id:${league.league_id}\``;
+    return `**${league.name}**\n${sportLabel}${league.season}${teams}\n\`/connect league_id:${league.league_id}\``;
   });
 
   if (!lines.length) {
@@ -305,10 +328,14 @@ async function connectLeague(interaction, leagueId) {
 async function handleStandings(interaction) {
   const { league, users, rosters } = await getSeasonBundle(interaction, { preferCompleted: true });
   const userMap = byUserId(users);
-  const lines = sortedStandings(rosters).map((roster, index) => `${index + 1}. ${teamSummaryLine(roster, userMap)}`);
+  const lines = sortedStandings(rosters).map((roster, index) => {
+    const fpts = settingPoints(roster.settings, "fpts");
+    const ppts = settingPoints(roster.settings, "ppts");
+    return `${rankPrefix(index)} **${teamLabel(roster, userMap)}** | ${formatRecord(roster.settings)} | ${shortNumber(fpts)} pts | ${shortNumber(ppts)} pot`;
+  });
 
   const embed = new EmbedBuilder()
-    .setTitle(`${league.name} Standings - ${league.season}`)
+    .setTitle(commandTitle(league, "Standings"))
     .setColor(0x00ceb8)
     .setDescription(lines.join("\n") || "No rosters found.");
   applySeasonFooter(embed, league, interaction);
@@ -331,17 +358,17 @@ async function handleMatchups(interaction) {
 
   const lines = [...grouped.values()].map((teams) => {
     const sorted = teams.sort((a, b) => (b.points || 0) - (a.points || 0));
-    return sorted
-      .map((team) => {
-        const roster = rosterMap.get(team.roster_id);
-        const user = userMap.get(roster?.owner_id);
-        return `**${managerName(user)}**: ${(team.points || 0).toFixed(2)}`;
-      })
-      .join(" vs ");
+    const [winner, loser] = sorted;
+    if (!loser) {
+      return `**${teamLabel(rosterMap.get(winner.roster_id), userMap)}** | ${shortNumber(winner.points)}`;
+    }
+
+    const margin = Number(winner.points || 0) - Number(loser.points || 0);
+    return `**${teamLabel(rosterMap.get(winner.roster_id), userMap)}** ${shortNumber(winner.points)} over ${teamLabel(rosterMap.get(loser.roster_id), userMap)} ${shortNumber(loser.points)} | +${shortNumber(margin)}`;
   });
 
   const embed = new EmbedBuilder()
-    .setTitle(`${league.name} Matchups - ${league.season} Period ${week}`)
+    .setTitle(commandTitle(league, `Matchups - Period ${week}`))
     .setColor(0x00ceb8)
     .setDescription(lines.join("\n") || `No matchups found for period ${week}. League status: ${league.status || "unknown"}.`);
   applySeasonFooter(embed, league, interaction);
@@ -383,14 +410,11 @@ async function handleRoster(interaction) {
   const taxiLines = [...taxi].map((playerId) => compactPlayerLabel(playerId, players));
   const reserveLines = [...reserve].map((playerId) => compactPlayerLabel(playerId, players));
   const summary = [
-    `Record: ${formatRecord(roster.settings)}`,
-    `Points: ${formatPoints(roster.settings)}`,
-    `Waiver: #${roster.settings?.waiver_position ?? "N/A"}`,
-    `Moves: ${roster.settings?.total_moves ?? 0}`,
-    `Players: ${rosterPlayers.length} total, ${starterIds.length} starters, ${benchLines.length} bench, ${taxiLines.length} taxi, ${reserveLines.length} reserve`,
+    `Record: ${formatRecord(roster.settings)} | Points: ${formatPoints(roster.settings)} | Waiver: #${roster.settings?.waiver_position ?? "N/A"}`,
+    `${rosterPlayers.length} players: ${starterIds.length} starters, ${benchLines.length} bench, ${taxiLines.length} taxi, ${reserveLines.length} reserve`,
   ].join("\n");
   const embed = new EmbedBuilder()
-    .setTitle(managerName(user))
+    .setTitle(commandTitle(league, managerName(user)))
     .setColor(0x00ceb8)
     .setDescription(summary)
     .addFields(
@@ -454,7 +478,7 @@ function transactionField(transaction, rosterMap, userMap, players) {
 
   return {
     name: `${transactionTypeLabel(transaction.type)}${status}${created}`,
-    value: lines.join("\n") || "No player movement listed.",
+    value: trimValue(lines.join("\n") || "No player movement listed.", "No player movement listed.", 900),
   };
 }
 
@@ -474,7 +498,7 @@ async function handleTransactions(interaction) {
     .map((transaction) => transactionField(transaction, rosterMap, userMap, players));
 
   const embed = new EmbedBuilder()
-    .setTitle(`${league.name} Transactions - ${league.season} Period ${week}`)
+    .setTitle(commandTitle(league, `Transactions - Period ${week}`))
     .setColor(0x00ceb8);
   applySeasonFooter(embed, league, interaction);
 
@@ -506,22 +530,18 @@ async function handleHistory(interaction) {
     .sort((a, b) => Number(b.matchup.points || 0) - Number(a.matchup.points || 0))[0];
 
   const embed = new EmbedBuilder()
-    .setTitle(`${league.name} ${league.season} History`)
+    .setTitle(commandTitle(league, "Season Hub"))
     .setColor(0x00ceb8)
+    .setDescription(championRoster ? `Champion: **${teamLabel(championRoster, userMap)}**` : "Season overview")
     .addFields(
       {
-        name: "Season",
+        name: "Snapshot",
         value: [
           `Status: ${league.status}`,
           `Sport: ${(league.sport || "unknown").toUpperCase()}`,
           `Teams: ${league.total_rosters}`,
           `Periods: ${league.settings?.last_scored_leg || league.settings?.leg || "N/A"}`,
         ].join("\n"),
-        inline: true,
-      },
-      {
-        name: "Champion",
-        value: championRoster ? teamLabel(championRoster, userMap) : "Not available",
         inline: true,
       },
       {
@@ -535,14 +555,14 @@ async function handleHistory(interaction) {
         inline: true,
       },
       {
-        name: "Top Teams",
-        value: trimValue(standings.slice(0, 5).map((roster, index) => `${index + 1}. ${teamSummaryLine(roster, userMap)}`).join("\n")),
+        name: "Top 5",
+        value: trimValue(standings.slice(0, 5).map((roster, index) => `${rankPrefix(index)} ${teamSummaryLine(roster, userMap)}`).join("\n")),
         inline: false,
       },
       {
-        name: "Best Weekly Score",
+        name: "Best Week",
         value: highWeek
-          ? `${teamLabel(byRosterId(rosters).get(highWeek.matchup.roster_id), userMap)} scored ${shortNumber(highWeek.matchup.points)} in period ${highWeek.period}`
+          ? `Period ${highWeek.period}: **${teamLabel(byRosterId(rosters).get(highWeek.matchup.roster_id), userMap)}** scored ${shortNumber(highWeek.matchup.points)}`
           : "No matchup data.",
         inline: false,
       },
@@ -557,14 +577,14 @@ async function handleLeaders(interaction) {
   const { league } = await getSeasonBundle(interaction, { preferCompleted: true });
   const players = await sleeper.getPlayers(league.sport || "nfl");
   const leaders = await statLeaders(league, stat);
-  const statLabel = stat === "fantasy" ? "Fantasy Points" : stat.toUpperCase();
+  const statLabel = statName(stat);
   const lines = leaders.slice(0, 12).map((leader, index) => {
     const label = compactPlayerLabel(leader.playerId, players);
-    return `${index + 1}. **${label}** - ${shortNumber(leader.total)}`;
+    return `${rankPrefix(index)} **${label}** | ${shortNumber(leader.total)}`;
   });
 
   const embed = new EmbedBuilder()
-    .setTitle(`${league.name} ${league.season} Leaders - ${statLabel}`)
+    .setTitle(commandTitle(league, `${statLabel} Leaders`))
     .setColor(0x00ceb8)
     .setDescription(trimValue(lines.join("\n")));
 
@@ -589,7 +609,7 @@ function bracketLines(bracket, rosterMap, userMap) {
       7: "7th Place",
     };
     const label = game.p ? placeLabels[game.p] || `${game.p}th Place` : `Round ${game.r}`;
-    return `**${label}:** ${winner} beat ${winner === t1 ? t2 : t1}`;
+    return `**${label}** | ${winner} over ${winner === t1 ? t2 : t1}`;
   });
 }
 
@@ -603,7 +623,7 @@ async function handlePlayoffs(interaction) {
   const userMap = byUserId(users);
 
   const embed = new EmbedBuilder()
-    .setTitle(`${league.name} ${league.season} Playoffs`)
+    .setTitle(commandTitle(league, "Playoffs"))
     .setColor(0x00ceb8)
     .addFields(
       { name: "Winners Bracket", value: trimValue(bracketLines(winners, rosterMap, userMap).join("\n")), inline: false },
@@ -639,11 +659,11 @@ async function handleTeam(interaction) {
   const potentialGap = settingPoints(roster.settings, "ppts") - settingPoints(roster.settings, "fpts");
 
   const embed = new EmbedBuilder()
-    .setTitle(`${teamLabel(roster, userMap)} - ${league.season}`)
+    .setTitle(commandTitle(league, teamLabel(roster, userMap)))
     .setColor(0x00ceb8)
     .addFields(
       {
-        name: "Profile",
+        name: "Season Line",
         value: [
           `Record: ${formatRecord(roster.settings)}`,
           `Points: ${shortNumber(settingPoints(roster.settings, "fpts"))}`,
@@ -654,7 +674,7 @@ async function handleTeam(interaction) {
         inline: true,
       },
       {
-        name: "Manager Notes",
+        name: "Team Notes",
         value: [
           `Waiver: #${roster.settings?.waiver_position ?? "N/A"}`,
           `Moves: ${roster.settings?.total_moves ?? 0}`,
@@ -672,7 +692,7 @@ async function handleTeam(interaction) {
       {
         name: "Bench Regrets",
         value: trimValue(regrets.slice(0, 5).map((regret) =>
-          `P${regret.period}: ${regret.label} scored ${shortNumber(regret.points)} (+${shortNumber(regret.swing)})`,
+          `P${regret.period}: **${regret.label}** | ${shortNumber(regret.points)} pts | +${shortNumber(regret.swing)}`,
         ).join("\n")),
         inline: false,
       },
@@ -705,31 +725,31 @@ async function handleRecap(interaction) {
   const playerScores = fantasyLeadersFromMatchups([{ period, matchups }]).slice(0, 5);
 
   const embed = new EmbedBuilder()
-    .setTitle(`${league.name} ${league.season} Period ${period} Recap`)
+    .setTitle(commandTitle(league, `Period ${period} Recap`))
     .setColor(0x00ceb8)
     .addFields(
       {
         name: "High Score",
-        value: highScore ? `${teamLabel(highScore.roster, userMap)} - ${shortNumber(highScore.matchup.points)}` : "No data.",
+        value: highScore ? `**${teamLabel(highScore.roster, userMap)}**\n${shortNumber(highScore.matchup.points)} pts` : "No data.",
         inline: true,
       },
       {
         name: "Closest Game",
         value: closeGame
-          ? `${teamLabel(rosterMap.get(closeGame[0].roster_id), userMap)} ${shortNumber(closeGame[0].points)} vs ${teamLabel(rosterMap.get(closeGame[1].roster_id), userMap)} ${shortNumber(closeGame[1].points)}`
+          ? `**${teamLabel(rosterMap.get(closeGame[0].roster_id), userMap)}** ${shortNumber(closeGame[0].points)} vs **${teamLabel(rosterMap.get(closeGame[1].roster_id), userMap)}** ${shortNumber(closeGame[1].points)}`
           : "No data.",
         inline: false,
       },
       {
         name: "Biggest Blowout",
         value: blowout
-          ? `${teamLabel(rosterMap.get(blowout[0].roster_id), userMap)} ${shortNumber(blowout[0].points)} vs ${teamLabel(rosterMap.get(blowout[1].roster_id), userMap)} ${shortNumber(blowout[1].points)}`
+          ? `**${teamLabel(rosterMap.get(blowout[0].roster_id), userMap)}** ${shortNumber(blowout[0].points)} vs **${teamLabel(rosterMap.get(blowout[1].roster_id), userMap)}** ${shortNumber(blowout[1].points)}`
           : "No data.",
         inline: false,
       },
       {
         name: "Top Players",
-        value: trimValue(playerScores.map((score, index) => `${index + 1}. ${compactPlayerLabel(score.playerId, players)} - ${shortNumber(score.total)}`).join("\n")),
+        value: trimValue(playerScores.map((score, index) => `${rankPrefix(index)} **${compactPlayerLabel(score.playerId, players)}** | ${shortNumber(score.total)}`).join("\n")),
         inline: false,
       },
     );
@@ -757,11 +777,11 @@ async function handleDraft(interaction) {
     const team = pick.metadata?.team ? ` - ${pick.metadata.team}` : "";
     const position = pick.metadata?.position ? ` ${pick.metadata.position}` : "";
     const picker = managerName(userMap.get(pick.picked_by));
-    return `${pick.pick_no}. **${player}${position}${team}** to ${picker}`;
+    return `${pick.pick_no}. **${player}${position}${team}** | ${picker}`;
   });
 
   const embed = new EmbedBuilder()
-    .setTitle(`${league.name} ${league.season} Draft`)
+    .setTitle(commandTitle(league, "Draft"))
     .setColor(0x00ceb8)
     .setDescription(trimValue(lines.join("\n")))
     .addFields(
@@ -794,7 +814,7 @@ async function handleCompare(interaction) {
   ].join("\n");
 
   const embed = new EmbedBuilder()
-    .setTitle(`${league.name} ${league.season} Team Compare`)
+    .setTitle(commandTitle(league, "Compare"))
     .setColor(0x00ceb8)
     .addFields(
       { name: teamLabel(teamA, userMap), value: line(teamA), inline: true },
