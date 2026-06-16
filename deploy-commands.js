@@ -6,36 +6,24 @@ const { requireEnv } = require("./src/config");
 const commands = [
   new SlashCommandBuilder()
     .setName("connect")
-    .setDescription("Find Sleeper leagues for a username so this server can connect one.")
+    .setDescription("Connect this Discord server to Sleeper by league ID, or find leagues by username.")
+    .addStringOption((option) =>
+      option
+        .setName("league_id")
+        .setDescription("Sleeper league ID. Use this to connect immediately.")
+        .setRequired(false),
+    )
     .addStringOption((option) =>
       option
         .setName("username")
-        .setDescription("Sleeper username.")
-        .setRequired(true),
+        .setDescription("Sleeper username. Use this to find league IDs.")
+        .setRequired(false),
     )
     .addStringOption((option) =>
       option
         .setName("season")
-        .setDescription("Sleeper season. Defaults to SLEEPER_SEASON or 2026.")
+        .setDescription("Sleeper season for username lookup. Defaults to SLEEPER_SEASON or 2026.")
         .setRequired(false),
-    ),
-  new SlashCommandBuilder()
-    .setName("useleague")
-    .setDescription("Connect this Discord server to a Sleeper league ID.")
-    .addStringOption((option) =>
-      option
-        .setName("league_id")
-        .setDescription("Sleeper league ID.")
-        .setRequired(true),
-    ),
-  new SlashCommandBuilder()
-    .setName("setleague")
-    .setDescription("Connect this Discord server to a Sleeper league ID.")
-    .addStringOption((option) =>
-      option
-        .setName("league_id")
-        .setDescription("Sleeper league ID.")
-        .setRequired(true),
     ),
   new SlashCommandBuilder()
     .setName("league")

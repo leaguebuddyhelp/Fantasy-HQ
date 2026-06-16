@@ -24,7 +24,7 @@ function requireLeagueId(interaction) {
   const leagueId = guildConfig?.leagueId || config.sleeperLeagueId;
 
   if (!leagueId) {
-    throw new Error("No Sleeper league connected. Run /connect username:<sleeper username>, then /useleague league_id:<id>.");
+    throw new Error("No Sleeper league connected. Run /connect league_id:<id>, or /connect username:<sleeper username> to find IDs.");
   }
 
   return leagueId;
@@ -56,8 +56,19 @@ async function handleLeague(interaction) {
 }
 
 async function handleConnect(interaction) {
-  const username = interaction.options.getString("username", true);
+  const leagueId = interaction.options.getString("league_id");
+  const username = interaction.options.getString("username");
   const season = interaction.options.getString("season") || config.sleeperSeason;
+
+  if (leagueId) {
+    await connectLeague(interaction, leagueId);
+    return;
+  }
+
+  if (!username) {
+    throw new Error("Use /connect league_id:<id> to connect now, or /connect username:<sleeper username> to find league IDs.");
+  }
+
   const user = await sleeper.getUser(username);
 
   if (!user?.user_id) {
@@ -67,7 +78,7 @@ async function handleConnect(interaction) {
   const leagues = await sleeper.getUserLeagues(user.user_id, season);
   const lines = leagues.map((league) => {
     const teams = league.total_rosters ? `, ${league.total_rosters} teams` : "";
-    return `**${league.name}** (${league.season}${teams})\nUse: \`/useleague league_id:${league.league_id}\``;
+    return `**${league.name}** (${league.season}${teams})\nConnect: \`/connect league_id:${league.league_id}\``;
   });
 
   await interaction.editReply({
@@ -77,8 +88,7 @@ async function handleConnect(interaction) {
   });
 }
 
-async function handleUseLeague(interaction) {
-  const leagueId = interaction.options.getString("league_id", true);
+async function connectLeague(interaction, leagueId) {
   const league = await sleeper.getLeague(leagueId);
 
   if (!league?.league_id) {
@@ -220,10 +230,8 @@ const handlers = {
   league: handleLeague,
   matchups: handleMatchups,
   roster: handleRoster,
-  setleague: handleUseLeague,
   standings: handleStandings,
   transactions: handleTransactions,
-  useleague: handleUseLeague,
 };
 
 client.once(Events.ClientReady, (readyClient) => {
