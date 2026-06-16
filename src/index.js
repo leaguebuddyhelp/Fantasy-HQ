@@ -61,14 +61,31 @@ async function resolveLeagueForSeason(baseLeagueId, season) {
   throw new Error(`Could not find season ${season} from this league's history.`);
 }
 
-async function getSeasonBundle(interaction) {
-  const league = await resolveLeagueForSeason(requireLeagueId(interaction), requestedSeason(interaction));
+async function getSeasonBundle(interaction, options = {}) {
+  const requested = requestedSeason(interaction);
+  let league = await resolveLeagueForSeason(requireLeagueId(interaction), requested);
+
+  if (!requested && options.preferCompleted && league.status === "pre_draft" && league.previous_league_id) {
+    league = await sleeper.getLeague(league.previous_league_id);
+  }
+
   const [users, rosters] = await Promise.all([
     sleeper.getLeagueUsers(league.league_id),
     sleeper.getRosters(league.league_id),
   ]);
 
   return { league, users, rosters };
+}
+
+function seasonFooter(league, requested) {
+  return requested
+    ? `Season ${league.season}`
+    : `Defaulted to ${league.season}. Add season:<year> to choose a different season.`;
+}
+
+function applySeasonFooter(embed, league, interaction) {
+  embed.setFooter({ text: seasonFooter(league, requestedSeason(interaction)) });
+  return embed;
 }
 
 function settingPoints(settings = {}, key = "fpts") {
@@ -297,7 +314,7 @@ async function connectLeague(interaction, leagueId) {
 }
 
 async function handleStandings(interaction) {
-  const { league, users, rosters } = await getSeasonBundle(interaction);
+  const { league, users, rosters } = await getSeasonBundle(interaction, { preferCompleted: true });
   const userMap = byUserId(users);
   const lines = sortedStandings(rosters).map((roster, index) => `${index + 1}. ${teamSummaryLine(roster, userMap)}`);
 
@@ -305,12 +322,13 @@ async function handleStandings(interaction) {
     .setTitle(`${league.name} Standings - ${league.season}`)
     .setColor(0x00ceb8)
     .setDescription(lines.join("\n") || "No rosters found.");
+  applySeasonFooter(embed, league, interaction);
 
   await interaction.editReply({ embeds: [embed] });
 }
 
 async function handleMatchups(interaction) {
-  const { league, users, rosters } = await getSeasonBundle(interaction);
+  const { league, users, rosters } = await getSeasonBundle(interaction, { preferCompleted: true });
   const week = await currentWeek(league, interaction.options.getInteger("week"));
   const matchups = await sleeper.getMatchups(league.league_id, week);
   const rosterMap = byRosterId(rosters);
@@ -337,13 +355,14 @@ async function handleMatchups(interaction) {
     .setTitle(`${league.name} Matchups - ${league.season} Period ${week}`)
     .setColor(0x00ceb8)
     .setDescription(lines.join("\n") || `No matchups found for period ${week}. League status: ${league.status || "unknown"}.`);
+  applySeasonFooter(embed, league, interaction);
 
   await interaction.editReply({ embeds: [embed] });
 }
 
 async function handleRoster(interaction) {
   const query = interaction.options.getString("team", true);
-  const { league, users, rosters } = await getSeasonBundle(interaction);
+  const { league, users, rosters } = await getSeasonBundle(interaction, { preferCompleted: true });
   const roster = findRosterByTeam(query, users, rosters);
 
   if (!roster) {
@@ -451,7 +470,7 @@ function transactionField(transaction, rosterMap, userMap, players) {
 }
 
 async function handleTransactions(interaction) {
-  const { league, users, rosters } = await getSeasonBundle(interaction);
+  const { league, users, rosters } = await getSeasonBundle(interaction, { preferCompleted: true });
   const week = await currentWeek(league, interaction.options.getInteger("week"));
   const type = interaction.options.getString("type");
   const [transactions, players] = await Promise.all([
@@ -468,6 +487,7 @@ async function handleTransactions(interaction) {
   const embed = new EmbedBuilder()
     .setTitle(`${league.name} Transactions - ${league.season} Period ${week}`)
     .setColor(0x00ceb8);
+  applySeasonFooter(embed, league, interaction);
 
   if (fields.length) {
     embed.addFields(fields);
@@ -479,7 +499,7 @@ async function handleTransactions(interaction) {
 }
 
 async function handleHistory(interaction) {
-  const { league, users, rosters } = await getSeasonBundle(interaction);
+  const { league, users, rosters } = await getSeasonBundle(interaction, { preferCompleted: true });
   const userMap = byUserId(users);
   const [matchupPages, transactionPages, winnersBracket, tradedPicks, leagueDrafts] = await Promise.all([
     getAllPeriodMatchups(league),
@@ -538,12 +558,13 @@ async function handleHistory(interaction) {
         inline: false,
       },
     );
+  applySeasonFooter(embed, league, interaction);
 
   await interaction.editReply({ embeds: [embed] });
 }
 
 async function handleAwards(interaction) {
-  const { league, users, rosters } = await getSeasonBundle(interaction);
+  const { league, users, rosters } = await getSeasonBundle(interaction, { preferCompleted: true });
   const userMap = byUserId(users);
   const standings = sortedStandings(rosters);
   const championRoster = rosters.find((roster) => String(roster.roster_id) === String(league.metadata?.latest_league_winner_roster_id));
@@ -575,13 +596,14 @@ async function handleAwards(interaction) {
       { name: "Lineup Pain", value: `${teamLabel(biggestGap, userMap)} (${shortNumber(settingPoints(biggestGap.settings, "ppts") - settingPoints(biggestGap.settings, "fpts"))} potential pts left)`, inline: true },
       { name: "Hottest Finish", value: hottest ? `${teamLabel(hottest, userMap)} (${hottest.metadata.streak})` : "Not available", inline: true },
     );
+  applySeasonFooter(embed, league, interaction);
 
   await interaction.editReply({ embeds: [embed] });
 }
 
 async function handleLeaders(interaction) {
   const stat = interaction.options.getString("stat", true);
-  const { league } = await getSeasonBundle(interaction);
+  const { league } = await getSeasonBundle(interaction, { preferCompleted: true });
   const players = await sleeper.getPlayers(league.sport || "nfl");
   const leaders = await statLeaders(league, stat);
   const statLabel = stat === "fantasy" ? "Fantasy Points" : stat.toUpperCase();
@@ -596,7 +618,9 @@ async function handleLeaders(interaction) {
     .setDescription(trimValue(lines.join("\n")));
 
   if (stat !== "fantasy") {
-    embed.setFooter({ text: "Stat leaderboards use Sleeper's stats endpoint. Fantasy leaders use league matchup player points." });
+    embed.setFooter({ text: `${seasonFooter(league, requestedSeason(interaction))} Stats use Sleeper's stats endpoint.` });
+  } else {
+    applySeasonFooter(embed, league, interaction);
   }
 
   await interaction.editReply({ embeds: [embed] });
@@ -607,13 +631,19 @@ function bracketLines(bracket, rosterMap, userMap) {
     const t1 = teamLabel(rosterMap.get(game.t1), userMap);
     const t2 = teamLabel(rosterMap.get(game.t2), userMap);
     const winner = game.w ? teamLabel(rosterMap.get(game.w), userMap) : "TBD";
-    const place = game.p ? ` (${game.p}${game.p === 1 ? "st" : game.p === 3 ? "rd" : "th"} place)` : "";
-    return `R${game.r} M${game.m}${place}: ${t1} vs ${t2} - **${winner}**`;
+    const placeLabels = {
+      1: "Final",
+      3: "3rd Place",
+      5: "5th Place",
+      7: "7th Place",
+    };
+    const label = game.p ? placeLabels[game.p] || `${game.p}th Place` : `Round ${game.r}`;
+    return `**${label}:** ${winner} beat ${winner === t1 ? t2 : t1}`;
   });
 }
 
 async function handlePlayoffs(interaction) {
-  const { league, users, rosters } = await getSeasonBundle(interaction);
+  const { league, users, rosters } = await getSeasonBundle(interaction, { preferCompleted: true });
   const [winners, losers] = await Promise.all([
     sleeper.getWinnersBracket(league.league_id),
     sleeper.getLosersBracket(league.league_id),
@@ -628,13 +658,14 @@ async function handlePlayoffs(interaction) {
       { name: "Winners Bracket", value: trimValue(bracketLines(winners, rosterMap, userMap).join("\n")), inline: false },
       { name: "Consolation", value: trimValue(bracketLines(losers, rosterMap, userMap).join("\n")), inline: false },
     );
+  applySeasonFooter(embed, league, interaction);
 
   await interaction.editReply({ embeds: [embed] });
 }
 
 async function handleTeam(interaction) {
   const query = interaction.options.getString("team", true);
-  const { league, users, rosters } = await getSeasonBundle(interaction);
+  const { league, users, rosters } = await getSeasonBundle(interaction, { preferCompleted: true });
   const roster = findRosterByTeam(query, users, rosters);
   if (!roster) {
     await interaction.editReply("No team matched that choice.");
@@ -695,12 +726,13 @@ async function handleTeam(interaction) {
         inline: false,
       },
     );
+  applySeasonFooter(embed, league, interaction);
 
   await interaction.editReply({ embeds: [embed] });
 }
 
 async function handleRecap(interaction) {
-  const { league, users, rosters } = await getSeasonBundle(interaction);
+  const { league, users, rosters } = await getSeasonBundle(interaction, { preferCompleted: true });
   const period = await currentWeek(league, interaction.options.getInteger("week"));
   const [matchups, players] = await Promise.all([
     sleeper.getMatchups(league.league_id, period),
@@ -750,12 +782,13 @@ async function handleRecap(interaction) {
         inline: false,
       },
     );
+  applySeasonFooter(embed, league, interaction);
 
   await interaction.editReply({ embeds: [embed] });
 }
 
 async function handlePower(interaction) {
-  const { league, users, rosters } = await getSeasonBundle(interaction);
+  const { league, users, rosters } = await getSeasonBundle(interaction, { preferCompleted: true });
   const userMap = byUserId(users);
   const maxWins = Math.max(...rosters.map((roster) => roster.settings?.wins || 0));
   const maxFpts = Math.max(...rosters.map((roster) => settingPoints(roster.settings, "fpts")));
@@ -769,13 +802,13 @@ async function handlePower(interaction) {
     .setTitle(`${league.name} ${league.season} Power Rankings`)
     .setColor(0x00ceb8)
     .setDescription(lines.join("\n"))
-    .setFooter({ text: "Formula: wins 45%, points 35%, potential points 20%." });
+    .setFooter({ text: `${seasonFooter(league, requestedSeason(interaction))} Formula: wins 45%, points 35%, potential points 20%.` });
 
   await interaction.editReply({ embeds: [embed] });
 }
 
 async function handleWeeklyHighs(interaction) {
-  const { league, users, rosters } = await getSeasonBundle(interaction);
+  const { league, users, rosters } = await getSeasonBundle(interaction, { preferCompleted: true });
   const [matchupPages, players] = await Promise.all([
     getAllPeriodMatchups(league),
     sleeper.getPlayers(league.sport || "nfl"),
@@ -798,12 +831,13 @@ async function handleWeeklyHighs(interaction) {
       { name: "Team High Scores", value: trimValue(teamHighs.join("\n")), inline: false },
       { name: "Player High Scores", value: trimValue(playerHighs.join("\n")), inline: false },
     );
+  applySeasonFooter(embed, league, interaction);
 
   await interaction.editReply({ embeds: [embed] });
 }
 
 async function handleDraft(interaction) {
-  const { league, users } = await getSeasonBundle(interaction);
+  const { league, users } = await getSeasonBundle(interaction, { preferCompleted: true });
   const draftId = league.draft_id;
   if (!draftId) {
     await interaction.editReply("No draft found for this season.");
@@ -833,12 +867,13 @@ async function handleDraft(interaction) {
       { name: "Picks", value: String(picks.length), inline: true },
       { name: "Traded Picks", value: String(tradedPicks.length), inline: true },
     );
+  applySeasonFooter(embed, league, interaction);
 
   await interaction.editReply({ embeds: [embed] });
 }
 
 async function handleReceipts(interaction) {
-  const { league, users, rosters } = await getSeasonBundle(interaction);
+  const { league, users, rosters } = await getSeasonBundle(interaction, { preferCompleted: true });
   const [matchupPages, players] = await Promise.all([
     getAllPeriodMatchups(league),
     sleeper.getPlayers(league.sport || "nfl"),
@@ -889,12 +924,13 @@ async function handleReceipts(interaction) {
         inline: false,
       },
     );
+  applySeasonFooter(embed, league, interaction);
 
   await interaction.editReply({ embeds: [embed] });
 }
 
 async function handleCompare(interaction) {
-  const { league, users, rosters } = await getSeasonBundle(interaction);
+  const { league, users, rosters } = await getSeasonBundle(interaction, { preferCompleted: true });
   const teamA = findRosterByTeam(interaction.options.getString("team_a", true), users, rosters);
   const teamB = findRosterByTeam(interaction.options.getString("team_b", true), users, rosters);
 
@@ -919,6 +955,7 @@ async function handleCompare(interaction) {
       { name: teamLabel(teamA, userMap), value: line(teamA), inline: true },
       { name: teamLabel(teamB, userMap), value: line(teamB), inline: true },
     );
+  applySeasonFooter(embed, league, interaction);
 
   await interaction.editReply({ embeds: [embed] });
 }
@@ -926,7 +963,7 @@ async function handleCompare(interaction) {
 async function handleRosterAutocomplete(interaction) {
   try {
     const focused = interaction.options.getFocused().toLowerCase();
-    const { users, rosters } = await sleeper.getLeagueBundle(requireLeagueId(interaction));
+    const { users, rosters } = await getSeasonBundle(interaction, { preferCompleted: true });
     const userMap = byUserId(users);
     const choices = rosters
       .map((roster) => {
