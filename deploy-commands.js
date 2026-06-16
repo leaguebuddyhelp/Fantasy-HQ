@@ -5,8 +5,32 @@ const { requireEnv } = require("./src/config");
 
 const commands = [
   new SlashCommandBuilder()
+    .setName("connect")
+    .setDescription("Find Sleeper leagues for a username so this server can connect one.")
+    .addStringOption((option) =>
+      option
+        .setName("username")
+        .setDescription("Sleeper username.")
+        .setRequired(true),
+    )
+    .addStringOption((option) =>
+      option
+        .setName("season")
+        .setDescription("Sleeper season. Defaults to SLEEPER_SEASON or 2026.")
+        .setRequired(false),
+    ),
+  new SlashCommandBuilder()
+    .setName("useleague")
+    .setDescription("Connect this Discord server to a Sleeper league ID.")
+    .addStringOption((option) =>
+      option
+        .setName("league_id")
+        .setDescription("Sleeper league ID.")
+        .setRequired(true),
+    ),
+  new SlashCommandBuilder()
     .setName("league")
-    .setDescription("Show the configured Sleeper league, or your leagues if no league ID is configured."),
+    .setDescription("Show the Sleeper league connected to this Discord server."),
   new SlashCommandBuilder()
     .setName("standings")
     .setDescription("Show Sleeper league standings."),

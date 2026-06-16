@@ -35,13 +35,24 @@ SLEEPER_SEASON=2026
 
 Sleeper's public API is read-only and does not require an API key.
 
-If you do not know your league ID yet, fill in `SLEEPER_USERNAME` and run `/league` after starting the bot. It will show leagues for the configured season when `SLEEPER_LEAGUE_ID` is empty.
+`SLEEPER_LEAGUE_ID` is optional. The bot can connect a league from Discord and store it locally in `data/guilds.json`.
+
+## Connect a League from Discord
+
+1. Start the bot.
+2. Run `/connect username:<sleeper username>`.
+3. Copy the `league_id` from the league you want.
+4. Run `/useleague league_id:<league id>`.
+5. Run `/league` to confirm the server is connected.
+
+The saved league is per Discord server. The local `SLEEPER_LEAGUE_ID` value is only used as a fallback.
 
 ## Commands
 
-- `/league` - Shows the configured league, or leagues for `SLEEPER_USERNAME` when no league ID is set.
+- `/connect username:<name> season:<year>` - Lists Sleeper leagues for a username.
+- `/useleague league_id:<id>` - Connects this Discord server to a Sleeper league.
+- `/league` - Shows the connected Sleeper league.
 - `/standings` - Shows league standings by wins and fantasy points.
 - `/matchups week:<number>` - Shows weekly matchups. If week is omitted, the bot uses Sleeper's current NFL week.
 - `/roster team:<name>` - Shows a manager's roster.
 - `/transactions week:<number>` - Shows adds, drops, trades, and waiver/free-agent activity.
-

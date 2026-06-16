@@ -3,6 +3,7 @@ require("dotenv").config();
 const { Client, EmbedBuilder, Events, GatewayIntentBits } = require("discord.js");
 const { readConfig } = require("./config");
 const sleeper = require("./sleeper");
+const { getGuildConfig, setGuildLeague } = require("./store");
 const {
   byRosterId,
   byUserId,
@@ -18,11 +19,15 @@ const {
 const config = readConfig();
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
-function requireLeagueId() {
-  if (!config.sleeperLeagueId) {
-    throw new Error("Set SLEEPER_LEAGUE_ID in .env, or use /league with SLEEPER_USERNAME to find it.");
+function requireLeagueId(interaction) {
+  const guildConfig = getGuildConfig(interaction.guildId);
+  const leagueId = guildConfig?.leagueId || config.sleeperLeagueId;
+
+  if (!leagueId) {
+    throw new Error("No Sleeper league connected. Run /connect username:<sleeper username>, then /useleague league_id:<id>.");
   }
-  return config.sleeperLeagueId;
+
+  return leagueId;
 }
 
 async function currentWeek(optionWeek) {
@@ -32,39 +37,69 @@ async function currentWeek(optionWeek) {
 }
 
 async function handleLeague(interaction) {
-  if (config.sleeperLeagueId) {
-    const league = await sleeper.getLeague(config.sleeperLeagueId);
-    const embed = new EmbedBuilder()
-      .setTitle(league.name || "Sleeper League")
-      .setColor(0x00ceb8)
-      .addFields(
-        { name: "League ID", value: league.league_id, inline: true },
-        { name: "Season", value: String(league.season), inline: true },
-        { name: "Teams", value: String(league.total_rosters || "Unknown"), inline: true },
-        { name: "Status", value: league.status || "Unknown", inline: true },
-      );
+  const leagueId = requireLeagueId(interaction);
+  const guildConfig = getGuildConfig(interaction.guildId);
+  const league = await sleeper.getLeague(leagueId);
+  const source = guildConfig?.leagueId === leagueId ? "Discord server connection" : ".env fallback";
+  const embed = new EmbedBuilder()
+    .setTitle(league.name || "Sleeper League")
+    .setColor(0x00ceb8)
+    .addFields(
+      { name: "League ID", value: league.league_id, inline: true },
+      { name: "Season", value: String(league.season), inline: true },
+      { name: "Teams", value: String(league.total_rosters || "Unknown"), inline: true },
+      { name: "Status", value: league.status || "Unknown", inline: true },
+      { name: "Source", value: source, inline: true },
+    );
 
-    await interaction.editReply({ embeds: [embed] });
-    return;
+  await interaction.editReply({ embeds: [embed] });
+}
+
+async function handleConnect(interaction) {
+  const username = interaction.options.getString("username", true);
+  const season = interaction.options.getString("season") || config.sleeperSeason;
+  const user = await sleeper.getUser(username);
+
+  if (!user?.user_id) {
+    throw new Error(`No Sleeper user found for "${username}".`);
   }
 
-  if (!config.sleeperUsername) {
-    throw new Error("Set SLEEPER_USERNAME or SLEEPER_LEAGUE_ID in .env.");
-  }
-
-  const user = await sleeper.getUser(config.sleeperUsername);
-  const leagues = await sleeper.getUserLeagues(user.user_id, config.sleeperSeason);
-  const lines = leagues.map((league) => `**${league.name}**\nID: \`${league.league_id}\``);
+  const leagues = await sleeper.getUserLeagues(user.user_id, season);
+  const lines = leagues.map((league) => {
+    const teams = league.total_rosters ? `, ${league.total_rosters} teams` : "";
+    return `**${league.name}** (${league.season}${teams})\nUse: \`/useleague league_id:${league.league_id}\``;
+  });
 
   await interaction.editReply({
     content: lines.length
-      ? `Leagues for ${user.display_name || config.sleeperUsername} in ${config.sleeperSeason}:\n\n${lines.join("\n\n")}`
-      : `No leagues found for ${config.sleeperUsername} in ${config.sleeperSeason}.`,
+      ? `Leagues for ${user.display_name || username} in ${season}:\n\n${lines.join("\n\n")}`
+      : `No leagues found for ${username} in ${season}.`,
   });
 }
 
+async function handleUseLeague(interaction) {
+  const leagueId = interaction.options.getString("league_id", true);
+  const league = await sleeper.getLeague(leagueId);
+
+  if (!league?.league_id) {
+    throw new Error(`No Sleeper league found for ID "${leagueId}".`);
+  }
+
+  const saved = setGuildLeague(interaction.guildId, league);
+  const embed = new EmbedBuilder()
+    .setTitle("Sleeper League Connected")
+    .setColor(0x00ceb8)
+    .addFields(
+      { name: "League", value: saved.leagueName, inline: true },
+      { name: "League ID", value: saved.leagueId, inline: true },
+      { name: "Season", value: saved.season || "Unknown", inline: true },
+    );
+
+  await interaction.editReply({ embeds: [embed] });
+}
+
 async function handleStandings(interaction) {
-  const { league, users, rosters } = await sleeper.getLeagueBundle(requireLeagueId());
+  const { league, users, rosters } = await sleeper.getLeagueBundle(requireLeagueId(interaction));
   const userMap = byUserId(users);
   const lines = sortStandings(rosters).map((roster, index) => {
     const user = userMap.get(roster.owner_id);
@@ -81,7 +116,7 @@ async function handleStandings(interaction) {
 
 async function handleMatchups(interaction) {
   const week = await currentWeek(interaction.options.getInteger("week"));
-  const { league, users, rosters } = await sleeper.getLeagueBundle(requireLeagueId());
+  const { league, users, rosters } = await sleeper.getLeagueBundle(requireLeagueId(interaction));
   const matchups = await sleeper.getMatchups(league.league_id, week);
   const rosterMap = byRosterId(rosters);
   const userMap = byUserId(users);
@@ -113,7 +148,7 @@ async function handleMatchups(interaction) {
 
 async function handleRoster(interaction) {
   const query = interaction.options.getString("team", true);
-  const { users, rosters } = await sleeper.getLeagueBundle(requireLeagueId());
+  const { users, rosters } = await sleeper.getLeagueBundle(requireLeagueId(interaction));
   const roster = findRosterByTeam(query, users, rosters);
 
   if (!roster) {
@@ -160,7 +195,7 @@ function transactionLine(transaction, rosterMap, userMap, players) {
 
 async function handleTransactions(interaction) {
   const week = await currentWeek(interaction.options.getInteger("week"));
-  const { league, users, rosters } = await sleeper.getLeagueBundle(requireLeagueId());
+  const { league, users, rosters } = await sleeper.getLeagueBundle(requireLeagueId(interaction));
   const [transactions, players] = await Promise.all([
     sleeper.getTransactions(league.league_id, week),
     sleeper.getPlayers(),
@@ -181,11 +216,13 @@ async function handleTransactions(interaction) {
 }
 
 const handlers = {
+  connect: handleConnect,
   league: handleLeague,
   matchups: handleMatchups,
   roster: handleRoster,
   standings: handleStandings,
   transactions: handleTransactions,
+  useleague: handleUseLeague,
 };
 
 client.once(Events.ClientReady, (readyClient) => {
