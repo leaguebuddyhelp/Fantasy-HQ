@@ -24,6 +24,16 @@ const commands = [
         .setName("season")
         .setDescription("Sleeper season for username lookup. Defaults to SLEEPER_SEASON or 2026.")
         .setRequired(false),
+    )
+    .addStringOption((option) =>
+      option
+        .setName("sport")
+        .setDescription("Sport for username lookup. Defaults to NBA and NFL.")
+        .setRequired(false)
+        .addChoices(
+          { name: "NBA", value: "nba" },
+          { name: "NFL", value: "nfl" },
+        ),
     ),
   new SlashCommandBuilder()
     .setName("league")
@@ -33,32 +43,32 @@ const commands = [
     .setDescription("Show Sleeper league standings."),
   new SlashCommandBuilder()
     .setName("matchups")
-    .setDescription("Show Sleeper matchups for a week.")
+    .setDescription("Show Sleeper matchups for a scoring period.")
     .addIntegerOption((option) =>
       option
         .setName("week")
-        .setDescription("NFL week number. Defaults to Sleeper's current NFL week.")
+        .setDescription("Scoring period. Defaults to the sport's current period.")
         .setMinValue(1)
-        .setMaxValue(22),
+        .setMaxValue(30),
     ),
   new SlashCommandBuilder()
     .setName("roster")
-    .setDescription("Show a manager's Sleeper roster.")
+    .setDescription("Show a manager's Sleeper roster, or list teams if no team is supplied.")
     .addStringOption((option) =>
       option
         .setName("team")
         .setDescription("Manager display name or Sleeper username.")
-        .setRequired(true),
+        .setRequired(false),
     ),
   new SlashCommandBuilder()
     .setName("transactions")
-    .setDescription("Show Sleeper league transactions for a week.")
+    .setDescription("Show Sleeper league transactions for a scoring period.")
     .addIntegerOption((option) =>
       option
         .setName("week")
-        .setDescription("NFL week number. Defaults to Sleeper's current NFL week.")
+        .setDescription("Scoring period. Defaults to the sport's current period.")
         .setMinValue(1)
-        .setMaxValue(22),
+        .setMaxValue(30),
     ),
 ].map((command) => command.toJSON());
 

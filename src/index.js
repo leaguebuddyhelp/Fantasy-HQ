@@ -13,6 +13,7 @@ const {
   formatRecord,
   managerName,
   playerLabel,
+  rosterTeamLines,
   sortStandings,
 } = require("./format");
 
@@ -30,10 +31,10 @@ function requireLeagueId(interaction) {
   return leagueId;
 }
 
-async function currentWeek(optionWeek) {
+async function currentWeek(league, optionWeek) {
   if (optionWeek) return optionWeek;
-  const state = await sleeper.getNflState();
-  return state.week || 1;
+  const state = await sleeper.getSportState(league.sport || "nfl");
+  return state.leg || state.display_week || state.week || league.settings?.leg || 1;
 }
 
 async function handleLeague(interaction) {
@@ -47,6 +48,7 @@ async function handleLeague(interaction) {
     .addFields(
       { name: "League ID", value: league.league_id, inline: true },
       { name: "Season", value: String(league.season), inline: true },
+      { name: "Sport", value: String(league.sport || "Unknown").toUpperCase(), inline: true },
       { name: "Teams", value: String(league.total_rosters || "Unknown"), inline: true },
       { name: "Status", value: league.status || "Unknown", inline: true },
       { name: "Source", value: source, inline: true },
@@ -59,6 +61,7 @@ async function handleConnect(interaction) {
   const leagueId = interaction.options.getString("league_id");
   const username = interaction.options.getString("username");
   const season = interaction.options.getString("season") || config.sleeperSeason;
+  const sport = interaction.options.getString("sport");
 
   if (leagueId) {
     await connectLeague(interaction, leagueId);
@@ -75,17 +78,31 @@ async function handleConnect(interaction) {
     throw new Error(`No Sleeper user found for "${username}".`);
   }
 
-  const leagues = await sleeper.getUserLeagues(user.user_id, season);
+  const sports = sport ? [sport] : ["nba", "nfl"];
+  const leagueGroups = await Promise.all(
+    sports.map(async (sportName) => {
+      const leagues = await sleeper.getUserLeagues(user.user_id, season, sportName);
+      return leagues.map((league) => ({ ...league, sport: league.sport || sportName }));
+    }),
+  );
+  const leagues = leagueGroups.flat();
   const lines = leagues.map((league) => {
     const teams = league.total_rosters ? `, ${league.total_rosters} teams` : "";
-    return `**${league.name}** (${league.season}${teams})\nConnect: \`/connect league_id:${league.league_id}\``;
+    const sportLabel = league.sport ? `${league.sport.toUpperCase()}, ` : "";
+    return `**${league.name}** (${sportLabel}${league.season}${teams})\nConnect: \`/connect league_id:${league.league_id}\``;
   });
 
-  await interaction.editReply({
-    content: lines.length
-      ? `Leagues for ${user.display_name || username} in ${season}:\n\n${lines.join("\n\n")}`
-      : `No leagues found for ${username} in ${season}.`,
-  });
+  if (!lines.length) {
+    await interaction.editReply(`No NBA or NFL leagues found for ${username} in ${season}.`);
+    return;
+  }
+
+  const chunks = chunkLines(lines, 1800);
+  await interaction.editReply(`Leagues for ${user.display_name || username} in ${season}:\n\n${chunks[0]}`);
+
+  for (const chunk of chunks.slice(1)) {
+    await interaction.followUp({ content: chunk, ephemeral: false });
+  }
 }
 
 async function connectLeague(interaction, leagueId) {
@@ -103,6 +120,7 @@ async function connectLeague(interaction, leagueId) {
       { name: "League", value: saved.leagueName, inline: true },
       { name: "League ID", value: saved.leagueId, inline: true },
       { name: "Season", value: saved.season || "Unknown", inline: true },
+      { name: "Sport", value: saved.sport ? saved.sport.toUpperCase() : "Unknown", inline: true },
     );
 
   await interaction.editReply({ embeds: [embed] });
@@ -125,8 +143,8 @@ async function handleStandings(interaction) {
 }
 
 async function handleMatchups(interaction) {
-  const week = await currentWeek(interaction.options.getInteger("week"));
   const { league, users, rosters } = await sleeper.getLeagueBundle(requireLeagueId(interaction));
+  const week = await currentWeek(league, interaction.options.getInteger("week"));
   const matchups = await sleeper.getMatchups(league.league_id, week);
   const rosterMap = byRosterId(rosters);
   const userMap = byUserId(users);
@@ -149,16 +167,27 @@ async function handleMatchups(interaction) {
   });
 
   const embed = new EmbedBuilder()
-    .setTitle(`${league.name} Matchups - Week ${week}`)
+    .setTitle(`${league.name} Matchups - Period ${week}`)
     .setColor(0x00ceb8)
-    .setDescription(lines.join("\n") || "No matchups found.");
+    .setDescription(lines.join("\n") || `No matchups found for period ${week}. League status: ${league.status || "unknown"}.`);
 
   await interaction.editReply({ embeds: [embed] });
 }
 
 async function handleRoster(interaction) {
-  const query = interaction.options.getString("team", true);
-  const { users, rosters } = await sleeper.getLeagueBundle(requireLeagueId(interaction));
+  const query = interaction.options.getString("team");
+  const { league, users, rosters } = await sleeper.getLeagueBundle(requireLeagueId(interaction));
+
+  if (!query) {
+    const embed = new EmbedBuilder()
+      .setTitle(`${league.name} Teams`)
+      .setColor(0x00ceb8)
+      .setDescription(rosterTeamLines(users, rosters).join("\n") || "No rosters found.");
+
+    await interaction.editReply({ embeds: [embed] });
+    return;
+  }
+
   const roster = findRosterByTeam(query, users, rosters);
 
   if (!roster) {
@@ -166,13 +195,15 @@ async function handleRoster(interaction) {
     return;
   }
 
-  const players = await sleeper.getPlayers();
+  const players = await sleeper.getPlayers(league.sport || "nfl");
   const userMap = byUserId(users);
   const user = userMap.get(roster.owner_id);
   const starters = new Set(roster.starters || []);
-  const rosterPlayers = roster.players || [];
+  const reserve = new Set(roster.reserve || []);
+  const taxi = new Set(roster.taxi || []);
+  const rosterPlayers = (roster.players || []).filter((playerId) => playerId && playerId !== "0");
   const lines = rosterPlayers.map((playerId) => {
-    const prefix = starters.has(playerId) ? "S" : "B";
+    const prefix = starters.has(playerId) ? "S" : reserve.has(playerId) ? "IR" : taxi.has(playerId) ? "T" : "B";
     return `\`${prefix}\` ${playerLabel(playerId, players)}`;
   });
 
@@ -204,11 +235,11 @@ function transactionLine(transaction, rosterMap, userMap, players) {
 }
 
 async function handleTransactions(interaction) {
-  const week = await currentWeek(interaction.options.getInteger("week"));
   const { league, users, rosters } = await sleeper.getLeagueBundle(requireLeagueId(interaction));
+  const week = await currentWeek(league, interaction.options.getInteger("week"));
   const [transactions, players] = await Promise.all([
     sleeper.getTransactions(league.league_id, week),
-    sleeper.getPlayers(),
+    sleeper.getPlayers(league.sport || "nfl"),
   ]);
   const rosterMap = byRosterId(rosters);
   const userMap = byUserId(users);
@@ -218,7 +249,7 @@ async function handleTransactions(interaction) {
 
   const chunks = chunkLines(lines.length ? lines : ["No transactions found."]);
   const embed = new EmbedBuilder()
-    .setTitle(`${league.name} Transactions - Week ${week}`)
+    .setTitle(`${league.name} Transactions - Period ${week}`)
     .setColor(0x00ceb8)
     .setDescription(chunks[0]);
 

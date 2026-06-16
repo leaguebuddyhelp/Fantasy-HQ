@@ -43,16 +43,16 @@ Sleeper's public API is read-only and does not require an API key.
 2. Run `/connect league_id:<league id>`.
 3. Run `/league` to confirm the server is connected.
 
-If you do not know the league ID, run `/connect username:<sleeper username> season:<year>`. The bot will list matching leagues and show the `/connect league_id:<id>` command to use.
+If you do not know the league ID, run `/connect username:<sleeper username> season:<year>`. The bot will list matching NBA and NFL leagues and show the `/connect league_id:<id>` command to use.
 
 The saved league is per Discord server. The local `SLEEPER_LEAGUE_ID` value is only used as a fallback.
 
 ## Commands
 
-- `/connect username:<name> season:<year>` - Lists Sleeper leagues for a username.
+- `/connect username:<name> season:<year> sport:<nba|nfl>` - Lists Sleeper leagues for a username.
 - `/connect league_id:<id>` - Connects this Discord server to a Sleeper league.
 - `/league` - Shows the connected Sleeper league.
 - `/standings` - Shows league standings by wins and fantasy points.
-- `/matchups week:<number>` - Shows weekly matchups. If week is omitted, the bot uses Sleeper's current NFL week.
+- `/matchups week:<number>` - Shows matchups for a scoring period. If omitted, the bot uses Sleeper's current period for that sport.
 - `/roster team:<name>` - Shows a manager's roster.
 - `/transactions week:<number>` - Shows adds, drops, trades, and waiver/free-agent activity.

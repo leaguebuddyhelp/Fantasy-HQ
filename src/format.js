@@ -34,6 +34,7 @@ function sortStandings(rosters) {
 }
 
 function playerLabel(playerId, players) {
+  if (!playerId || playerId === "0") return "Empty";
   const player = players[playerId];
   if (!player) return playerId;
   const name = player.full_name || `${player.first_name || ""} ${player.last_name || ""}`.trim() || playerId;
@@ -55,6 +56,14 @@ function findRosterByTeam(query, users, rosters) {
     ].filter(Boolean);
 
     return names.some((name) => name.toLowerCase().includes(normalized));
+  });
+}
+
+function rosterTeamLines(users, rosters) {
+  const userMap = byUserId(users);
+  return rosters.map((roster) => {
+    const user = userMap.get(roster.owner_id);
+    return `**${managerName(user)}** - roster ${roster.roster_id}`;
   });
 }
 
@@ -84,5 +93,6 @@ module.exports = {
   formatRecord,
   managerName,
   playerLabel,
+  rosterTeamLines,
   sortStandings,
 };

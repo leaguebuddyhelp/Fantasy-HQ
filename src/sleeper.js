@@ -20,8 +20,8 @@ async function getUser(username) {
   return sleeperFetch(`/user/${encodeURIComponent(username)}`);
 }
 
-async function getUserLeagues(userId, season) {
-  return sleeperFetch(`/user/${encodeURIComponent(userId)}/leagues/nfl/${encodeURIComponent(season)}`);
+async function getUserLeagues(userId, season, sport = "nfl") {
+  return sleeperFetch(`/user/${encodeURIComponent(userId)}/leagues/${encodeURIComponent(sport)}/${encodeURIComponent(season)}`);
 }
 
 async function getLeague(leagueId) {
@@ -44,12 +44,12 @@ async function getTransactions(leagueId, week) {
   return sleeperFetch(`/league/${encodeURIComponent(leagueId)}/transactions/${encodeURIComponent(week)}`);
 }
 
-async function getPlayers() {
-  return sleeperFetch("/players/nfl");
+async function getPlayers(sport = "nfl") {
+  return sleeperFetch(`/players/${encodeURIComponent(sport)}`);
 }
 
-async function getNflState() {
-  return sleeperFetch("/state/nfl");
+async function getSportState(sport = "nfl") {
+  return sleeperFetch(`/state/${encodeURIComponent(sport)}`);
 }
 
 async function getLeagueBundle(leagueId) {
@@ -67,9 +67,9 @@ module.exports = {
   getLeagueBundle,
   getLeagueUsers,
   getMatchups,
-  getNflState,
   getPlayers,
   getRosters,
+  getSportState,
   getTransactions,
   getUser,
   getUserLeagues,

@@ -33,6 +33,7 @@ function setGuildLeague(guildId, league) {
     leagueId: league.league_id,
     leagueName: league.name || "Sleeper League",
     season: String(league.season || ""),
+    sport: league.sport || "",
     connectedAt: new Date().toISOString(),
   };
   writeStore(store);
