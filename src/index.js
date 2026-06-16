@@ -135,11 +135,80 @@ function playerBioLine(playerId, players) {
   return parts.length ? parts.join(" | ") : compactPlayerLabel(playerId, players);
 }
 
-function statLine(stats = {}, statsList = ["pts", "reb", "ast", "stl", "blk", "tpm", "to"]) {
-  const lines = statsList
-    .filter((key) => stats[key] != null)
-    .map((key) => `${statName(key)}: ${shortNumber(stats[key])}`);
-  return lines.join(" | ") || "No box stats.";
+function statValue(stats = {}, key) {
+  return Number(stats[key] || 0);
+}
+
+function statAverage(stats = {}, key, games) {
+  if (!games) return 0;
+  return statValue(stats, key) / games;
+}
+
+function percentage(made, attempted) {
+  if (!attempted) return "-";
+  return (made / attempted).toFixed(3).replace(/^0/, "");
+}
+
+function fixedNumber(value, decimals = 1) {
+  const number = Number(value || 0);
+  return number.toFixed(decimals).replace(/\.0$/, "");
+}
+
+function tableLine(values, widths) {
+  return values.map((value, index) => String(value).padEnd(widths[index])).join(" ").trimEnd();
+}
+
+function codeTable(headers, rows, widths) {
+  return `\`\`\`\n${tableLine(headers, widths)}\n${rows.map((row) => tableLine(row, widths)).join("\n")}\n\`\`\``;
+}
+
+function fantasyScoreFromStats(stats = {}, scoringSettings = {}) {
+  return Object.entries(scoringSettings).reduce((total, [key, value]) => {
+    if (typeof stats[key] !== "number") return total;
+    return total + stats[key] * Number(value || 0);
+  }, 0);
+}
+
+function playerAverageRow(totals, games) {
+  return [
+    fixedNumber(statAverage(totals, "pts", games)),
+    fixedNumber(statAverage(totals, "reb", games)),
+    fixedNumber(statAverage(totals, "ast", games)),
+    fixedNumber(statAverage(totals, "stl", games)),
+    fixedNumber(statAverage(totals, "blk", games)),
+    fixedNumber(statAverage(totals, "tpm", games)),
+    fixedNumber(statAverage(totals, "to", games)),
+    percentage(statValue(totals, "fgm"), statValue(totals, "fga")),
+    percentage(statValue(totals, "ftm"), statValue(totals, "fta")),
+  ];
+}
+
+function playerGameLogRow(item) {
+  return [
+    `P${item.period}`,
+    item.started ? "S" : "B",
+    fixedNumber(item.fantasyPoints),
+    fixedNumber(statValue(item.stats, "pts"), 0),
+    fixedNumber(statValue(item.stats, "reb"), 0),
+    fixedNumber(statValue(item.stats, "ast"), 0),
+    fixedNumber(statValue(item.stats, "stl"), 0),
+    fixedNumber(statValue(item.stats, "blk"), 0),
+    fixedNumber(statValue(item.stats, "tpm"), 0),
+  ];
+}
+
+function projectionRow(projection, league) {
+  if (!projection) return null;
+  const fantasy = projection.fpts ?? fantasyScoreFromStats(projection, league.scoring_settings);
+  return [
+    fixedNumber(fantasy),
+    fixedNumber(statValue(projection, "pts")),
+    fixedNumber(statValue(projection, "reb")),
+    fixedNumber(statValue(projection, "ast")),
+    fixedNumber(statValue(projection, "stl")),
+    fixedNumber(statValue(projection, "blk")),
+    fixedNumber(statValue(projection, "tpm")),
+  ];
 }
 
 function settingPoints(settings = {}, key = "fpts") {
@@ -931,25 +1000,36 @@ async function handlePlayer(interaction) {
   const userMap = byUserId(users);
   const roster = rosters.find((item) => (item.players || []).includes(playerId));
   const manager = roster ? teamLabel(roster, userMap) : "Free Agent";
+  const games = snapshot.weekly.length;
+  const starts = snapshot.weekly.filter((item) => item.started).length;
+  const fantasyAverage = games ? snapshot.fantasyTotal / games : 0;
+  const gamesWithStats = snapshot.weekly.filter((item) => Object.keys(item.stats || {}).length).length || games;
   const shownWeeks = selectedPeriod
     ? snapshot.weekly.filter((item) => item.period === selectedPeriod)
-    : snapshot.weekly.slice(-8);
-  const gameLog = shownWeeks.map((item) => {
-    const role = item.started ? "Start" : "Bench";
-    return `P${item.period} | ${role} | ${shortNumber(item.fantasyPoints)} fantasy | ${statLine(item.stats, ["pts", "reb", "ast"])}`;
-  });
-  const totalStats = statLine(snapshot.totals);
-  const projectionLine = projection
-    ? [
-      projection.pts != null ? `PTS ${shortNumber(projection.pts)}` : null,
-      projection.reb != null ? `REB ${shortNumber(projection.reb)}` : null,
-      projection.ast != null ? `AST ${shortNumber(projection.ast)}` : null,
-      projection.fpts != null ? `FANT ${shortNumber(projection.fpts)}` : null,
-    ].filter(Boolean).join(" | ")
+    : snapshot.weekly.slice(-5);
+  const averageTable = gamesWithStats
+    ? codeTable(
+      ["PTS", "REB", "AST", "STL", "BLK", "3PM", "TO", "FG%", "FT%"],
+      [playerAverageRow(snapshot.totals, gamesWithStats)],
+      [5, 5, 5, 5, 5, 5, 4, 5, 5],
+    )
+    : "No box-score stats found.";
+  const gameLog = shownWeeks.length
+    ? codeTable(
+      ["WK", "R", "FANT", "PTS", "REB", "AST", "STL", "BLK", "3PM"],
+      shownWeeks.map(playerGameLogRow),
+      [4, 2, 6, 4, 4, 4, 4, 4, 4],
+    )
+    : "No weekly stat data found for this player.";
+  const projected = projectionRow(projection, league);
+  const projectionLine = projected
+    ? codeTable(
+      ["FANT", "PTS", "REB", "AST", "STL", "BLK", "3PM"],
+      [projected],
+      [6, 5, 5, 5, 5, 5, 5],
+    )
     : "No projection available.";
-  const cacheText = previousCache?.updatedAt
-    ? `Updated local stat cache. Previous cache: ${new Date(previousCache.updatedAt).toLocaleString("en-US", { timeZone: "America/New_York" })}`
-    : "Saved this player to the local stat cache.";
+  const cacheText = previousCache?.updatedAt ? "Cache refreshed" : "Cached";
 
   const embed = new EmbedBuilder()
     .setTitle(commandTitle(league, playerName(playerId, players)))
@@ -957,17 +1037,21 @@ async function handlePlayer(interaction) {
     .setDescription(`${playerBioLine(playerId, players)}\nRostered by: **${manager}**`)
     .addFields(
       {
-        name: "Season",
+        name: "Snapshot",
         value: [
-          `Fantasy: ${shortNumber(snapshot.fantasyTotal)}`,
-          `Games with data: ${snapshot.weekly.length}`,
-          totalStats,
+          `Fantasy: **${shortNumber(snapshot.fantasyTotal)}** total | **${fixedNumber(fantasyAverage)}** avg`,
+          `Games: **${games}** | Starts: **${starts}** | Role: **S=start, B=bench**`,
         ].join("\n"),
         inline: false,
       },
       {
+        name: "Per-Game Stats",
+        value: averageTable,
+        inline: false,
+      },
+      {
         name: selectedPeriod ? `Period ${selectedPeriod}` : "Recent Game Log",
-        value: trimValue(gameLog.join("\n"), "No weekly stat data found for this player.", 1000),
+        value: trimValue(gameLog, "No weekly stat data found for this player.", 1000),
         inline: false,
       },
       {
@@ -976,7 +1060,7 @@ async function handlePlayer(interaction) {
         inline: false,
       },
     )
-    .setFooter({ text: `${seasonFooter(league, requestedSeason(interaction))} ${cacheText} Cache entries: ${cached.weekly.length} weeks.` });
+    .setFooter({ text: `${seasonFooter(league, requestedSeason(interaction))} ${cacheText}: ${cached.weekly.length} weeks saved locally.` });
 
   await interaction.editReply({ embeds: [embed] });
 }
