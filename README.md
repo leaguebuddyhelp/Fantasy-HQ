@@ -1,6 +1,6 @@
 # Sleeper Discord Bot
 
-A Discord slash-command bot that pulls fantasy football data from Sleeper.
+A Discord slash-command bot that pulls Sleeper fantasy league data into Discord.
 
 ## Discord Setup
 
@@ -52,7 +52,28 @@ The saved league is per Discord server. The local `SLEEPER_LEAGUE_ID` value is o
 - `/connect username:<name> season:<year> sport:<nba|nfl>` - Lists Sleeper leagues for a username.
 - `/connect league_id:<id>` - Connects this Discord server to a Sleeper league.
 - `/league` - Shows the connected Sleeper league.
-- `/standings` - Shows league standings by wins and fantasy points.
+- `/standings season:<year>` - Shows league standings by wins and fantasy points.
 - `/matchups week:<number>` - Shows matchups for a scoring period. If omitted, the bot uses Sleeper's current period for that sport.
 - `/roster team:<autocomplete>` - Shows a manager's roster. Discord suggests teams from the connected league.
-- `/transactions week:<number>` - Shows readable add/drop/trade activity for a scoring period.
+- `/transactions week:<number> season:<year> type:<type>` - Shows readable add/drop/trade activity.
+- `/history season:<year>` - Shows season overview, champion, activity, and top teams.
+- `/awards season:<year>` - Shows champion, best record, top scorer, points-against pain, and lineup gap.
+- `/leaders stat:<stat> season:<year>` - Shows player leaders for fantasy, points, rebounds, assists, steals, blocks, threes, or turnovers.
+- `/playoffs season:<year>` - Shows winners and consolation bracket results.
+- `/team team:<autocomplete> season:<year>` - Shows a historical team dashboard.
+- `/recap week:<number> season:<year>` - Shows weekly high score, closest game, biggest blowout, and top players.
+- `/power season:<year>` - Shows power rankings based on wins, points, and potential points.
+- `/weeklyhighs season:<year>` - Shows best team and player performances by period.
+- `/draft season:<year>` - Shows draft recap and pick results.
+- `/receipts season:<year>` - Shows close calls, blowouts, and bench regrets.
+- `/compare team_a:<autocomplete> team_b:<autocomplete> season:<year>` - Compares two teams.
+
+## Season Audit
+
+The audit script scans a league season and writes a local JSON report under `reports/`.
+
+```bash
+npm run audit:season -- <league_id>
+```
+
+Generated reports are ignored by git.

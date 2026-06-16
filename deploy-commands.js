@@ -3,6 +3,31 @@ require("dotenv").config();
 const { REST, Routes, SlashCommandBuilder } = require("discord.js");
 const { requireEnv } = require("./src/config");
 
+function seasonOption(option) {
+  return option
+    .setName("season")
+    .setDescription("Season year, like 2025. Defaults to the connected league season.")
+    .setRequired(false);
+}
+
+function periodOption(option) {
+  return option
+    .setName("week")
+    .setDescription("Scoring period. Defaults to the sport's current period.")
+    .setMinValue(1)
+    .setMaxValue(30)
+    .setRequired(false);
+}
+
+function teamOption(name, description, required = true) {
+  return (option) =>
+    option
+      .setName(name)
+      .setDescription(description)
+      .setRequired(required)
+      .setAutocomplete(true);
+}
+
 const commands = [
   new SlashCommandBuilder()
     .setName("connect")
@@ -40,37 +65,98 @@ const commands = [
     .setDescription("Show the Sleeper league connected to this Discord server."),
   new SlashCommandBuilder()
     .setName("standings")
-    .setDescription("Show Sleeper league standings."),
+    .setDescription("Show Sleeper league standings.")
+    .addStringOption(seasonOption),
   new SlashCommandBuilder()
     .setName("matchups")
     .setDescription("Show Sleeper matchups for a scoring period.")
-    .addIntegerOption((option) =>
-      option
-        .setName("week")
-        .setDescription("Scoring period. Defaults to the sport's current period.")
-        .setMinValue(1)
-        .setMaxValue(30),
-    ),
+    .addIntegerOption(periodOption)
+    .addStringOption(seasonOption),
   new SlashCommandBuilder()
     .setName("roster")
     .setDescription("Show a manager's Sleeper roster.")
-    .addStringOption((option) =>
-      option
-        .setName("team")
-        .setDescription("Choose a team from the connected league.")
-        .setRequired(true)
-        .setAutocomplete(true),
-    ),
+    .addStringOption(teamOption("team", "Choose a team from the connected league."))
+    .addStringOption(seasonOption),
   new SlashCommandBuilder()
     .setName("transactions")
     .setDescription("Show Sleeper league transactions for a scoring period.")
-    .addIntegerOption((option) =>
+    .addIntegerOption(periodOption)
+    .addStringOption(seasonOption)
+    .addStringOption((option) =>
       option
-        .setName("week")
-        .setDescription("Scoring period. Defaults to the sport's current period.")
-        .setMinValue(1)
-        .setMaxValue(30),
+        .setName("type")
+        .setDescription("Filter transaction type.")
+        .setRequired(false)
+        .addChoices(
+          { name: "Free Agent", value: "free_agent" },
+          { name: "Waiver", value: "waiver" },
+          { name: "Trade", value: "trade" },
+        ),
     ),
+  new SlashCommandBuilder()
+    .setName("history")
+    .setDescription("Show a season overview for this league.")
+    .addStringOption(seasonOption),
+  new SlashCommandBuilder()
+    .setName("awards")
+    .setDescription("Show season awards and league superlatives.")
+    .addStringOption(seasonOption),
+  new SlashCommandBuilder()
+    .setName("leaders")
+    .setDescription("Show season player leaders.")
+    .addStringOption((option) =>
+      option
+        .setName("stat")
+        .setDescription("Leaderboard stat.")
+        .setRequired(true)
+        .addChoices(
+          { name: "Fantasy", value: "fantasy" },
+          { name: "Points", value: "pts" },
+          { name: "Rebounds", value: "reb" },
+          { name: "Assists", value: "ast" },
+          { name: "Steals", value: "stl" },
+          { name: "Blocks", value: "blk" },
+          { name: "Threes", value: "tpm" },
+          { name: "Turnovers", value: "to" },
+        ),
+    )
+    .addStringOption(seasonOption),
+  new SlashCommandBuilder()
+    .setName("playoffs")
+    .setDescription("Show playoff bracket results.")
+    .addStringOption(seasonOption),
+  new SlashCommandBuilder()
+    .setName("team")
+    .setDescription("Show a historical team dashboard.")
+    .addStringOption(teamOption("team", "Choose a team from the selected season."))
+    .addStringOption(seasonOption),
+  new SlashCommandBuilder()
+    .setName("recap")
+    .setDescription("Show a weekly recap with high score, close matchups, and top players.")
+    .addIntegerOption(periodOption)
+    .addStringOption(seasonOption),
+  new SlashCommandBuilder()
+    .setName("power")
+    .setDescription("Show power rankings based on record, scoring, and potential points.")
+    .addStringOption(seasonOption),
+  new SlashCommandBuilder()
+    .setName("weeklyhighs")
+    .setDescription("Show the best team and player performances by week.")
+    .addStringOption(seasonOption),
+  new SlashCommandBuilder()
+    .setName("draft")
+    .setDescription("Show draft recap and pick results.")
+    .addStringOption(seasonOption),
+  new SlashCommandBuilder()
+    .setName("receipts")
+    .setDescription("Show fun season receipts like blowouts, close calls, and bench regrets.")
+    .addStringOption(seasonOption),
+  new SlashCommandBuilder()
+    .setName("compare")
+    .setDescription("Compare two teams in the selected season.")
+    .addStringOption(teamOption("team_a", "First team."))
+    .addStringOption(teamOption("team_b", "Second team."))
+    .addStringOption(seasonOption),
 ].map((command) => command.toJSON());
 
 async function main() {

@@ -44,12 +44,52 @@ async function getTransactions(leagueId, week) {
   return sleeperFetch(`/league/${encodeURIComponent(leagueId)}/transactions/${encodeURIComponent(week)}`);
 }
 
+async function getWinnersBracket(leagueId) {
+  return sleeperFetch(`/league/${encodeURIComponent(leagueId)}/winners_bracket`);
+}
+
+async function getLosersBracket(leagueId) {
+  return sleeperFetch(`/league/${encodeURIComponent(leagueId)}/losers_bracket`);
+}
+
+async function getTradedPicks(leagueId) {
+  return sleeperFetch(`/league/${encodeURIComponent(leagueId)}/traded_picks`);
+}
+
+async function getLeagueDrafts(leagueId) {
+  return sleeperFetch(`/league/${encodeURIComponent(leagueId)}/drafts`);
+}
+
+async function getDraft(draftId) {
+  return sleeperFetch(`/draft/${encodeURIComponent(draftId)}`);
+}
+
+async function getDraftPicks(draftId) {
+  return sleeperFetch(`/draft/${encodeURIComponent(draftId)}/picks`);
+}
+
+async function getDraftTradedPicks(draftId) {
+  return sleeperFetch(`/draft/${encodeURIComponent(draftId)}/traded_picks`);
+}
+
 async function getPlayers(sport = "nfl") {
   return sleeperFetch(`/players/${encodeURIComponent(sport)}`);
 }
 
 async function getSportState(sport = "nfl") {
   return sleeperFetch(`/state/${encodeURIComponent(sport)}`);
+}
+
+async function getStats(sport, season, period) {
+  return sleeperFetch(`/stats/${encodeURIComponent(sport)}/regular/${encodeURIComponent(season)}/${encodeURIComponent(period)}`);
+}
+
+async function getProjections(sport, season, period) {
+  return sleeperFetch(`/projections/${encodeURIComponent(sport)}/regular/${encodeURIComponent(season)}/${encodeURIComponent(period)}`);
+}
+
+async function getTrendingPlayers(sport, type = "add") {
+  return sleeperFetch(`/players/${encodeURIComponent(sport)}/trending/${encodeURIComponent(type)}`);
 }
 
 async function getLeagueBundle(leagueId) {
@@ -63,14 +103,24 @@ async function getLeagueBundle(leagueId) {
 }
 
 module.exports = {
+  getDraft,
+  getDraftPicks,
+  getDraftTradedPicks,
   getLeague,
   getLeagueBundle,
+  getLeagueDrafts,
   getLeagueUsers,
+  getLosersBracket,
   getMatchups,
   getPlayers,
+  getProjections,
   getRosters,
   getSportState,
+  getStats,
   getTransactions,
+  getTradedPicks,
+  getTrendingPlayers,
   getUser,
   getUserLeagues,
+  getWinnersBracket,
 };
