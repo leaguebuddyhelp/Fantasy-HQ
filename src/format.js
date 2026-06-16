@@ -48,6 +48,10 @@ function findRosterByTeam(query, users, rosters) {
   const userMap = byUserId(users);
 
   return rosters.find((roster) => {
+    if (String(roster.roster_id) === normalized) {
+      return true;
+    }
+
     const user = userMap.get(roster.owner_id);
     const names = [
       user?.metadata?.team_name,
@@ -59,12 +63,9 @@ function findRosterByTeam(query, users, rosters) {
   });
 }
 
-function rosterTeamLines(users, rosters) {
-  const userMap = byUserId(users);
-  return rosters.map((roster) => {
-    const user = userMap.get(roster.owner_id);
-    return `**${managerName(user)}** - roster ${roster.roster_id}`;
-  });
+function rosterChoiceName(user, roster) {
+  const name = managerName(user);
+  return name === "Unknown Manager" ? `Roster ${roster.roster_id}` : name;
 }
 
 function chunkLines(lines, maxLength = 3900) {
@@ -93,6 +94,6 @@ module.exports = {
   formatRecord,
   managerName,
   playerLabel,
-  rosterTeamLines,
+  rosterChoiceName,
   sortStandings,
 };

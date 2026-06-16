@@ -53,12 +53,13 @@ const commands = [
     ),
   new SlashCommandBuilder()
     .setName("roster")
-    .setDescription("Show a manager's Sleeper roster, or list teams if no team is supplied.")
+    .setDescription("Show a manager's Sleeper roster.")
     .addStringOption((option) =>
       option
         .setName("team")
-        .setDescription("Manager display name or Sleeper username.")
-        .setRequired(false),
+        .setDescription("Choose a team from the connected league.")
+        .setRequired(true)
+        .setAutocomplete(true),
     ),
   new SlashCommandBuilder()
     .setName("transactions")

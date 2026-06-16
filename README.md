@@ -54,5 +54,5 @@ The saved league is per Discord server. The local `SLEEPER_LEAGUE_ID` value is o
 - `/league` - Shows the connected Sleeper league.
 - `/standings` - Shows league standings by wins and fantasy points.
 - `/matchups week:<number>` - Shows matchups for a scoring period. If omitted, the bot uses Sleeper's current period for that sport.
-- `/roster team:<name>` - Shows a manager's roster.
-- `/transactions week:<number>` - Shows adds, drops, trades, and waiver/free-agent activity.
+- `/roster team:<autocomplete>` - Shows a manager's roster. Discord suggests teams from the connected league.
+- `/transactions week:<number>` - Shows readable add/drop/trade activity for a scoring period.

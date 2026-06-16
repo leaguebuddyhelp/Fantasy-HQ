@@ -13,7 +13,7 @@ const {
   formatRecord,
   managerName,
   playerLabel,
-  rosterTeamLines,
+  rosterChoiceName,
   sortStandings,
 } = require("./format");
 
@@ -175,23 +175,12 @@ async function handleMatchups(interaction) {
 }
 
 async function handleRoster(interaction) {
-  const query = interaction.options.getString("team");
+  const query = interaction.options.getString("team", true);
   const { league, users, rosters } = await sleeper.getLeagueBundle(requireLeagueId(interaction));
-
-  if (!query) {
-    const embed = new EmbedBuilder()
-      .setTitle(`${league.name} Teams`)
-      .setColor(0x00ceb8)
-      .setDescription(rosterTeamLines(users, rosters).join("\n") || "No rosters found.");
-
-    await interaction.editReply({ embeds: [embed] });
-    return;
-  }
-
   const roster = findRosterByTeam(query, users, rosters);
 
   if (!roster) {
-    await interaction.editReply(`No roster matched "${query}". Try the manager name, Sleeper username, or team name.`);
+    await interaction.editReply(`No roster matched "${query}". Pick one of the autocomplete suggestions for /roster.`);
     return;
   }
 
@@ -220,18 +209,52 @@ async function handleRoster(interaction) {
   }
 }
 
-function transactionLine(transaction, rosterMap, userMap, players) {
-  const rosterNames = (transaction.roster_ids || [])
-    .map((rosterId) => managerName(userMap.get(rosterMap.get(rosterId)?.owner_id)))
-    .join(", ");
-  const adds = Object.entries(transaction.adds || {})
-    .map(([playerId, rosterId]) => `${playerLabel(playerId, players)} to ${managerName(userMap.get(rosterMap.get(rosterId)?.owner_id))}`);
-  const drops = Object.entries(transaction.drops || {})
-    .map(([playerId, rosterId]) => `${playerLabel(playerId, players)} from ${managerName(userMap.get(rosterMap.get(rosterId)?.owner_id))}`);
-  const moves = [...adds.map((item) => `+ ${item}`), ...drops.map((item) => `- ${item}`)];
-  const status = transaction.status ? ` (${transaction.status})` : "";
+function transactionTypeLabel(type) {
+  const labels = {
+    commissioner: "Commissioner Move",
+    free_agent: "Free Agent",
+    trade: "Trade",
+    waiver: "Waiver",
+  };
 
-  return `**${transaction.type}${status}** - ${rosterNames || "League"}\n${moves.slice(0, 8).join("\n") || "No player movement listed."}`;
+  return labels[type] || type.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function teamNameForRoster(rosterId, rosterMap, userMap) {
+  const roster = rosterMap.get(Number(rosterId)) || rosterMap.get(rosterId);
+  return managerName(userMap.get(roster?.owner_id));
+}
+
+function transactionField(transaction, rosterMap, userMap, players) {
+  const rosterIds = new Set([
+    ...Object.values(transaction.adds || {}),
+    ...Object.values(transaction.drops || {}),
+    ...(transaction.roster_ids || []),
+  ]);
+  const lines = [];
+
+  for (const rosterId of rosterIds) {
+    const added = Object.entries(transaction.adds || {})
+      .filter(([, addRosterId]) => String(addRosterId) === String(rosterId))
+      .map(([playerId]) => playerLabel(playerId, players));
+    const dropped = Object.entries(transaction.drops || {})
+      .filter(([, dropRosterId]) => String(dropRosterId) === String(rosterId))
+      .map(([playerId]) => playerLabel(playerId, players));
+
+    if (!added.length && !dropped.length) continue;
+
+    lines.push(`**${teamNameForRoster(rosterId, rosterMap, userMap)}**`);
+    if (added.length) lines.push(`Added: ${added.join(", ")}`);
+    if (dropped.length) lines.push(`Dropped: ${dropped.join(", ")}`);
+  }
+
+  const created = transaction.created ? ` - <t:${Math.floor(transaction.created / 1000)}:R>` : "";
+  const status = transaction.status && transaction.status !== "complete" ? ` (${transaction.status})` : "";
+
+  return {
+    name: `${transactionTypeLabel(transaction.type)}${status}${created}`,
+    value: lines.join("\n") || "No player movement listed.",
+  };
 }
 
 async function handleTransactions(interaction) {
@@ -243,17 +266,54 @@ async function handleTransactions(interaction) {
   ]);
   const rosterMap = byRosterId(rosters);
   const userMap = byUserId(users);
-  const lines = transactions
+  const fields = transactions
     .slice(0, 10)
-    .map((transaction) => transactionLine(transaction, rosterMap, userMap, players));
+    .map((transaction) => transactionField(transaction, rosterMap, userMap, players));
 
-  const chunks = chunkLines(lines.length ? lines : ["No transactions found."]);
   const embed = new EmbedBuilder()
     .setTitle(`${league.name} Transactions - Period ${week}`)
-    .setColor(0x00ceb8)
-    .setDescription(chunks[0]);
+    .setColor(0x00ceb8);
+
+  if (fields.length) {
+    embed.addFields(fields);
+  } else {
+    embed.setDescription("No transactions found.");
+  }
 
   await interaction.editReply({ embeds: [embed] });
+}
+
+async function handleRosterAutocomplete(interaction) {
+  try {
+    const focused = interaction.options.getFocused().toLowerCase();
+    const { users, rosters } = await sleeper.getLeagueBundle(requireLeagueId(interaction));
+    const userMap = byUserId(users);
+    const choices = rosters
+      .map((roster) => {
+        const user = userMap.get(roster.owner_id);
+        const name = rosterChoiceName(user, roster).trim();
+        const search = [
+          name,
+          user?.display_name,
+          user?.username,
+          String(roster.roster_id),
+        ].filter(Boolean).join(" ").toLowerCase();
+
+        return {
+          name: name.slice(0, 100),
+          value: String(roster.roster_id),
+          search,
+        };
+      })
+      .filter((choice) => !focused || choice.search.includes(focused))
+      .slice(0, 25)
+      .map(({ name, value }) => ({ name, value }));
+
+    await interaction.respond(choices);
+  } catch (error) {
+    console.error(error);
+    await interaction.respond([]);
+  }
 }
 
 const handlers = {
@@ -270,6 +330,13 @@ client.once(Events.ClientReady, (readyClient) => {
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
+  if (interaction.isAutocomplete()) {
+    if (interaction.commandName === "roster") {
+      await handleRosterAutocomplete(interaction);
+    }
+    return;
+  }
+
   if (!interaction.isChatInputCommand()) return;
 
   const handler = handlers[interaction.commandName];
