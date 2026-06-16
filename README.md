@@ -57,16 +57,14 @@ The saved league is per Discord server. The local `SLEEPER_LEAGUE_ID` value is o
 - `/roster team:<autocomplete>` - Shows a manager's roster. Discord suggests teams from the connected league.
 - `/transactions week:<number> season:<year> type:<type>` - Shows readable add/drop/trade activity.
 - `/history season:<year>` - Shows season overview, champion, activity, and top teams.
-- `/awards season:<year>` - Shows champion, best record, top scorer, points-against pain, and lineup gap.
 - `/leaders stat:<stat> season:<year>` - Shows player leaders for fantasy, points, rebounds, assists, steals, blocks, threes, or turnovers.
 - `/playoffs season:<year>` - Shows winners and consolation bracket results.
 - `/team team:<autocomplete> season:<year>` - Shows a historical team dashboard.
 - `/recap week:<number> season:<year>` - Shows weekly high score, closest game, biggest blowout, and top players.
-- `/power season:<year>` - Shows power rankings based on wins, points, and potential points.
-- `/weeklyhighs season:<year>` - Shows best team and player performances by period.
 - `/draft season:<year>` - Shows draft recap and pick results.
-- `/receipts season:<year>` - Shows close calls, blowouts, and bench regrets.
 - `/compare team_a:<autocomplete> team_b:<autocomplete> season:<year>` - Compares two teams.
+
+The command list is intentionally compact. Awards-style season notes live in `/history`, weekly highs and close calls live in `/recap`, team-specific bench regrets live in `/team`, and ranking context lives in `/standings` plus `/compare`.
 
 ## Season Audit
 

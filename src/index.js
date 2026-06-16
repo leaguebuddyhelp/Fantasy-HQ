@@ -122,17 +122,6 @@ function sortedStandings(rosters) {
   });
 }
 
-function powerScore(roster, maxWins, maxFpts, maxPpts) {
-  const wins = roster.settings?.wins || 0;
-  const fpts = settingPoints(roster.settings, "fpts");
-  const ppts = settingPoints(roster.settings, "ppts");
-  return (
-    (maxWins ? wins / maxWins : 0) * 45 +
-    (maxFpts ? fpts / maxFpts : 0) * 35 +
-    (maxPpts ? ppts / maxPpts : 0) * 20
-  );
-}
-
 async function getAllPeriodMatchups(league) {
   const lastPeriod = league.settings?.last_scored_leg || league.settings?.leg || 1;
   const periods = Array.from({ length: lastPeriod }, (_, index) => index + 1);
@@ -563,44 +552,6 @@ async function handleHistory(interaction) {
   await interaction.editReply({ embeds: [embed] });
 }
 
-async function handleAwards(interaction) {
-  const { league, users, rosters } = await getSeasonBundle(interaction, { preferCompleted: true });
-  const userMap = byUserId(users);
-  const standings = sortedStandings(rosters);
-  const championRoster = rosters.find((roster) => String(roster.roster_id) === String(league.metadata?.latest_league_winner_roster_id));
-  const bestRecord = standings[0];
-  const topScorer = [...rosters].sort((a, b) => settingPoints(b.settings, "fpts") - settingPoints(a.settings, "fpts"))[0];
-  const mostAgainst = [...rosters].sort((a, b) => settingPoints(b.settings, "fpts_against") - settingPoints(a.settings, "fpts_against"))[0];
-  const bestPotential = [...rosters].sort((a, b) => settingPoints(b.settings, "ppts") - settingPoints(a.settings, "ppts"))[0];
-  const biggestGap = [...rosters].sort((a, b) =>
-    (settingPoints(b.settings, "ppts") - settingPoints(b.settings, "fpts")) -
-    (settingPoints(a.settings, "ppts") - settingPoints(a.settings, "fpts")),
-  )[0];
-  const hottest = [...rosters]
-    .filter((roster) => roster.metadata?.streak)
-    .sort((a, b) => {
-      const aNum = Number.parseInt(a.metadata.streak, 10) || 0;
-      const bNum = Number.parseInt(b.metadata.streak, 10) || 0;
-      return bNum - aNum;
-    })[0];
-
-  const embed = new EmbedBuilder()
-    .setTitle(`${league.name} ${league.season} Awards`)
-    .setColor(0x00ceb8)
-    .addFields(
-      { name: "Champion", value: championRoster ? teamLabel(championRoster, userMap) : "Not available", inline: true },
-      { name: "Best Record", value: `${teamLabel(bestRecord, userMap)} (${formatRecord(bestRecord.settings)})`, inline: true },
-      { name: "Top Scorer", value: `${teamLabel(topScorer, userMap)} (${shortNumber(settingPoints(topScorer.settings, "fpts"))})`, inline: true },
-      { name: "Most Points Against", value: `${teamLabel(mostAgainst, userMap)} (${shortNumber(settingPoints(mostAgainst.settings, "fpts_against"))})`, inline: true },
-      { name: "Best Potential", value: `${teamLabel(bestPotential, userMap)} (${shortNumber(settingPoints(bestPotential.settings, "ppts"))})`, inline: true },
-      { name: "Lineup Pain", value: `${teamLabel(biggestGap, userMap)} (${shortNumber(settingPoints(biggestGap.settings, "ppts") - settingPoints(biggestGap.settings, "fpts"))} potential pts left)`, inline: true },
-      { name: "Hottest Finish", value: hottest ? `${teamLabel(hottest, userMap)} (${hottest.metadata.streak})` : "Not available", inline: true },
-    );
-  applySeasonFooter(embed, league, interaction);
-
-  await interaction.editReply({ embeds: [embed] });
-}
-
 async function handleLeaders(interaction) {
   const stat = interaction.options.getString("stat", true);
   const { league } = await getSeasonBundle(interaction, { preferCompleted: true });
@@ -787,55 +738,6 @@ async function handleRecap(interaction) {
   await interaction.editReply({ embeds: [embed] });
 }
 
-async function handlePower(interaction) {
-  const { league, users, rosters } = await getSeasonBundle(interaction, { preferCompleted: true });
-  const userMap = byUserId(users);
-  const maxWins = Math.max(...rosters.map((roster) => roster.settings?.wins || 0));
-  const maxFpts = Math.max(...rosters.map((roster) => settingPoints(roster.settings, "fpts")));
-  const maxPpts = Math.max(...rosters.map((roster) => settingPoints(roster.settings, "ppts")));
-  const lines = [...rosters]
-    .map((roster) => ({ roster, score: powerScore(roster, maxWins, maxFpts, maxPpts) }))
-    .sort((a, b) => b.score - a.score)
-    .map((item, index) => `${index + 1}. **${teamLabel(item.roster, userMap)}** - ${shortNumber(item.score)} (${formatRecord(item.roster.settings)})`);
-
-  const embed = new EmbedBuilder()
-    .setTitle(`${league.name} ${league.season} Power Rankings`)
-    .setColor(0x00ceb8)
-    .setDescription(lines.join("\n"))
-    .setFooter({ text: `${seasonFooter(league, requestedSeason(interaction))} Formula: wins 45%, points 35%, potential points 20%.` });
-
-  await interaction.editReply({ embeds: [embed] });
-}
-
-async function handleWeeklyHighs(interaction) {
-  const { league, users, rosters } = await getSeasonBundle(interaction, { preferCompleted: true });
-  const [matchupPages, players] = await Promise.all([
-    getAllPeriodMatchups(league),
-    sleeper.getPlayers(league.sport || "nfl"),
-  ]);
-  const rosterMap = byRosterId(rosters);
-  const userMap = byUserId(users);
-  const teamHighs = matchupPages.map(({ period, matchups }) => {
-    const high = [...matchups].sort((a, b) => Number(b.points || 0) - Number(a.points || 0))[0];
-    return high ? `P${period}: **${teamLabel(rosterMap.get(high.roster_id), userMap)}** - ${shortNumber(high.points)}` : null;
-  }).filter(Boolean);
-  const playerHighs = matchupPages.map(({ period, matchups }) => {
-    const high = fantasyLeadersFromMatchups([{ period, matchups }])[0];
-    return high ? `P${period}: **${compactPlayerLabel(high.playerId, players)}** - ${shortNumber(high.total)}` : null;
-  }).filter(Boolean);
-
-  const embed = new EmbedBuilder()
-    .setTitle(`${league.name} ${league.season} Weekly Highs`)
-    .setColor(0x00ceb8)
-    .addFields(
-      { name: "Team High Scores", value: trimValue(teamHighs.join("\n")), inline: false },
-      { name: "Player High Scores", value: trimValue(playerHighs.join("\n")), inline: false },
-    );
-  applySeasonFooter(embed, league, interaction);
-
-  await interaction.editReply({ embeds: [embed] });
-}
-
 async function handleDraft(interaction) {
   const { league, users } = await getSeasonBundle(interaction, { preferCompleted: true });
   const draftId = league.draft_id;
@@ -866,63 +768,6 @@ async function handleDraft(interaction) {
       { name: "Format", value: `${draft.type || "Unknown"} - ${draft.settings?.rounds || "?"} rounds`, inline: true },
       { name: "Picks", value: String(picks.length), inline: true },
       { name: "Traded Picks", value: String(tradedPicks.length), inline: true },
-    );
-  applySeasonFooter(embed, league, interaction);
-
-  await interaction.editReply({ embeds: [embed] });
-}
-
-async function handleReceipts(interaction) {
-  const { league, users, rosters } = await getSeasonBundle(interaction, { preferCompleted: true });
-  const [matchupPages, players] = await Promise.all([
-    getAllPeriodMatchups(league),
-    sleeper.getPlayers(league.sport || "nfl"),
-  ]);
-  const rosterMap = byRosterId(rosters);
-  const userMap = byUserId(users);
-  const games = matchupPages.flatMap(({ period, matchups }) =>
-    groupMatchupsById(matchups)
-      .filter((group) => group.length > 1)
-      .map((group) => ({ period, teams: group })),
-  );
-  const closest = [...games].sort((a, b) =>
-    Math.abs(Number(a.teams[0].points || 0) - Number(a.teams[1].points || 0)) -
-    Math.abs(Number(b.teams[0].points || 0) - Number(b.teams[1].points || 0)),
-  )[0];
-  const blowout = [...games].sort((a, b) =>
-    Math.abs(Number(b.teams[0].points || 0) - Number(b.teams[1].points || 0)) -
-    Math.abs(Number(a.teams[0].points || 0) - Number(a.teams[1].points || 0)),
-  )[0];
-  const allRegrets = rosters.flatMap((roster) =>
-    rosterBenchRegrets(roster, matchupPages, players).slice(0, 1).map((regret) => ({ roster, regret })),
-  ).sort((a, b) => b.regret.swing - a.regret.swing);
-  const topRegret = allRegrets[0];
-
-  const embed = new EmbedBuilder()
-    .setTitle(`${league.name} ${league.season} Receipts`)
-    .setColor(0x00ceb8)
-    .addFields(
-      {
-        name: "Closest Call",
-        value: closest
-          ? `P${closest.period}: ${teamLabel(rosterMap.get(closest.teams[0].roster_id), userMap)} ${shortNumber(closest.teams[0].points)} vs ${teamLabel(rosterMap.get(closest.teams[1].roster_id), userMap)} ${shortNumber(closest.teams[1].points)}`
-          : "No data.",
-        inline: false,
-      },
-      {
-        name: "Biggest Blowout",
-        value: blowout
-          ? `P${blowout.period}: ${teamLabel(rosterMap.get(blowout.teams[0].roster_id), userMap)} ${shortNumber(blowout.teams[0].points)} vs ${teamLabel(rosterMap.get(blowout.teams[1].roster_id), userMap)} ${shortNumber(blowout.teams[1].points)}`
-          : "No data.",
-        inline: false,
-      },
-      {
-        name: "Bench Regret",
-        value: topRegret
-          ? `${teamLabel(topRegret.roster, userMap)} left ${compactPlayerLabel(topRegret.regret.playerId, players)} on the bench in P${topRegret.regret.period} (${shortNumber(topRegret.regret.points)} pts, +${shortNumber(topRegret.regret.swing)} swing).`
-          : "No bench regret data.",
-        inline: false,
-      },
     );
   applySeasonFooter(embed, league, interaction);
 
@@ -994,7 +839,6 @@ async function handleRosterAutocomplete(interaction) {
 }
 
 const handlers = {
-  awards: handleAwards,
   compare: handleCompare,
   connect: handleConnect,
   draft: handleDraft,
@@ -1003,14 +847,11 @@ const handlers = {
   leaders: handleLeaders,
   matchups: handleMatchups,
   playoffs: handlePlayoffs,
-  power: handlePower,
-  receipts: handleReceipts,
   recap: handleRecap,
   roster: handleRoster,
   standings: handleStandings,
   team: handleTeam,
   transactions: handleTransactions,
-  weeklyhighs: handleWeeklyHighs,
 };
 
 client.once(Events.ClientReady, (readyClient) => {

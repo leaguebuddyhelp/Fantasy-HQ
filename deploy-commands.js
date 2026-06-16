@@ -98,10 +98,6 @@ const commands = [
     .setDescription("Show a season overview for this league.")
     .addStringOption(seasonOption),
   new SlashCommandBuilder()
-    .setName("awards")
-    .setDescription("Show season awards and league superlatives.")
-    .addStringOption(seasonOption),
-  new SlashCommandBuilder()
     .setName("leaders")
     .setDescription("Show season player leaders.")
     .addStringOption((option) =>
@@ -136,20 +132,8 @@ const commands = [
     .addIntegerOption(periodOption)
     .addStringOption(seasonOption),
   new SlashCommandBuilder()
-    .setName("power")
-    .setDescription("Show power rankings based on record, scoring, and potential points.")
-    .addStringOption(seasonOption),
-  new SlashCommandBuilder()
-    .setName("weeklyhighs")
-    .setDescription("Show the best team and player performances by week.")
-    .addStringOption(seasonOption),
-  new SlashCommandBuilder()
     .setName("draft")
     .setDescription("Show draft recap and pick results.")
-    .addStringOption(seasonOption),
-  new SlashCommandBuilder()
-    .setName("receipts")
-    .setDescription("Show fun season receipts like blowouts, close calls, and bench regrets.")
     .addStringOption(seasonOption),
   new SlashCommandBuilder()
     .setName("compare")
