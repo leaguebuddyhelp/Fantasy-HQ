@@ -8,6 +8,7 @@ const {
   byRosterId,
   byUserId,
   chunkLines,
+  compactPlayerLabel,
   findRosterByTeam,
   formatPoints,
   formatRecord,
@@ -187,26 +188,52 @@ async function handleRoster(interaction) {
   const players = await sleeper.getPlayers(league.sport || "nfl");
   const userMap = byUserId(users);
   const user = userMap.get(roster.owner_id);
-  const starters = new Set(roster.starters || []);
+  const starterIds = (roster.starters || []).filter((playerId) => playerId && playerId !== "0");
+  const starters = new Set(starterIds);
   const reserve = new Set(roster.reserve || []);
   const taxi = new Set(roster.taxi || []);
   const rosterPlayers = (roster.players || []).filter((playerId) => playerId && playerId !== "0");
-  const lines = rosterPlayers.map((playerId) => {
-    const prefix = starters.has(playerId) ? "S" : reserve.has(playerId) ? "IR" : taxi.has(playerId) ? "T" : "B";
-    return `\`${prefix}\` ${playerLabel(playerId, players)}`;
-  });
-
-  const chunks = chunkLines(lines);
+  const starterSlots = (league.roster_positions || [])
+    .filter((slot) => !["BN", "BE", "IR", "TAXI"].includes(slot))
+    .slice(0, roster.starters?.length || 0);
+  const starterLines = (roster.starters || [])
+    .map((playerId, index) => {
+      const slot = starterSlots[index] || "S";
+      return playerId && playerId !== "0"
+        ? `\`${slot}\` ${compactPlayerLabel(playerId, players)}`
+        : `\`${slot}\` Empty`;
+    });
+  const benchLines = rosterPlayers
+    .filter((playerId) => !starters.has(playerId) && !reserve.has(playerId) && !taxi.has(playerId))
+    .map((playerId) => compactPlayerLabel(playerId, players));
+  const taxiLines = [...taxi].map((playerId) => compactPlayerLabel(playerId, players));
+  const reserveLines = [...reserve].map((playerId) => compactPlayerLabel(playerId, players));
+  const summary = [
+    `Record: ${formatRecord(roster.settings)}`,
+    `Points: ${formatPoints(roster.settings)}`,
+    `Waiver: #${roster.settings?.waiver_position ?? "N/A"}`,
+    `Moves: ${roster.settings?.total_moves ?? 0}`,
+    `Players: ${rosterPlayers.length} total, ${starterIds.length} starters, ${benchLines.length} bench, ${taxiLines.length} taxi, ${reserveLines.length} reserve`,
+  ].join("\n");
   const embed = new EmbedBuilder()
-    .setTitle(`${managerName(user)} Roster`)
+    .setTitle(managerName(user))
     .setColor(0x00ceb8)
-    .setDescription(chunks[0] || "No players found.");
+    .setDescription(summary)
+    .addFields(
+      { name: "Starters", value: starterLines.join("\n") || "No starters set.", inline: false },
+      { name: "Bench", value: benchLines.join("\n") || "No bench players.", inline: false },
+    )
+    .setFooter({ text: `${user?.display_name || "Unknown Manager"} - Roster ${roster.roster_id}` });
+
+  if (taxiLines.length) {
+    embed.addFields({ name: "Taxi", value: taxiLines.join("\n"), inline: false });
+  }
+
+  if (reserveLines.length) {
+    embed.addFields({ name: "Reserve", value: reserveLines.join("\n"), inline: false });
+  }
 
   await interaction.editReply({ embeds: [embed] });
-
-  for (const chunk of chunks.slice(1)) {
-    await interaction.followUp({ content: chunk, ephemeral: false });
-  }
 }
 
 function transactionTypeLabel(type) {

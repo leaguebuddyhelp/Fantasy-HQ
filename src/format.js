@@ -43,6 +43,19 @@ function playerLabel(playerId, players) {
   return `${name}${position}${team}`;
 }
 
+function compactPlayerLabel(playerId, players) {
+  if (!playerId || playerId === "0") return "Empty";
+  const player = players[playerId];
+  if (!player) return playerId;
+
+  const name = player.full_name || `${player.first_name || ""} ${player.last_name || ""}`.trim() || playerId;
+  const position = player.position || player.fantasy_positions?.[0] || "";
+  const team = player.team || "FA";
+  const injury = player.injury_status ? ` [${player.injury_status}]` : "";
+
+  return `${name} - ${position}/${team}${injury}`;
+}
+
 function findRosterByTeam(query, users, rosters) {
   const normalized = query.trim().toLowerCase();
   const userMap = byUserId(users);
@@ -93,6 +106,7 @@ module.exports = {
   formatPoints,
   formatRecord,
   managerName,
+  compactPlayerLabel,
   playerLabel,
   rosterChoiceName,
   sortStandings,
