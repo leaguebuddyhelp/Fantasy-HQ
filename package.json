@@ -1,0 +1,19 @@
+{
+  "name": "sleeper-discord",
+  "version": "0.1.0",
+  "description": "Discord bot for pulling Sleeper fantasy football league data into slash commands.",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/index.js",
+    "deploy:commands": "node deploy-commands.js",
+    "check": "node --check src/index.js && node --check src/config.js && node --check src/sleeper.js && node --check src/format.js && node --check deploy-commands.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.16.3",
+    "dotenv": "^16.4.7"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
