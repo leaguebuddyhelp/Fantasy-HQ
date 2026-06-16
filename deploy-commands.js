@@ -28,12 +28,13 @@ function teamOption(name, description, required = true) {
       .setAutocomplete(true);
 }
 
-function playerOption(option) {
-  return option
-    .setName("player")
-    .setDescription("Choose a rostered player from the connected league.")
-    .setRequired(true)
-    .setAutocomplete(true);
+function playerOption(name = "player", description = "Choose a rostered player from the connected league.") {
+  return (option) =>
+    option
+      .setName(name)
+      .setDescription(description)
+      .setRequired(true)
+      .setAutocomplete(true);
 }
 
 const commands = [
@@ -102,10 +103,6 @@ const commands = [
         ),
     ),
   new SlashCommandBuilder()
-    .setName("history")
-    .setDescription("Show a season overview for this league.")
-    .addStringOption(seasonOption),
-  new SlashCommandBuilder()
     .setName("leaders")
     .setDescription("Show season player leaders.")
     .addStringOption((option) =>
@@ -126,34 +123,21 @@ const commands = [
     )
     .addStringOption(seasonOption),
   new SlashCommandBuilder()
-    .setName("playoffs")
-    .setDescription("Show playoff bracket results.")
-    .addStringOption(seasonOption),
-  new SlashCommandBuilder()
     .setName("team")
     .setDescription("Show a historical team dashboard.")
     .addStringOption(teamOption("team", "Choose a team from the selected season."))
     .addStringOption(seasonOption),
   new SlashCommandBuilder()
-    .setName("recap")
-    .setDescription("Show a weekly recap with high score, close matchups, and top players.")
-    .addIntegerOption(periodOption)
-    .addStringOption(seasonOption),
-  new SlashCommandBuilder()
-    .setName("draft")
-    .setDescription("Show draft recap and pick results.")
-    .addStringOption(seasonOption),
-  new SlashCommandBuilder()
     .setName("player")
     .setDescription("Show player season stats, weekly game log, projections, and cache the data.")
-    .addStringOption(playerOption)
+    .addStringOption(playerOption())
     .addIntegerOption(periodOption)
     .addStringOption(seasonOption),
   new SlashCommandBuilder()
     .setName("compare")
-    .setDescription("Compare two teams in the selected season.")
-    .addStringOption(teamOption("team_a", "First team."))
-    .addStringOption(teamOption("team_b", "Second team."))
+    .setDescription("Compare two players in the selected season.")
+    .addStringOption(playerOption("player_a", "First player."))
+    .addStringOption(playerOption("player_b", "Second player."))
     .addStringOption(seasonOption),
 ].map((command) => command.toJSON());
 
