@@ -6,6 +6,20 @@ let data, draft, latest, dirty = false, busy = false, objectUrls = [];
 let highlightedRow, highlightedIssueCard;
 const fields = ['MIN', 'PTS', 'REB', 'AST', 'STL', 'BLK', 'TO', 'FG', '3PT', 'FT', 'OR', 'FLS'];
 const reviewed = new Set();
+const imageCache = new Map();
+let imageKey = '';
+function attachOriginal(original, mediaId, alt) {
+  const image = el('img'); image.alt = alt; original.append(image);
+  if (!imageCache.has(mediaId)) {
+    const request = api(endpoint.replace(/review$/, 'media/' + mediaId)).then(r => r.blob()).then(blob => { const url = URL.createObjectURL(blob); objectUrls.push(url); return url; });
+    imageCache.set(mediaId, request);
+    request.catch(() => imageCache.delete(mediaId));
+  }
+  imageCache.get(mediaId).then(url => {
+    image.src = url; enableImageViewer(image, url);
+    const link = el('a', 'Open full-size original'); link.href = url; link.target = '_blank'; link.rel = 'noopener'; original.append(link);
+  }).catch(error => original.append(el('p', error.message, 'review-problem')));
+}
 function el(tag, text, cls) { const n = document.createElement(tag); if (text != null) n.textContent = text; if (cls) n.className = cls; return n; }
 function feedback(message, error = false) {
   const node = document.querySelector('#action-status'); if (node) { node.textContent = message; node.classList.toggle('review-error', error); }
@@ -42,7 +56,7 @@ function issueLocation(issue) {
   if (!screen) return { label: 'Game scores', path: issue.path };
   const player = parts[2] === 'players' ? screen.players[Number(parts[3])] : null;
   const stat = parts.at(-1), names = { MIN: 'Minutes', AST: 'Assists', REB: 'Rebounds', PTS: 'Points', TO: 'Turnovers', STL: 'Steals', BLK: 'Blocks', FG: 'Field goals', '3PT': 'Three-pointers', '3PA': 'Three-point attempts', '3PM': 'Three-pointers made', FT: 'Free throws', OR: 'Offensive rebounds', FLS: 'Fouls' };
-  const path = (issue.path || '').replace(/\.(FGM|FGA)$/, '.FG').replace(/\.(3PM|3PA)$/, '.3PT').replace(/\.(FTM|FTA)$/, '.FT');
+  const path = (issue.path || '').replace(/\.scores\.([0-4])$/, (_, n) => Number(n) === 4 ? '.finalScore' : `.periods.${n}`).replace(/\.(FGM|FGA)$/, '.FG').replace(/\.(3PM|3PA)$/, '.3PT').replace(/\.(FTM|FTA)$/, '.FT');
   return { label: [screen.tableTeamName, player?.displayedName || (parts[2] === 'totals' ? 'Team totals' : 'Scoreboard / team'), names[stat] || (parts[2] === 'players' ? 'Player match / confidence' : '')].filter(Boolean).join(' · '), path };
 }
 function jumpToIssue(path, issueCard) {
@@ -61,7 +75,7 @@ function input(value, path, update, type = 'text') {
   const n = el('input'); n.type = type; if (type === 'checkbox') n.checked = value === true; else n.value = value ?? '';
   n.setAttribute('aria-label', path); n.dataset.path = path;
   const warnings = (latest.issues || []).filter(i => {
-    const mapped = i.path.replace(/\.(FGM|FGA)$/, '.FG').replace(/\.(3PM|3PA)$/, '.3PT').replace(/\.(FTM|FTA)$/, '.FT');
+    const mapped = i.path.replace(/\.scores\.([0-4])$/, (_, n) => Number(n) === 4 ? '.finalScore' : `.periods.${n}`).replace(/\.(FGM|FGA)$/, '.FG').replace(/\.(3PM|3PA)$/, '.3PT').replace(/\.(FTM|FTA)$/, '.FT');
     return mapped === path || path.startsWith(mapped + '.') || mapped.startsWith(path + '.') || (['FINAL_SCORES_MATCH', 'QUARTERS_MATCH'].includes(i.code) && path.includes('.scoreboard.'));
   });
   if (warnings.length) { n.classList.add('review-problem'); n.title = warnings.map(w => w.message).join('\n'); }
@@ -70,7 +84,7 @@ function input(value, path, update, type = 'text') {
 async function load() {
   status.textContent = 'Loading…';
   const next = await (await api(endpoint)).json();
-  objectUrls.forEach(URL.revokeObjectURL); objectUrls = []; data = next; draft = structuredClone(data.editable); latest = data.extractions.at(-1); dirty = false; reviewed.clear(); await render();
+  if (imageKey !== key.value) { objectUrls.forEach(URL.revokeObjectURL); objectUrls = []; imageCache.clear(); imageKey = key.value; } data = next; draft = structuredClone(data.editable); latest = data.extractions.at(-1); dirty = false; reviewed.clear(); await render();
 }
 async function render() {
   summary.replaceChildren(); highlightedRow = null; highlightedIssueCard = null;
@@ -78,14 +92,23 @@ async function render() {
   if (data.teamRecords?.length) summary.append(el("p", data.teamRecords.map(t => `${t.teamName}: ${t.W}–${t.L}`).join(" · ")));
   status.textContent = `Week ${data.game.weekNumber} · ${data.game.team1Name} vs ${data.game.team2Name} · ${data.game.status}`;
   const score = el('p', latest?.normalized?.screenshots.map(s => `${s.displayedTeamName}: ${s.scoreboard.find(b => b.teamId === s.teamId)?.finalScore ?? 'Unreadable'}`).join(' · ')); score.className = 'review-score'; summary.append(score);
-  if (!data.game.locked && latest?.normalized) summary.append(el('p', 'Extracted score · Pending approval. Stats and standings update after approval.', 'review-score-caption'));
+  if (!data.game.locked && latest?.normalized) summary.append(el('p', 'Extracted score · Pending approval. Stats and standings publish when the week advances.', 'review-score-caption'));
   const history = el('details', null, 'review-history'), historyTitle = el('summary', `Submission history · ${data.extractions.length} extraction / correction revisions`); history.append(historyTitle);
-  for (const attempt of data.extractions) { const d = el('details'); d.append(el('summary', `${attempt.timestamp} · ${attempt.actor?.operator || attempt.provider} · ${attempt.status}`)); d.append(el('pre', JSON.stringify(attempt, null, 2))); history.append(d); } summary.append(history);
+  for (const attempt of data.extractions) {
+    const d = el('details'); d.append(el('summary', `${attempt.timestamp} · ${attempt.actor?.operator || attempt.provider} · ${attempt.status}`));
+    let loading = false;
+    d.addEventListener('toggle', async () => {
+      if (!d.open || loading) return; loading = true;
+      const detail = el('pre', 'Loading revision…'); d.append(detail);
+      try { detail.textContent = JSON.stringify(await (await api(endpoint + '?history=' + encodeURIComponent(attempt.extractionId))).json(), null, 2); }
+      catch(error) { detail.textContent = error.message; loading = false; detail.remove(); }
+    }); history.append(d);
+  } summary.append(history);
   if (!draft) {
     summary.append(el('p', latest?.error || 'No extracted data yet.'));
     for (const [i, media] of (data.media || []).entries()) {
       const card = el('section', null, 'review-card'), original = el('div', null, 'review-original'); card.append(el('h3', `Original screenshot ${i + 1}`)); card.append(original); summary.append(card);
-      try { const response = await api(endpoint.replace(/review$/, 'media/' + media.mediaId)); const url = URL.createObjectURL(await response.blob()); objectUrls.push(url); const img = el('img'); img.alt = `Original screenshot ${i + 1}`; img.src = url; enableImageViewer(img, url); original.append(img); const link = el('a', 'Open full-size original'); link.href = url; link.target = '_blank'; link.rel = 'noopener'; original.append(link); } catch (error) { original.append(el('p', error.message, 'review-problem')); }
+      attachOriginal(original, media.mediaId, `Original image ${i + 1}`);
     }
     return;
   }
@@ -124,8 +147,7 @@ async function render() {
   for (const [i, screen] of draft.screenshots.entries()) {
     const base = `screenshots.${i}`, card = el('section', null, 'review-card'); card.append(el('h3', screen.tableTeamName));
     const comparison = el('div', null, 'review-comparison'), original = el('div', null, 'review-original');
-    const image = el('img'); image.alt = `Original ${screen.tableTeamName} box score`; original.append(image);
-    try { const response = await api(endpoint.replace(/review$/, 'media/' + screen.mediaId)); const url = URL.createObjectURL(await response.blob()); objectUrls.push(url); image.src = url; enableImageViewer(image, url); const a = el('a', 'Open full-size original'); a.href = url; a.target = '_blank'; a.rel = 'noopener'; original.append(a); } catch (e) { original.append(el('p', e.message, 'review-problem')); }
+    attachOriginal(original, screen.mediaId, `Original ${screen.tableTeamName} box score`);
     const editor = el('fieldset'); editor.disabled = locked; editor.append(el('legend', 'Extracted box score'));
     for (const [j, board] of screen.scoreboard.entries()) {
       const row = el('div', null, 'review-toolbar'); row.append(el('strong', board.teamName));
@@ -154,6 +176,12 @@ async function render() {
         if (candidates.length > 3) choices.append(el('small', `${candidates.length - 3} more in roster list`));
         cell.append(choices);
       }
+      const rowIssues = issues.filter(issue => ['UNCERTAIN_FIELD','CONFIDENCE'].includes(issue.code) && (issue.path === `${base}.players.${j}` || issue.path.startsWith(`${base}.players.${j}.`)));
+      if (rowIssues.length && !locked) {
+        const verify = el('button', 'Verified this row'); verify.type = 'button';
+        verify.onclick = () => { for (const issue of rowIssues) { reviewed.add(issue.path); const checkbox = summary.querySelector(`[data-path="Verified ${issue.path}"]`); if (checkbox) checkbox.checked = true; } updateIssueProgress(); markDirty(); verify.textContent = 'Row verified ✓'; };
+        cell.append(verify);
+      }
       row.append(cell);
       const dnp = el('td'); dnp.append(input(p.dnp, `${base}.players.${j}.dnp`, v => { p.dnp = v; for (const n of row.querySelectorAll('[data-stat]')) n.disabled = v; }, 'checkbox')); row.append(dnp);
       for (const field of fields) { const td = el('td'); const n = input(p.stats[field], `${base}.players.${j}.stats.${field}`, v => p.stats[field] = v); n.dataset.stat = field; n.disabled = p.dnp === true; td.append(n); row.append(td); } table.append(row);
@@ -163,7 +191,7 @@ async function render() {
   }
   const actions = el('div', null, 'review-toolbar'), save = el('button', 'Save corrections & revalidate', 'primary-action'), approve = el('button', 'APPROVE GAME', 'primary-action'); approve.id = 'approve'; if (locked) approve.textContent = 'APPROVED ✓'; save.disabled = locked; approve.disabled = locked || !latest.correctedInput || latest.issues.length > 0;
   const actionPanel = el('section', null, 'review-action-panel');
-  actionPanel.append(el('h3', locked ? 'Game approved' : 'Finish your review'), el('p', locked ? 'Review complete. No further action is needed.' : '1. Save corrections and verify the checks.  2. Approve the game to update stats and standings.'));
+  actionPanel.append(el('h3', locked ? 'Game approved' : 'Finish your review'), el('p', locked ? 'Review complete. No further action is needed.' : '1. Save corrections and verify the checks.  2. Approve the game to save its result for the next week advancement.'));
   const notice = el('p', null, 'review-action-status'); notice.id = 'action-status'; notice.setAttribute('role', 'status'); notice.setAttribute('aria-live', 'polite');
   actionPanel.append(notice);
   async function act(action) {

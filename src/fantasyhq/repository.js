@@ -88,6 +88,7 @@ function normalizeSchedule(schedule = {}) {
     leagueId: String(schedule.leagueId || "").trim(),
     seasonId: String(schedule.seasonId || "").trim(),
     generatedAt: String(schedule.generatedAt || "").trim(),
+    ...(schedule.statsPublication ? { statsPublication: structuredClone(schedule.statsPublication) } : {}),
     savedAt: schedule.savedAt ? String(schedule.savedAt) : null,
     weeks,
   };

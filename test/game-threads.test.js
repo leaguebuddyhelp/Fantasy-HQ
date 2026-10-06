@@ -16,10 +16,10 @@ function fixture(t) {
     function thread(id) { const members = new Set(), messages = new Map(); const result = { id, type: 12, guildId: 'guild', delete: async () => channels.delete(id), members: { add: async id => { if (failMember) { failMember = false; throw Error('Member failed'); } members.add(id); } }, messages: { fetch: async id => messages.get(id) }, send: async payload => { const m = { id: 'message-' + id, payload, edit: async p => m.payload = p }; messages.set(m.id, m); return m; }, memberIds: members, savedMessages: messages }; channels.set(id, result); return result; }
     const parent = { id: 'games', guildId: 'guild', type: 0, permissionsFor: () => ({ has: () => true }), threads: { create: async options => { if (failCreate) { failCreate = false; throw Error('Create failed'); } calls.push(options); return thread('thread-' + calls.length); } } }; channels.set('games', parent);
     const guild = { id: 'guild', members: { me: {} }, channels: { fetch: async id => id ? channels.get(id) || null : channels } };
-    const staffUserIds = [];
+    const staffUserIds = [], staffRoleIds = [];
     const submissions = createGameSubmissionService({ repository, download: async () => Buffer.from([255, 216, 255, 0]) }); let syncs = 0;
-    const service = createGameThreadService({ submissions, syncOwners: async () => { syncs++; return { conflicts: [], staffUserIds }; }, logger: { error() { } } });
-    return { staffUserIds, repository, submissions, service, guild, channels, calls, thread, failCreate: () => failCreate = true, failMember: () => failMember = true, syncs: () => syncs };
+    const service = createGameThreadService({ submissions, syncOwners: async () => { syncs++; return { conflicts: [], staffUserIds, staffRoleIds }; }, logger: { error() { } } });
+    return { staffUserIds, staffRoleIds, repository, submissions, service, guild, channels, calls, thread, failCreate: () => failCreate = true, failMember: () => failMember = true, syncs: () => syncs };
 }
 test('active week creates 14 private threads with correct coaches, games, controls and shared deadline; concurrent retry creates none', async t => {
     const f = fixture(t), before = f.repository.loadSchedule('test', '1'); const first = await f.service.create(f.guild);
@@ -92,4 +92,21 @@ test('intentionally cleaned active-week threads stay deleted when creation runs 
     const f = fixture(t); await f.service.create(f.guild);
     for (const { game } of f.submissions.records()) { f.channels.delete(game.discordThreadId); await f.submissions.mutate(game.gameId, r => { r.game.discordThreadCleanedAt = new Date().toISOString(); }); }
     const result = await f.service.create(f.guild); assert.equal(result.cleaned, 14); assert.equal(result.created, 0); assert.equal(f.calls.length, 14);
+});
+
+test('both commissioner roles appear in every thread and are allowed on the initial send; repair preserves tags without repeated pings', async t=>{
+ const f=fixture(t);f.staffRoleIds.push('commish-role','assistant-role');f.staffUserIds.push('commissioner','assistant');
+ await f.service.create(f.guild);
+ for(const {game} of f.submissions.records()){
+  const thread=f.channels.get(game.discordThreadId),payload=thread.savedMessages.get(game.discordMessageId).payload;
+  assert.ok(payload.content.includes('<@&commish-role>'));assert.ok(payload.content.includes('<@&assistant-role>'));
+  assert.deepEqual(payload.allowedMentions.roles,['commish-role','assistant-role']);
+  assert.ok(thread.memberIds.has('commissioner'));assert.ok(thread.memberIds.has('assistant'));
+ }
+ await f.service.create(f.guild);
+ for(const {game} of f.submissions.records()){
+  const payload=f.channels.get(game.discordThreadId).savedMessages.get(game.discordMessageId).payload;
+  assert.ok(payload.content.includes('<@&commish-role>'));assert.ok(payload.content.includes('<@&assistant-role>'));
+  assert.deepEqual(payload.allowedMentions,{parse:[]});
+ }
 });

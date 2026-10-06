@@ -52,7 +52,7 @@ function createTeamService(options = {}) {
       });
     }
 
-    const standings = require("./standings-service").createStandingsService({ repository }).getStandings(leagueId, context.seasonId);
+    const standings = require("./standings-service").createStandingsService({ repository, publishedOnly: options.publishedOnly === true }).getStandings(leagueId, context.seasonId);
     const records = new Map(Object.values(standings.conferences).flat().map(t => [t.teamId, t]));
     const livePicks = tradeService.getLiveSnapshot(leagueId, context.seasonId).picks;
     const picksByTeam = new Map(context.teams.map(team => [team.teamId, []]));

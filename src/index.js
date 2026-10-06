@@ -788,6 +788,17 @@ client.once(Events.ClientReady, async (readyClient) => {
   let mockTickRunning = false;
   setInterval(async () => { if (mockTickRunning) return; mockTickRunning = true; try { await discordMocks.tick(readyClient); } catch (error) { console.error('Mock tick:', error.message); } finally { mockTickRunning = false; } }, 1000).unref();
   discordTrades.restore(readyClient).catch(error => console.error("Trade recovery:", error.message));
+  try { require("./fantasyhq/box-score/learning").learnApprovedHistory(require("./fantasyhq/game-submissions").createGameSubmissionService()); }
+  catch (error) { console.error("OCR learning recovery:", error.message); }
+  const publicationSubmissions = require("./fantasyhq/game-submissions").createGameSubmissionService();
+  const publicationRecords = publicationSubmissions.records();
+  for (const guild of readyClient.guilds.cache.values()) {
+    try { require("./fantasyhq/official-game").initializeStatsPublication(publicationSubmissions.repository, publicationRecords, guild.id); }
+    catch (error) { console.error("Stats publication recovery:", error.message); }
+  }
+  const leagueFeeds = require("./fantasyhq/discord-league-feeds").createDiscordLeagueFeeds();
+  const feedTick = () => leagueFeeds.tick(readyClient).catch(error => console.error("League feeds:", error.message));
+  feedTick(); setInterval(feedTick, 60000).unref();
   const activityTick = () => gameActivity.tick(client).catch(error => console.error("Game activity:", error.message));
   activityTick(); setInterval(activityTick, 60000).unref();
   for (const guild of readyClient.guilds.cache.values()) queueOwnershipSync(guild);

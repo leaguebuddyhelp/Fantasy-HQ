@@ -196,6 +196,13 @@ test('website stats and game-log endpoints use the bound league season and perma
     assert.equal(player.PPG, 20);
     const log = get('/api/league/stats/players/traded-player/games');
     assert.equal(log.player.playerId, 'traded-player');
-    assert.deepEqual(log.games.map(game => game.teamId), ['atl', 'bos', 'bos']);
-    assert.deepEqual(log.games.map(game => game.DNP), [false, false, true]);
+    assert.deepEqual(log.games.map(game => game.teamId), ['atl', 'bos']);
+    assert.deepEqual(log.games.map(game => game.DNP), [false, false]);
+});test('published player stats and logs exclude active-week games and follow the saved publication IDs', t=>{
+ const f=fixture(t);const service=createPlayerStatsService({repository:f.repository,submissions:{repository:f.repository,records:()=>f.records},publishedOnly:true});
+ const before=service.getPlayerStatsAndGameLog('league-a','1','traded-player');assert.ok(before.games.every(g=>g.week<3));
+ const schedule=f.repository.loadSchedule('league-a','1');
+ schedule.statsPublication={throughWeek:1,gameIds:[f.records[0].game.gameId]};f.repository.saveSchedule(schedule);
+ const snapshot=service.getSeasonSnapshot('league-a','1');assert.equal(snapshot.publishedThroughWeek,1);
+ assert.equal(service.getPlayerStatsAndGameLog('league-a','1','traded-player').games.length,1);
 });

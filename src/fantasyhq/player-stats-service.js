@@ -1,5 +1,5 @@
 const { createGameSubmissionService } = require('./game-submissions');
-const { officialRegularGame } = require('./official-game');
+const { officialRegularGame, publishedRegularGame, publishedThroughWeek } = require('./official-game');
 const { activeMemberships } = require('./service-helpers');
 const { createFantasyHQRepository } = require('./repository');
 
@@ -21,7 +21,7 @@ function percentage(makes, attempts) {
     return attempts > 0 ? (makes / attempts) * 100 : null;
 }
 
-function createPlayerStatsService({ repository, submissions } = {}) {
+function createPlayerStatsService({ repository, submissions, publishedOnly = false } = {}) {
     submissions ||= createGameSubmissionService(repository ? { repository } : {});
     repository ||= submissions.repository || createFantasyHQRepository();
 
@@ -61,7 +61,7 @@ function createPlayerStatsService({ repository, submissions } = {}) {
 
         for (const record of submissions.records()) {
             const game = record.game || {};
-            if (!officialRegularGame(record, { leagueId, seasonId: resolvedSeasonId, schedule })) continue;
+            if (!(publishedOnly ? publishedRegularGame : officialRegularGame)(record, { leagueId, seasonId: resolvedSeasonId, schedule })) continue;
             const gameTeamIds = [String(game.team1Id || ''), String(game.team2Id || '')];
             const seen = new Map();
             const duplicates = new Set();
@@ -197,12 +197,12 @@ function createPlayerStatsService({ repository, submissions } = {}) {
         stats.sort((left, right) => left.name.localeCompare(right.name) || left.playerId.localeCompare(right.playerId));
         for (const logs of logsByPlayer.values()) logs.sort((left, right) => left.week - right.week
             || String(left.date || '').localeCompare(String(right.date || '')) || left.gameId.localeCompare(right.gameId));
-        return { leagueId, seasonId: resolvedSeasonId, players: stats, logsByPlayer, warnings };
+        return { leagueId, seasonId: resolvedSeasonId, players: stats, logsByPlayer, warnings, publishedThroughWeek: publishedThroughWeek(schedule) };
     }
 
     function getSeasonSnapshot(leagueId, seasonId) {
-        const { leagueId: resolvedLeague, seasonId: resolvedSeason, players, warnings } = buildSnapshot(leagueId, seasonId);
-        return { leagueId: resolvedLeague, seasonId: resolvedSeason, players, warnings };
+        const { leagueId: resolvedLeague, seasonId: resolvedSeason, players, warnings, publishedThroughWeek } = buildSnapshot(leagueId, seasonId);
+        return { leagueId: resolvedLeague, seasonId: resolvedSeason, players, warnings, publishedThroughWeek };
     }
 
     function getPlayerSeasonStats(leagueId, seasonId, playerId) {

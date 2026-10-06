@@ -35,7 +35,7 @@ function createReviewService(submissions) {
         }
       });
     });
-    const output=normalizeExtraction(input,{game:record.game,media:record.media.filter(m=>m.submissionId===source.submissionId),teams,rosters,playerMatches:matches});
+    const output=normalizeExtraction(input,{game:record.game,media:record.media.filter(m=>m.submissionId===source.submissionId),teams,rosters,playerMatches:matches,learnedAliases:require('./learning').loadLearning(submissions.repository,record.game.leagueId).aliases});
     for(const issue of source.issues || []) if(issue.code==='UNCERTAIN_FIELD' && !all.has(issue.path))output.issues.push(issue);
     if(record.submissions.find(s=>s.submissionId===source.submissionId)?.mode==='TEAM_SIDES') for(const screen of output.normalized.screenshots) if(record.media.find(m=>m.mediaId===screen.mediaId)?.teamId!==screen.teamId)output.issues.push({code:'UPLOADED_TEAM_MISMATCH',path:screen.mediaId,message:'Screenshot does not match the uploading team.'});
     return {...output,reviewedPaths:[...all]};
@@ -63,7 +63,7 @@ function createReviewService(submissions) {
     });
   }
   async function approve(gameId,submissionId,body) {
-    return submissions.mutate(gameId,record=>{
+    const result = await submissions.mutate(gameId,record=>{
       const {source}=current(record,submissionId,body.extractionId);
       if(!source.correctedInput || !source.actor)throw new Error('Save and revalidate your review first.');
       const output=validate(record,source,structuredClone(source.correctedInput),[]);
@@ -73,6 +73,10 @@ function createReviewService(submissions) {
       record.game.approval={extractionId:source.extractionId,at:new Date().toISOString(),principal:'website-commissioner-key',operator};
       return record.game;
     });
+    const saved = submissions.load(gameId);
+    try { require('./learning').learnApprovedReview(submissions.repository, saved, saved.extractions.find(e => e.extractionId === body.extractionId)); }
+    catch (error) { console.error('OCR alias learning:', error.message); }
+    return result;
   }
   return {correct,approve};
 }

@@ -2,7 +2,7 @@ const {teamLabel}=require("../../shared/team-emojis");
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } = require('discord.js');
 function extractionPayload(game, extraction) {
   const embed = new EmbedBuilder().setColor(game.status === 'FINAL' ? 0x35a76f : 0xffdc21).setTitle(game.status === 'FINAL' ? '✅ GAME APPROVED' : extraction.status === 'EXTRACTION_FAILED' ? 'EXTRACTION FAILED' : 'GAME PROCESSED');
-  if (extraction.status === 'EXTRACTION_FAILED') embed.setDescription(`${extraction.error}\n\nOriginal screenshots are safe. Retry without uploading again.`.slice(0,4000));
+  if (extraction.status === 'EXTRACTION_FAILED') embed.setDescription(`${extraction.error}\n\nYour original photos / screenshots are saved. Retry without uploading again.`.slice(0,4000));
   else {
     const screens = extraction.normalized.screenshots;
     const scores = [game.team1Id,game.team2Id].map((id,i) => {

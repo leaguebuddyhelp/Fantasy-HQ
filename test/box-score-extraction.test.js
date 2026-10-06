@@ -305,3 +305,20 @@ test('solo finalization uses real validation and is rejected after disabling tes
     }
   }
 });
+
+test('review response excludes raw OCR and old row data; protected history preserves exact evidence', async t=>{
+ const f=await reviewFixture(t);
+ const loaded=JSON.parse((await reviewRequest(f,'review',true)).body);
+ assert.equal(loaded.extractions[0].raw,undefined);
+ assert.ok(loaded.extractions.at(-1).rosterSnapshot);
+ const history=await reviewRequest(f,`review?history=${f.original.extractionId}`,true);
+ assert.equal(history.code,200);assert.equal(JSON.parse(history.body).raw,f.original.raw);
+ assert.equal((await reviewRequest(f,`review?history=${f.original.extractionId}`,false)).code,403);
+ fixReview(f);await f.review.correct(f.game.gameId,f.submission.submissionId,f.body);
+ const updated=JSON.parse((await reviewRequest(f,'review',true)).body);
+ assert.equal(updated.extractions[0].normalized,undefined);assert.ok(updated.extractions.at(-1).normalized);
+ assert.equal(require('../src/fantasyhq/box-score/learning').loadLearning(f.repository,f.game.leagueId).aliases['unmatched'],undefined);
+ await f.review.approve(f.game.gameId,f.submission.submissionId,{extractionId:updated.extractions.at(-1).extractionId,operator:'Approver'});
+ const learned=require('../src/fantasyhq/box-score/learning').loadLearning(f.repository,f.game.leagueId);
+ assert.equal(learned.aliases.unmatched['0-1'],1);
+});

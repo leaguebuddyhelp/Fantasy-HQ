@@ -44,7 +44,7 @@ function createBoxScoreExtractionService(options = {}) {
       const players = repository.loadPlayers(record.game.leagueId);
       const rosters = Object.fromEntries([record.game.team1Id,record.game.team2Id].map(id => [id,
         players.filter(p => memberships.some(m => m.playerId === p.playerId && m.teamId === id))]));
-      const output = normalizeExtraction(parsed, { game:record.game, media:images, teams:context.teams, rosters });
+      const output = normalizeExtraction(parsed, { game:record.game, media:images, teams:context.teams, rosters, learnedAliases: require('./learning').loadLearning(repository, record.game.leagueId).aliases });
       const submission = record.submissions.find(s => s.submissionId === submissionId);
       if (submission.mode === 'TEAM_SIDES') {
         for (const screen of output.normalized.screenshots) {

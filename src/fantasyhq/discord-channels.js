@@ -2,7 +2,7 @@ const { ChannelType, PermissionFlagsBits: P } = require('discord.js');
 const { ensureLeagueRoles } = require('./discord-roles');
 const CHANNELS = [
     ['staff', 'league-staff', 'staff'], ['announcements', 'announcements', 'publicRead'], ['chat', 'chat', 'chat'],
-    ['availableTeams', 'available-teams', 'publicRead'], ['schedule', 'schedule', 'read'], ['standings', 'standings', 'read'],
+    ['availableTeams', 'available-teams', 'publicRead'], ['stats', 'stats', 'read'], ['standings', 'standings', 'read'],
     ['games', 'game-threads', 'games'], ['scouting', 'scouting-hub', 'chat'], ['activity', 'activitycheck', 'chat'],
     ['submitTrade', 'submit-trade', 'trade'], ['tradeBlock', 'trade-block', 'chat'], ['tradeCounts', 'trade-counts', 'read'],
     ['tradeCommittee', 'trade-committee', 'committee'], ['tradeProof', 'trade-proof', 'chat'], ['playerUpgrades', 'player-upgrades', 'upgrades'],
@@ -44,9 +44,13 @@ function createChannelSetupService(repository = require('./repository').createFa
         const result = { created: 0, reused: 0, failed: 0, errors: [] };
         for (const [key, suffix, access] of CHANNELS) {
             try {
-                let ch = existing(ids[key] || (key === 'games' ? settings.gamesChannelId : null), `lb-${suffix}`, ChannelType.GuildText);
+                let ch = existing(ids[key] || (key === 'stats' ? ids.schedule : key === 'games' ? settings.gamesChannelId : null), `lb-${suffix}`, ChannelType.GuildText);
                 if (ch) { await ch.permissionOverwrites.set(overwrites(access), 'LEAGUEbuddy channel access setup'); result.reused++; }
                 else { ch = await guild.channels.create({ name: `lb-${suffix}`, type: ChannelType.GuildText, parent: category.id, permissionOverwrites: overwrites(access), reason: 'LEAGUEbuddy league setup' }); channels.set(ch.id, ch); result.created++; }
+                if (key === 'stats' && ids.schedule) {
+                    if (ch.id === ids.schedule && ch.name === 'lb-schedule') await ch.setName('lb-stats', 'Replace schedule feed with season stat leaders');
+                    delete ids.schedule;
+                }
                 ids[key] = ch.id; save();
             } catch (error) { result.failed++; result.errors.push(`lb-${suffix}: ${error.message}`); }
         }
@@ -76,6 +80,8 @@ function createChannelSetupService(repository = require('./repository').createFa
             const message = await require('./discord-player-upgrades').createDiscordPlayerUpgrades({ repository }).ensurePin(guild, leagueId);
             result.playerUpgradesMessageId = message.id; result.playerUpgradesChannelId = ids.playerUpgrades;
         } catch (error) { result.failed++; result.errors.push(`player upgrades pin: ${error.message}`); }
+        try { await require('./discord-league-feeds').createDiscordLeagueFeeds({ repository }).ensurePins(guild, leagueId); }
+        catch (error) { result.failed++; result.errors.push(`season feed pins: ${error.message}`); }
         // Refresh is queued in the existing league storage; starts never generate simulations.
         try { require('./mock-storage').requestRefresh(repository, leagueId, 'league.channels.setup', `setup:${context.seasonId}`); }
         catch (error) { result.errors.push(`mock simulations: ${error.message}`); }

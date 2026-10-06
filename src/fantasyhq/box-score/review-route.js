@@ -28,6 +28,14 @@ function handleBoxScoreReview(request,response,url,{ authorized, submissions = c
     const submission = record.submissions.find(s => s.submissionId === submissionId);
     if (!submission) throw new Error('Not found');
     const media = record.media.filter(m => m.submissionId === submissionId);
+    const attempts = (record.extractions || []).filter(e => e.submissionId === submissionId);
+    if (!mediaId && url.searchParams.has('history')) {
+      const attempt = attempts.find(e => e.extractionId === url.searchParams.get('history'));
+      if (!attempt) throw new Error('Revision not found');
+      response.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});
+      response.end(JSON.stringify(attempt)); return true;
+    }
+
     let teamRecords=[];
     if(!mediaId)try {teamRecords=Object.values(require('../standings-service').createStandingsService({submissions}).getStandings(record.game.leagueId,record.game.seasonId).conferences).flat().filter(t=>[record.game.team1Id,record.game.team2Id].includes(t.teamId));}catch { /* Historic games remain readable after league deletion. */ }
     if (mediaId) {
@@ -40,7 +48,11 @@ function handleBoxScoreReview(request,response,url,{ authorized, submissions = c
       response.end(JSON.stringify({game:record.game,submission,media,teamRecords,
         editable:(record.extractions || []).filter(e=>e.submissionId===submissionId).at(-1)?.normalized ? editable((record.extractions || []).filter(e=>e.submissionId===submissionId).at(-1)) : null,
         playerGameStats:record.playerGameStats || [],teamGameStats:record.teamGameStats || [],dnpPlayers:record.dnpPlayers || [],
-        extractions:(record.extractions || []).filter(e => e.submissionId === submissionId)}));
+        extractions:attempts.map((e,i) => {
+          if(i === attempts.length-1) { const { raw, ...current } = e; return current; }
+          const { extractionId, timestamp, actor, provider, status, error } = e;
+          return { extractionId, timestamp, actor, provider, status, error };
+        })}));
     }
   } catch { response.writeHead(404,{'Content-Type':'application/json','Cache-Control':'no-store'}); response.end(JSON.stringify({error:'Submission or media not found.'})); }
   return true;

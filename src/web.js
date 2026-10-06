@@ -24,9 +24,9 @@ const DRAFT_CLASS_DIR = path.join(ROOT_DIR, "draft_class");
 const DRAFT_IMAGE_DIR = path.join(DRAFT_CLASS_DIR, "images");
 const setupService = createSetupService();
 const leagueService = createLeagueService({ repository: setupService.repository });
-const playerStatsService = createPlayerStatsService({ repository: setupService.repository });
-const teamService = createTeamService({ repository: setupService.repository, playerStatsService });
-const teamStatsService = createTeamStatsService({ repository: setupService.repository });
+const playerStatsService = createPlayerStatsService({ repository: setupService.repository, publishedOnly: true });
+const teamService = createTeamService({ repository: setupService.repository, playerStatsService, publishedOnly: true });
+const teamStatsService = createTeamStatsService({ repository: setupService.repository, publishedOnly: true });
 const webGameSubmissions = createGameSubmissionService({ repository: setupService.repository });
 const webPlayerUpgrades = createPlayerUpgradeService({ repository: setupService.repository, submissions: webGameSubmissions });
 webGameSubmissions.setFinalizationHandler(record => webPlayerUpgrades.reconcileFinalizedGames({ leagueId: record.game.leagueId, seasonId: record.game.seasonId }));
@@ -435,7 +435,7 @@ function requestHandler(request, response) {
   }
 
   if (url.pathname === "/api/league/standings" && request.method === "GET") {
-    try { const context = boundLeagueContext(); sendJson(response, 200, require('./fantasyhq/standings-service').createStandingsService({ repository: leagueService.repository }).getStandings(context.league.leagueId, context.seasonId)); }
+    try { const context = boundLeagueContext(); sendJson(response, 200, require('./fantasyhq/standings-service').createStandingsService({ repository: leagueService.repository, publishedOnly: true }).getStandings(context.league.leagueId, context.seasonId)); }
     catch (error) { sendJson(response, 400, { error: error.message }); } return;
   }
 

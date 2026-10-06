@@ -10,7 +10,7 @@ function imageType(bytes) {
   if (bytes.length >= 3 && bytes.subarray(0, 3).equals(Buffer.from([255, 216, 255]))) return "image/jpeg";
   if (bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) return "image/png";
   if (bytes.toString("ascii", 0, 4) === "RIFF" && bytes.toString("ascii", 8, 12) === "WEBP") return "image/webp";
-  throw new Error("Unsupported image. Upload original JPG, PNG, or WebP screenshots.");
+  throw new Error("Unsupported image. Upload original JPG, PNG, or WebP photos or screenshots.");
 }
 async function downloadDiscordImage(attachment) {
   const url = new URL(attachment.url);
@@ -190,7 +190,7 @@ function createGameSubmissionService(options = {}) {
       if (current.length + fresh.length > 2) throw new Error("Upload exactly two screenshots per submission.");
       for (const attachment of fresh) {
         if (!TYPES[attachment.contentType?.split(";")[0]] || attachment.size > MAX_IMAGE_BYTES) {
-          throw new Error("Upload JPG, PNG, or WebP screenshots, each 25 MB or smaller.");
+          throw new Error("Upload JPG, PNG, or WebP photos or screenshots, each 25 MB or smaller.");
         }
       }
       for (const attachment of fresh) {

@@ -49,6 +49,7 @@ function createWeekAdvancementService({ submissions = require('./game-submission
     if (c.force && JSON.stringify(view.unresolved.map(g => [g.team1Id, g.team2Id, g.gameId])) !== JSON.stringify(c.view.unresolved.map(g => [g.team1Id, g.team2Id, g.gameId]))) throw Error('Unresolved games changed. Review and confirm again.');
     const schedule = repository.loadSchedule(leagueId, view.seasonId), current = schedule.weeks.find(w => w.week === view.week), next = schedule.weeks.find(w => w.week === view.week + 1), timestamp = new Date(now()).toISOString();
     current.status = 'COMPLETED'; current.completedAt = timestamp;
+    schedule.statsPublication = { throughWeek: view.week, publishedAt: timestamp, gameIds: require('./official-game').officialRegularGames(submissions.records(), { leagueId, seasonId: view.seasonId, schedule }).games.filter(r => r.game.weekNumber <= view.week).map(r => r.game.gameId) };
     if (c.force) current.unresolvedAtCompletion = view.unresolved.map(g => ({ gameId: g.gameId, team1Id: g.team1Id, team2Id: g.team2Id }));
     const league = { ...context.league, updatedAt: timestamp };
     if (next) { next.status = 'ACTIVE'; delete next.startedAt; delete next.deadlineAt; delete next.threadsStartedAt; league.currentWeek = next.week; }

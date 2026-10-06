@@ -46,7 +46,7 @@ function dashboardEmbed(dashboard) {
     });
     if (validator.errors.length) embed.addFields({ name: "Needs attention", value: validator.errors.slice(0, 5).join("\n").slice(0, 1024) });
   }
-  embed.addFields({ name: "Discord channel setup", value: "Create / repair channels sets up 17 lb- channels and league roles, repairs the Submit Trade, Trade Counts, Live Mock Draft and Player Upgrades pins, and applies coach/GM/staff/committee access. Existing channels keep their names and locations." });
+  embed.addFields({ name: "Discord channel setup", value: "Create / repair channels sets up 17 lb- channels and league roles, repairs the Submit Trade, Trade Counts, Live Mock Draft, Player Upgrades, Standings and Stats pins, and applies coach/GM/staff/committee access. The old schedule channel becomes lb-stats. Other existing channels keep their names and locations." });
   return embed;
 }
 

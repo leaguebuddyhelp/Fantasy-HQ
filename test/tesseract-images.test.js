@@ -52,3 +52,45 @@ test('4K Cavaliers/Heat uploads recognize table despite garbled red title and re
  assert.equal(screens[1].players[0].displayedName,'G. Antetokounmpo');
  assert.ok(screens.some(s=>s.uncertainFields.length));
 });
+
+test('saved Wolves/Rockets images read quarter labels even when whole-image OCR misses them', {timeout:180000}, async()=>{
+ const provider=createTesseractProvider();
+ const result=await provider.extract(['association-wolves.jpg','association-rockets.jpg'].map((file,i)=>({mediaId:String(i),bytes:fs.readFileSync(path.join(__dirname,'fixtures',file))})));
+ assert.equal(result.error,undefined);
+ const screens=provider.parse(result).screenshots;
+ assert.deepEqual(screens.map(s=>s.tableTeamName),['Timberwolves','Rockets']);
+ for(const s of screens){assert.deepEqual(s.scoreboard.map(t=>t.finalScore),['93','121']);assert.equal(s.players.length,14);}
+ assert.deepEqual(screens.map(s=>s.totals.PTS),['121','93']);
+ assert.deepEqual(screens[0].scoreboard.map(t=>t.periods.map(p=>p.score)),[['26','33','11','23'],['32','31','33','25']]);
+});
+
+test('camera-style portrait framing and EXIF rotation preserve scores and original uploads', {timeout:180000}, async()=>{
+ const sharp=require('sharp');
+ const source=fs.readFileSync(path.join(__dirname,'fixtures','association-wolves.jpg'));
+ const screen=await sharp(source).resize({width:1920}).png().toBuffer();
+ const photo=await sharp({create:{width:2300,height:1800,channels:3,background:'#414141'}}).composite([{input:screen,left:170,top:280}]).jpeg({quality:95}).toBuffer();
+ const rotated=await sharp(photo).rotate(-90).withMetadata({orientation:6}).jpeg({quality:95}).toBuffer();
+ const original=Buffer.from(rotated), provider=createTesseractProvider();
+ const tilted=await sharp(photo).rotate(3,{background:'#414141'}).jpeg({quality:95}).toBuffer();
+ const result=await provider.extract([{mediaId:'photo',bytes:rotated},{mediaId:'tilted-photo',bytes:tilted}]);
+ assert.equal(result.error,undefined);
+ const actual=provider.parse(result).screenshots[0];
+ assert.equal(actual.tableTeamName,'Timberwolves');
+ assert.deepEqual(actual.scoreboard.map(t=>t.finalScore),['93','121']);
+ assert.equal(actual.totals.PTS,'121'); assert.equal(actual.players.length,14);
+ assert.deepEqual(rotated,original);
+ const angled=provider.parse(result).screenshots[1];
+ assert.deepEqual(angled.scoreboard.map(t=>t.finalScore),['93','121']);
+ assert.equal(angled.totals.PTS,'121');
+});
+
+test('Heat/Pistons uploads locate the table when the highlighted Minutes heading is unreadable', {timeout:180000}, async()=>{
+ const provider=createTesseractProvider();
+ const result=await provider.extract(['association-pistons.jpg','association-heat-pistons-heat.jpg'].map((file,i)=>({mediaId:String(i),bytes:fs.readFileSync(path.join(__dirname,'fixtures',file))})));
+ assert.equal(result.error,undefined);
+ const screens=provider.parse(result).screenshots;
+ assert.deepEqual(screens.map(s=>s.tableTeamName),['Pistons','Heat']);
+ for(const s of screens){assert.deepEqual(s.scoreboard.map(t=>t.finalScore),['98','96']);assert.equal(s.players.length,14);}
+ assert.deepEqual(screens.map(s=>s.totals.PTS),['98','96']);
+ for(const s of screens)assert.deepEqual(s.scoreboard.map(t=>t.periods.map(p=>p.score)),[['26','19','27','26'],['13','26','26','31']]);
+});

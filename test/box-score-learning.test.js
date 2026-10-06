@@ -1,0 +1,40 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { playerMatch } = require('../src/fantasyhq/box-score/normalize');
+const { loadLearning, learnApprovedReview } = require('../src/fantasyhq/box-score/learning');
+const { createFantasyHQRepository } = require('../src/fantasyhq/repository');
+test('nicknames and damaged surnames stay within the roster and ambiguous names need confirmation', () => {
+ const roster=[{playerId:'bones',name:'Bones Hyland'},{playerId:'alperen',name:'Alperen Şengün'},{playerId:'oscar',name:'Oscar Tshiebwe'}];
+ assert.equal(playerMatch('N. Hyland',roster).candidates[0].playerId,'bones');
+ assert.equal(playerMatch('N. Hyland',roster).automatic,true);
+ assert.equal(playerMatch('N. Hyland',[]).automatic,false);
+ assert.equal(playerMatch('A.Sengiin',roster).candidates[0].playerId,'alperen');
+ assert.equal(playerMatch('A.Sengiin',roster).automatic,false);
+ assert.equal(playerMatch('Tshiebwe',roster).candidates[0].playerId,'oscar');
+ assert.equal(playerMatch('Tshiebwe',roster).automatic,false);
+ assert.equal(playerMatch('N. Hyland',[...roster,{playerId:'other',name:'Nahshon Hyland'}]).automatic,false);
+});
+test('only approved reviews teach aliases; repeated games, wrong rosters and conflicts cannot silently assign a player', t => {
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'lb-ocr-learning-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+ const repository=createFantasyHQRepository({dataRoot:root});repository.saveLeague('l',{currentSeasonId:'1'});
+ const source={correctedInput:{},issues:[],rosterSnapshot:{team:[{playerId:'p',name:'Actual Player'}]},normalized:{screenshots:[{teamId:'team',players:[{playerId:'p',displayedName:'Odd OCR Name'},{playerId:'wrong-roster',displayedName:'Other'}]}]}};
+ const record={game:{gameId:'g',leagueId:'l',status:'SCHEDULED'}};
+ learnApprovedReview(repository,record,source);assert.deepEqual(loadLearning(repository,'l').aliases,{});
+ record.game.status='FINAL';learnApprovedReview(repository,record,source);learnApprovedReview(repository,record,source);
+ const learned=loadLearning(repository,'l');assert.equal(learned.aliases['odd ocr name'].p,1);assert.equal(learned.aliases.other,undefined);
+ assert.equal(playerMatch('Odd OCR Name',[{playerId:'p',name:'Actual Player'}],learned.aliases).automatic,true);
+ assert.equal(playerMatch('Odd OCR Name',[{playerId:'different',name:'Actual Player'}],learned.aliases).automatic,false);
+ assert.equal(playerMatch('Odd OCR Name',[{playerId:'p',name:'Actual Player'}],{'odd ocr name':{p:1,different:1}}).automatic,false);
+});
+test('startup recovers previously approved commissioner examples and ignores unfinished reviews', t=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'lb-ocr-history-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+ const repository=createFantasyHQRepository({dataRoot:root});repository.saveLeague('l',{currentSeasonId:'1'});
+ const source={extractionId:'e',correctedInput:{},actor:{principal:'website-commissioner-key'},issues:[],rosterSnapshot:{team:[{playerId:'p',name:'Actual Player'}]},normalized:{screenshots:[{teamId:'team',players:[{playerId:'p',displayedName:'Prior typo'}]}]}};
+ const records=[{game:{gameId:'g',leagueId:'l',status:'FINAL',approval:{extractionId:'e'}},extractions:[source]},{game:{gameId:'unfinished',leagueId:'l',status:'SCHEDULED'},extractions:[source]}];
+ const submissions={repository,records:()=>records};
+ const {learnApprovedHistory}=require('../src/fantasyhq/box-score/learning');learnApprovedHistory(submissions);learnApprovedHistory(submissions);
+ assert.deepEqual(loadLearning(repository,'l').approvedGames,['g']);assert.equal(loadLearning(repository,'l').aliases['prior typo'].p,1);
+});

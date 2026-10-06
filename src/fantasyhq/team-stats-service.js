@@ -1,5 +1,5 @@
 const { createGameSubmissionService } = require('./game-submissions');
-const { officialRegularGames } = require('./official-game');
+const { officialRegularGames, publishedRegularGames } = require('./official-game');
 const { createStandingsService } = require('./standings-service');
 const { createFantasyHQRepository } = require('./repository');
 
@@ -21,16 +21,16 @@ function percentage(makes, attempts) {
     return attempts > 0 ? 100 * makes / attempts : null;
 }
 
-function createTeamStatsService({ repository, submissions, standingsService } = {}) {
+function createTeamStatsService({ repository, submissions, standingsService, publishedOnly = false } = {}) {
     submissions ||= createGameSubmissionService(repository ? { repository } : {});
     repository ||= submissions.repository || createFantasyHQRepository();
-    standingsService ||= createStandingsService({ repository, submissions });
+    standingsService ||= createStandingsService({ repository, submissions, publishedOnly });
 
     function buildSnapshot(leagueId, seasonId) {
         const context = repository.loadLeague(leagueId, seasonId), resolvedSeason = context.seasonId;
         const records = submissions.records();
         const schedule = repository.scheduleExists(leagueId, resolvedSeason) ? repository.loadSchedule(leagueId, resolvedSeason) : null;
-        const official = officialRegularGames(records, { leagueId, seasonId: resolvedSeason, schedule });
+        const official = (publishedOnly ? publishedRegularGames : officialRegularGames)(records, { leagueId, seasonId: resolvedSeason, schedule });
         const standings = standingsService.getStandings(leagueId, resolvedSeason, records, schedule);
         const teams = Object.values(standings.conferences).flat().map(team => ({
             ...team,

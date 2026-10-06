@@ -30,7 +30,7 @@ function createGameActivityService({submissions=require('./game-submissions').cr
  }
  async function refresh(channel,record,force=false){
   if(!record.game.discordMessageId)return;
-  const view=activityView(record,now()),signature=JSON.stringify(["approved-game-v4",record.game.testMode,record.game.matchupType,record.game.inGameDate,view.status,view.submissionStatus,view.screenshots,view.pastDeadline,view.teams.map(t=>t.participated)]);
+  const view=activityView(record,now()),signature=JSON.stringify(["approved-game-v5",record.game.staffRoleIds,record.game.testMode,record.game.matchupType,record.game.inGameDate,view.status,view.submissionStatus,view.screenshots,view.pastDeadline,view.teams.map(t=>t.participated)]);
   const card=record.game.activityCard;
   if(!force&&card?.signature===signature)return;
   try{
@@ -51,22 +51,28 @@ function createGameActivityService({submissions=require('./game-submissions').cr
   await refresh(interaction.channel,submissions.load(gameId));
  }
  function tick(client){if(running)return running;running=run(client).finally(()=>running=null);return running;}
- async function run(client){for(const saved of submissions.records()){
+ async function run(client){const rolesByGuild=new Map();for(const saved of submissions.records()){
   const game=saved.game;if(!game.discordThreadId || game.discordThreadCleanedAt)continue;
   try{
+   const guild = await client.guilds.fetch(game.guildId); let staffChanged=false;
+   if(guild.roles?.fetch){
+    if(!rolesByGuild.has(game.guildId)) { const roles=await guild.roles.fetch(); rolesByGuild.set(game.guildId,[...roles.values()].filter(role=>require('./discord-permissions').STAFF_ROLES.has(role.name)).map(role=>role.id)); }
+    const roleIds=rolesByGuild.get(game.guildId);
+    if(JSON.stringify(game.staffRoleIds)!==JSON.stringify(roleIds)) { await submissions.mutate(game.gameId,r=>{r.game.staffRoleIds=roleIds;}); staffChanged=true; }
+   }
    if (game.status === 'FINAL' && game.finalizedAt && game.result?.scores) {
-    const guild = await client.guilds.fetch(game.guildId), channel = await guild.channels.fetch(game.discordThreadId);
+    const channel = await guild.channels.fetch(game.discordThreadId);
     if (channel?.type === ChannelType.PrivateThread) { await approvals.publish(channel, game.gameId); await refresh(channel, submissions.load(game.gameId)); }
     continue;
    }
    const schedule=submissions.repository.loadSchedule(game.leagueId,game.seasonId),week=schedule.weeks.find(w=>w.weekId===game.weekId);
-   if(week?.status!=='ACTIVE')continue;
+   if(week?.status!=='ACTIVE'){ if(staffChanged){const channel=await guild.channels.fetch(game.discordThreadId);if(channel?.type===ChannelType.PrivateThread)await refresh(channel,submissions.load(game.gameId));} continue; }
    const deadline=Date.parse(week.deadlineAt);if(!Number.isFinite(deadline))continue;
    if(game.deadlineAt!==week.deadlineAt || game.startedAt!==week.startedAt)await submissions.mutate(game.gameId,r=>{r.game.startedAt=week.startedAt;r.game.deadlineAt=week.deadlineAt;});
    const matchup = require("./game-decisions").cpuState(submissions.repository, game);
    if (game.testMode !== matchup.testMode || game.matchupType !== matchup.matchupType || JSON.stringify(game.cpuTeamIds) !== JSON.stringify(matchup.cpuTeamIds)) await submissions.mutate(game.gameId, r => Object.assign(r.game, matchup));
    const record=submissions.load(game.gameId),view=activityView(record,now());
-   const guild=await client.guilds.fetch(game.guildId),channel=await guild.channels.fetch(game.discordThreadId);
+   const channel=await guild.channels.fetch(game.discordThreadId);
    if(!channel||channel.type!==ChannelType.PrivateThread)continue;
    await refresh(channel,record);
    if(view.complete)continue;

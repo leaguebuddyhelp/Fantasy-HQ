@@ -35,3 +35,17 @@ test('mock refresh request appears only after a finalized week transaction and r
     await createWeekAdvancementService(f.options).advance(f.guild, f.actor, prep.token);
     assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).events.length, 1);
 });
+test('public standings publish on advancement, stay frozen after late approvals, and include them at the next advancement', async t=>{
+ const f=fixture(t), standings=require('../src/fantasyhq/standings-service').createStandingsService({submissions:f.submissions,publishedOnly:true});
+ await f.finals(1,12);
+ assert.equal(standings.getStandings('l','1').countedGames,0);
+ const prep=f.service.prepare('g',f.actor,true);await f.service.advance(f.guild,f.actor,prep.token);
+ assert.equal(standings.getStandings('l','1').countedGames,12);
+ const saved=f.repository.loadSchedule('l','1');assert.equal(saved.statsPublication.throughWeek,1);assert.equal(saved.statsPublication.gameIds.length,12);
+ await f.finals(1,14);await f.finals(2,14);
+ assert.equal(standings.getStandings('l','1').countedGames,12);
+ assert.equal(f.service.inspect('g').final,14); // Advancement checks approvals, independently of publication.
+ const next=f.service.prepare('g',f.actor);await f.service.advance(f.guild,f.actor,next.token);
+ assert.equal(standings.getStandings('l','1').countedGames,28);
+ assert.equal(standings.getStandings('l','1').publishedThroughWeek,2);
+});

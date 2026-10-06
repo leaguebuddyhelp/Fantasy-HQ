@@ -1,5 +1,5 @@
 const { createGameSubmissionService } = require('./game-submissions');
-function createStandingsService({ repository, submissions } = {}) {
+function createStandingsService({ repository, submissions, publishedOnly = false } = {}) {
     submissions ||= createGameSubmissionService(repository ? { repository } : {}); repository ||= submissions.repository;
     function getStandings(leagueId, seasonId, records = null, scheduleOverride = undefined) {
         const context = repository.loadLeague(leagueId, seasonId);
@@ -8,7 +8,7 @@ function createStandingsService({ repository, submissions } = {}) {
             ? repository.scheduleExists(leagueId, context.seasonId) ? repository.loadSchedule(leagueId, context.seasonId) : null
             : scheduleOverride;
         let countedGames = 0;
-        const eligible = require('./official-game').officialRegularGames(records || submissions.records(), { leagueId, seasonId: context.seasonId, schedule });
+        const eligible = require('./official-game')[publishedOnly ? 'publishedRegularGames' : 'officialRegularGames'](records || submissions.records(), { leagueId, seasonId: context.seasonId, schedule });
         for (const record of eligible.games) {
             const g = record.game, result = g.result;
             const a = rows.get(g.team1Id), b = rows.get(g.team2Id), pa = result.scores?.[g.team1Id], pb = result.scores?.[g.team2Id];
@@ -18,7 +18,7 @@ function createStandingsService({ repository, submissions } = {}) {
         }
         const compare = (a, b) => b.PCT - a.PCT || b.W - a.W || (a.teamName < b.teamName ? -1 : a.teamName > b.teamName ? 1 : 0) || (a.teamId < b.teamId ? -1 : a.teamId > b.teamId ? 1 : 0);
         const conferences = Object.fromEntries(['East', 'West'].map(c => [c, [...rows.values()].filter(t => t.conference === c).sort(compare).map((t, i) => ({ ...t, rank: i + 1 }))]));
-        return { leagueId, seasonId: context.seasonId, currentWeek: context.league.currentWeek || null, countedGames, conferences };
+        return { leagueId, seasonId: context.seasonId, currentWeek: context.league.currentWeek || null, countedGames, conferences, publishedThroughWeek: require('./official-game').publishedThroughWeek(schedule) };
     }
     return { getStandings };
 }

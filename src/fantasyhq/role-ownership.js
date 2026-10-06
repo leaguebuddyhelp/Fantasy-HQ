@@ -94,7 +94,7 @@ function createRoleOwnershipService(repository = createFantasyHQRepository(), op
     const { STAFF_ROLES } = require('./discord-permissions');
     const staffRoleIds = new Set([...roles.values()].filter(role => STAFF_ROLES.has(role.name)).map(role => role.id));
     const staffUserIds = [...members.values()].filter(member => !member.user.bot && [...staffRoleIds].some(id => member.roles.cache.has(id))).map(member => member.id);
-    return { owners: records.length, conflicts, warnings, staffUserIds, teamRoleIds: { ...state.roleIds }, teamMemberIds: Object.fromEntries(context.teams.map(team => [team.teamId, [...members.values()].filter(member => !member.user.bot && member.roles.cache.has(state.roleIds[team.teamId])).map(member => member.id)])) };
+    return { owners: records.length, conflicts, warnings, staffUserIds, staffRoleIds: [...staffRoleIds], teamRoleIds: { ...state.roleIds }, teamMemberIds: Object.fromEntries(context.teams.map(team => [team.teamId, [...members.values()].filter(member => !member.user.bot && member.roles.cache.has(state.roleIds[team.teamId])).map(member => member.id)])) };
   }
   function sync(guild) { return serial(guild, () => reconcile(guild)); }
   function setOwner(guild, teamId, userId) {

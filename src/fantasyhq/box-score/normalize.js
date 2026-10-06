@@ -10,32 +10,60 @@ function editDistance(a,b) {
   }
   return d[a.length][b.length];
 }
-function playerMatch(displayed, roster) {
+const NICKNAMES = {
+  'bones hyland': ['Nahshon Hyland', 'N. Hyland'],
+  'nahshon hyland': ['Bones Hyland'],
+  'nic claxton': ['Nicolas Claxton'],
+  'nicolas claxton': ['Nic Claxton'],
+  'cam thomas': ['Cameron Thomas'],
+  'cam johnson': ['Cameron Johnson'],
+  'cameron thomas': ['Cam Thomas'],
+  'cameron johnson': ['Cam Johnson'],
+};
+function playerMatch(displayed, roster, learnedAliases = {}) {
   const n=normalizeText(displayed),words=nameTokens(displayed);
   if(!n)return {candidates:[],automatic:false,method:'none'};
   const exact=roster.filter(p=>normalizeText(p.name)===n);
   if(exact.length)return {candidates:exact,automatic:exact.length===1,method:'exact',score:1};
+  const ids = Object.keys(Object.hasOwn(learnedAliases, n) ? learnedAliases[n] : {});
+  if (ids.length > 1) return { candidates: roster.filter(p => ids.includes(p.playerId)), automatic: false, method: 'conflicting-approved-alias', score: 0 };
+  // Conflicting commissioner examples never become automatic, even after a roster move.
+  if (ids.length === 1) {
+    const learned = roster.filter(p => p.playerId === ids[0]);
+    if (learned.length === 1) return { candidates: learned, automatic: true, method: 'approved-alias', score: 1 };
+  }
+  const aliases = roster.filter(p => {
+    const forms = [...(Object.hasOwn(NICKNAMES, normalizeText(p.name)) ? NICKNAMES[normalizeText(p.name)] : []), ...(Array.isArray(p.aliases) ? p.aliases : []), ...(p.nickname ? [p.nickname] : [])];
+    return forms.some(alias => { const tokens = nameTokens(alias); return normalizeText(alias) === n || words[0]?.length === 1 && tokens[0]?.startsWith(words[0]) && tokens.slice(1).join(' ') === words.slice(1).join(' '); });
+  });
   const abbreviated=words[0]?.length===1&&words.length>=2 ? roster.filter(p=>{
     const tokens=nameTokens(p.name);
     return tokens[0]?.startsWith(words[0])&&tokens.slice(-(words.length-1)).join(' ')===words.slice(1).join(' ');
   }) : [];
-  if(abbreviated.length)return {candidates:abbreviated,automatic:abbreviated.length===1,method:'initial-surname',score:1};
+  if (aliases.length || abbreviated.length) {
+    const candidates=[...new Map([...aliases,...abbreviated].map(p=>[p.playerId,p])).values()];
+    return {candidates,automatic:candidates.length===1,method:aliases.length?'nickname':'initial-surname',score:1};
+  }
   const split=t=>{const w=[...t];const suffix=/^(jr|sr|ii|iii|iv)$/.test(w.at(-1))?w.pop():null;return {first:w.shift(),last:w.join(''),suffix};};
   const source=split(words);
+  if (words.length === 1 && words[0].length >= 4) {
+    const surname = roster.filter(p => nameTokens(p.name).filter(t => !/^(jr|sr|ii|iii|iv)$/.test(t)).at(-1) === words[0]);
+    return { candidates: surname, automatic: false, method: 'surname-suggestion', score: surname.length ? 1 : 0 };
+  }
   if(!source.first||source.last.length<4)return {candidates:[],automatic:false,method:'none'};
   const scored=roster.flatMap(p=>{
     const target=split(nameTokens(p.name));
     if(!target.first||source.first[0]!==target.first[0]||(source.suffix&&target.suffix&&source.suffix!==target.suffix))return [];
     if(source.first.length>1&&source.first!==target.first)return [];
     const distance=editDistance(source.last,target.last),length=Math.max(source.last.length,target.last.length);
-    if(distance>(length>=8?2:1))return [];
+    if(distance>(length>=6?2:1))return [];
     return [{player:p,distance,score:1-distance/length}];
   }).sort((a,b)=>b.score-a.score||String(a.player.playerId).localeCompare(String(b.player.playerId)));
   const best=scored[0];
   return {candidates:scored.map(s=>s.player),automatic:scored.length===1&&best.distance<=1&&best.score>=.75,method:scored.length?'fuzzy':'none',score:best?.score || 0};
 }
 function playerCandidates(displayed,roster){return playerMatch(displayed,roster).candidates;}
-function normalizeExtraction(raw, { game, media, teams, rosters, playerMatches = {} }) {
+function normalizeExtraction(raw, { game, media, teams, rosters, playerMatches = {}, learnedAliases = {} }) {
   if (!raw || !Array.isArray(raw.screenshots)) throw new Error('Invalid extraction: screenshots array is required.');
   const issues = [];
   const issue = (code, path, message, details = {}) => issues.push({ code, path, message, ...details });
@@ -109,7 +137,7 @@ function normalizeExtraction(raw, { game, media, teams, rosters, playerMatches =
     const players = (screen.players || []).map((player,i) => {
       const p = `${base}.players.${i}`;
       if (typeof player.dnp !== 'boolean') issue('MISSING_FIELD', `${p}.dnp`, 'DNP status is unclear.');
-      const match = playerMatch(player.displayedName, rosters[teamId] || []);
+      const match = playerMatch(player.displayedName, rosters[teamId] || [], learnedAliases);
       const candidates = match.candidates;
       const explicit = (rosters[teamId] || []).find(r => r.playerId === playerMatches[p]);
       const playerId = explicit?.playerId || (match.automatic && player.confidence === 'HIGH' ? candidates[0].playerId : null);

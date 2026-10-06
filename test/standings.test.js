@@ -22,6 +22,8 @@ test('existing website standings and Team endpoints return derived official reco
  const f=fixture(t);await f.game();const oldRoot=process.env.FANTASYHQ_DATA_ROOT,oldGuild=process.env.GUILD_ID;process.env.FANTASYHQ_DATA_ROOT=f.repository.dataRoot;process.env.GUILD_ID='guild';
  t.after(()=>{if(oldRoot===undefined)delete process.env.FANTASYHQ_DATA_ROOT;else process.env.FANTASYHQ_DATA_ROOT=oldRoot;if(oldGuild===undefined)delete process.env.GUILD_ID;else process.env.GUILD_ID=oldGuild;});
  const {requestHandler}=require('../src/web');function get(url){let status,body;requestHandler({url,method:'GET',headers:{}},{writeHead:c=>status=c,end:b=>body=JSON.parse(b)});assert.equal(status,200);return body;}
+ assert.equal(get('/api/league/standings').conferences.East[0].W,0);assert.equal(get('/api/league/teams/a').team.record.W,0);
+ const schedule=f.repository.loadSchedule('l','1');schedule.weeks[0].status='COMPLETED';schedule.statsPublication={throughWeek:1,gameIds:f.submissions.records().map(r=>r.game.gameId)};f.repository.saveSchedule(schedule);
  assert.equal(get('/api/league/standings').conferences.East[0].W,1);assert.equal(get('/api/league/teams/a').team.record.W,1);
 });
 test('equal percentages rank the team with more wins first',async t=>{

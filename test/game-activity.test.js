@@ -125,3 +125,14 @@ test('unvalidated submissions do not publish an approval notice', async t => {
     await approvals.publish(f.channel, f.game.gameId);
     assert.equal(f.sent.length, 0);
 });
+test('existing game cards gain both commissioner role tags and ordinary refreshes do not ping them repeatedly', async t=>{
+ const f=fixture(t);await f.submissions.setMessage(f.game.gameId,'card');
+ const roles=new Map([['commish',{id:'commish',name:'LEAGUEbuddy Commish'}],['assistant',{id:'assistant',name:'LEAGUEbuddy Assistant Commish'}]]);
+ const guild={roles:{fetch:async()=>roles},channels:{fetch:async()=>f.channel}};f.client.guilds.fetch=async()=>guild;
+ const schedule=f.repository.loadSchedule('test','1');schedule.weeks[0].status='COMPLETE';f.repository.saveSchedule(schedule);
+ await f.service.tick(f.client);
+ assert.deepEqual(f.submissions.load(f.game.gameId).game.staffRoleIds,['commish','assistant']);
+ assert.match(f.edits.at(-1).content,/<@&commish>.*<@&assistant>/);
+ assert.deepEqual(f.edits.at(-1).allowedMentions,{parse:[]});
+ const edits=f.edits.length;await f.service.tick(f.client);assert.equal(f.edits.length,edits);
+});

@@ -661,7 +661,7 @@ function renderLeagueStats() {
   elements.leagueStatsNext.disabled = state.leagueStatsPage === pages;
   elements.leagueStatsPageStatus.textContent = `${players.length ? start + 1 : 0}–${Math.min(start + pageSize, players.length)} of ${players.length} · Page ${state.leagueStatsPage} of ${pages}`;
   const warningCount = state.leagueStatsWarnings.length;
-  elements.leagueStatsStatus.textContent = `${state.leagueStats.length} players · Official regular-season games only${warningCount ? ` · ${warningCount} invalid game-stat rows excluded` : ''}`;
+  elements.leagueStatsStatus.textContent = `${state.leagueStats.length} players · Published when the week advances${warningCount ? ` · ${warningCount} invalid game-stat rows excluded` : ''}`;
 }
 
 async function loadLeagueStats(force = false) {
@@ -733,7 +733,7 @@ function renderTeamStats() {
   }
   elements.teamStatsBody.innerHTML = rows.join('') || '<tr><td colspan="17">No teams are available.</td></tr>';
   const warnings = state.teamStatsWarnings.length;
-  elements.teamStatsStatus.textContent = `${teams.length} teams · Official regular-season games only${warnings ? ` · ${warnings} invalid team-stat rows excluded` : ''}`;
+  elements.teamStatsStatus.textContent = `${teams.length} teams · Published when the week advances${warnings ? ` · ${warnings} invalid team-stat rows excluded` : ''}`;
 }
 
 async function loadTeamStats(force = false) {
@@ -1721,7 +1721,7 @@ async function refreshStandings() {
   const label = document.querySelector('#standings-week'), container = document.querySelector('#standings-tables');
   try {
     const data = await requestJson('/api/league/standings');
-    label.textContent = `${data.currentWeek ? 'Week ' + data.currentWeek : 'Season not started'} · ${data.countedGames} official games`;
+    label.textContent = `${data.publishedThroughWeek ? 'Through Week ' + data.publishedThroughWeek : 'Awaiting first week advancement'} · ${data.countedGames} published games`;
     container.innerHTML = ['East', 'West'].map(conference => `<section class="admin-panel"><h3>${conference === 'East' ? 'EASTERN' : 'WESTERN'} CONFERENCE</h3><div class="standings-scroll"><table class="standings-table"><thead><tr>${['Rank', 'Team', 'GP', 'W', 'L', 'PCT', 'PF', 'PA', 'DIFF'].map(h => `<th scope="col">${h}</th>`).join('')}</tr></thead><tbody>${data.conferences[conference].map(team => `<tr><td>${team.rank}</td><td><button type="button" data-standings-team="${escapeHtml(team.teamId)}">${teamLogoMarkup(team.teamName)}${escapeHtml(team.teamName)}</button></td>${['GP', 'W', 'L', 'PCT', 'PF', 'PA', 'DIFF'].map(k => `<td>${k === 'PCT' ? team.PCT.toFixed(3).replace(/^0\./, '.') : k === 'DIFF' && team.DIFF > 0 ? '+' + team.DIFF : team[k]}</td>`).join('')}</tr>`).join('')}</tbody></table></div></section>`).join('');
   } catch (error) { label.textContent = error.message; container.replaceChildren(); }
 }
