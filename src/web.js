@@ -1,0 +1,826 @@
+if (require.main === module) {
+  require("dotenv").config();
+}
+
+const fs = require("fs");
+const http = require("http");
+const path = require("path");
+
+const { createDataIssuesService } = require("./fantasyhq/data-issues-service");
+const { createLeagueService } = require("./fantasyhq/league-service");
+const { createPlayerService } = require("./fantasyhq/player-service");
+const { createPlayerStatsService } = require("./fantasyhq/player-stats-service");
+const { createPreseasonValidator } = require("./fantasyhq/preseason-validator");
+const { createRosterService } = require("./fantasyhq/roster-service");
+const { createSetupService } = require("./fantasyhq/setup-service");
+const { createTeamService } = require("./fantasyhq/team-service");
+const { createTeamStatsService } = require("./fantasyhq/team-stats-service");
+
+const ROOT_DIR = path.resolve(__dirname, "..");
+const WEB_DIR = path.join(ROOT_DIR, "web");
+const DRAFT_CLASS_DIR = path.join(ROOT_DIR, "draft_class");
+const DRAFT_IMAGE_DIR = path.join(DRAFT_CLASS_DIR, "images");
+const setupService = createSetupService();
+const leagueService = createLeagueService({ repository: setupService.repository });
+const playerStatsService = createPlayerStatsService({ repository: setupService.repository });
+const teamService = createTeamService({ repository: setupService.repository, playerStatsService });
+const teamStatsService = createTeamStatsService({ repository: setupService.repository });
+const playerService = createPlayerService({ repository: setupService.repository });
+const rosterService = createRosterService({ repository: setupService.repository });
+const dataIssuesService = createDataIssuesService({ repository: setupService.repository });
+const preseasonValidator = createPreseasonValidator({ repository: setupService.repository, dataIssuesService });
+
+const MIME_TYPES = {
+  ".css": "text/css; charset=utf-8",
+  ".html": "text/html; charset=utf-8",
+  ".ico": "image/x-icon",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".js": "text/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".png": "image/png",
+  ".svg": "image/svg+xml",
+  ".webp": "image/webp",
+};
+
+const BOARD_TYPES = {
+  "top-ten": { id: "top-ten", label: "Early Top Ten", target: 10, pattern: /early top ten/i },
+  "big-board": { id: "big-board", label: "Year Big Board", target: 75, pattern: /big board/i },
+};
+
+function draftClassFiles(boardId = null) {
+  try {
+    return fs.readdirSync(DRAFT_CLASS_DIR)
+      .filter((file) => file.toLowerCase().endsWith(".json"))
+      .filter((file) => !/recruiting|transfer portal/i.test(file))
+      .filter((file) => !boardId || BOARD_TYPES[boardId]?.pattern.test(file))
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  } catch {
+    return [];
+  }
+}
+
+function classLabel(fileName) {
+  return String(fileName || "")
+    .replace(/\.json$/i, "")
+    .replace(/\s+-\s+(Early Top Ten|Big Board)$/i, "");
+}
+
+function resolveDraftClass(selection, boardId = "top-ten") {
+  const files = draftClassFiles(boardId);
+  if (!files.length) return null;
+  if (!selection) return files[0];
+  const normalized = String(selection).trim().toLowerCase();
+  return files.find((file) => file.toLowerCase() === normalized)
+    || files.find((file) => classLabel(file).toLowerCase() === normalized)
+    || null;
+}
+
+function publicImageUrl(image) {
+  const value = String(image || "").trim();
+  if (!value) return null;
+  if (/^https?:\/\//i.test(value)) return value;
+  const normalized = value.replaceAll("\\", "/").replace(/^images\//i, "");
+  const webpPath = normalized.replace(/\.[^.]+$/, ".webp");
+  const optimizedFile = safeFile(DRAFT_IMAGE_DIR, webpPath);
+  const servedPath = optimizedFile && fs.existsSync(optimizedFile) ? webpPath : normalized;
+  return `/draft-assets/${servedPath.split("/").map(encodeURIComponent).join("/")}`;
+}
+
+function bundledImageMap(fileName) {
+  const classId = String(fileName || "")
+    .replace(/\.json$/i, "")
+    .replace(/[^a-z0-9]+/gi, "-")
+    .replace(/^-+|-+$/g, "")
+    .toLowerCase();
+  const classImageDirectory = path.join(DRAFT_IMAGE_DIR, classId);
+  const images = new Map();
+  if (!fs.existsSync(classImageDirectory)) return images;
+
+  for (const position of fs.readdirSync(classImageDirectory, { withFileTypes: true })) {
+    if (!position.isDirectory()) continue;
+    const positionDirectory = path.join(classImageDirectory, position.name);
+    for (const file of fs.readdirSync(positionDirectory)) {
+      const match = file.match(/^(\d{3})-/);
+      if (!match) continue;
+      const absolutePath = path.join(positionDirectory, file);
+      if (!fs.statSync(absolutePath).isFile()) continue;
+      images.set(Number(match[1]), path.relative(DRAFT_CLASS_DIR, absolutePath).replaceAll(path.sep, "/"));
+    }
+  }
+  return images;
+}
+
+function readProspects(fileName) {
+  const raw = JSON.parse(fs.readFileSync(path.join(DRAFT_CLASS_DIR, fileName), "utf8"));
+  const bundledImages = bundledImageMap(fileName);
+  return Object.values(raw || {})
+    .sort((a, b) => Number(a.board_number || a.id_number || 0) - Number(b.board_number || b.id_number || 0))
+    .map((prospect) => {
+      const rank = Number(prospect.board_number || prospect.id_number || 0);
+      return {
+        ...prospect,
+        rank,
+        image: publicImageUrl(prospect.image || bundledImages.get(rank)),
+      };
+    });
+}
+
+function sendJson(response, status, payload) {
+  const body = JSON.stringify(payload);
+  response.writeHead(status, {
+    "Content-Type": MIME_TYPES[".json"],
+    "Content-Length": Buffer.byteLength(body),
+    "Cache-Control": "no-store",
+  });
+  response.end(body);
+}
+
+function sendNoContent(response, status = 204) {
+  response.writeHead(status, { "Cache-Control": "no-store" });
+  response.end();
+}
+
+function safeFile(root, relativePath) {
+  const resolvedRoot = path.resolve(root);
+  const resolvedFile = path.resolve(resolvedRoot, relativePath);
+  if (!resolvedFile.startsWith(`${resolvedRoot}${path.sep}`)) return null;
+  return resolvedFile;
+}
+
+function sendFile(response, filePath, cacheControl = "no-cache") {
+  if (!filePath || !fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+    sendJson(response, 404, { error: "Not found" });
+    return;
+  }
+
+  const extension = path.extname(filePath).toLowerCase();
+  const stat = fs.statSync(filePath);
+  response.writeHead(200, {
+    "Content-Type": MIME_TYPES[extension] || "application/octet-stream",
+    "Content-Length": stat.size,
+    "Cache-Control": cacheControl,
+    "X-Content-Type-Options": "nosniff",
+  });
+  fs.createReadStream(filePath).pipe(response);
+}
+
+function parseJsonBody(request) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    request.on("data", (chunk) => chunks.push(chunk));
+    request.on("end", () => {
+      if (!chunks.length) {
+        resolve({});
+        return;
+      }
+      try {
+        resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+      } catch (error) {
+        reject(new Error("Invalid JSON request body."));
+      }
+    });
+    request.on("error", reject);
+  });
+}
+
+function adminKeyValue() {
+  return String(process.env.WEBSITE_ADMIN_KEY || "").trim();
+}
+
+function websiteOperator(body = {}) {
+  const operator = String(body.operator || "").trim();
+  if (!operator || operator.length > 100) throw new Error("Enter your commissioner name (up to 100 characters).");
+  return operator;
+}
+
+function isAdminRequest(request, url) {
+  const configured = adminKeyValue();
+  if (!configured) return false;
+  const headerValue = String(request.headers["x-leaguebuddy-admin-key"] || "").trim();
+  const queryValue = String(url.searchParams.get("adminKey") || "").trim();
+  return headerValue === configured || queryValue === configured;
+}
+
+function leagueSitePayload() {
+  const guildId = process.env.GUILD_ID;
+  if (!guildId) return null;
+  if (!leagueService.repository.loadGuildLeagueBinding(guildId) && !process.env.FANTASYHQ_LEAGUE_ID) return null;
+
+  const context = leagueService.getBoundLeagueContext({ guildId });
+  const repository = leagueService.repository;
+  const teams = teamService.listTeams(context.league.leagueId, context.seasonId);
+  const players = playerService.listPlayers(context.league.leagueId, context.seasonId);
+  const memberships = rosterService.currentRosterEntries(context.league.leagueId, context.seasonId);
+  const owners = repository.loadOwners(context.league.leagueId);
+  const settings = repository.loadSettings(context.league.leagueId);
+  const dashboard = setupService.getSetupDashboard({
+    leagueId: context.league.leagueId,
+    seasonId: context.seasonId,
+  });
+  const preseason = preseasonValidator.validate({
+    leagueId: context.league.leagueId,
+    seasonId: context.seasonId,
+  });
+
+  const schedule = repository.scheduleExists(context.league.leagueId, context.seasonId)
+    ? repository.loadSchedule(context.league.leagueId, context.seasonId)
+    : null;
+
+  const teamNameById = new Map(teams.map((team) => [team.teamId, team.teamName]));
+
+  const serializedTeams = [...teams].map((team) => ({
+    teamId: team.teamId,
+    teamName: team.teamName,
+    abbreviation: team.abbreviation,
+    conference: team.conference,
+    ownerUserId: team.ownerUserId,
+    ownerDisplayName: team.ownerDisplayName,
+    rosterSize: team.rosterSize,
+    rosterImported: team.rosterSize > 0,
+    schedule: team.schedule,
+  }));
+
+  const schedulePreview = schedule ? schedule.weeks.slice(0, 2).map((week) => ({
+    week: week.week,
+    games: week.games.map((game) => ({
+      team1Name: teamNameById.get(game.team1Id) || game.team1Id,
+      team2Name: teamNameById.get(game.team2Id) || game.team2Id,
+      conference: game.conference,
+    })),
+    byes: week.byes.map((bye) => ({
+      teamName: teamNameById.get(bye.teamId) || bye.teamId,
+      conference: bye.conference,
+    })),
+  })) : [];
+
+  return {
+    league: {
+      leagueId: context.league.leagueId,
+      leagueName: context.league.leagueName,
+      seasonNumber: context.league.seasonNumber,
+      currentPhase: context.league.currentPhase,
+      currentWeek: context.league.currentWeek,
+    },
+    summary: {
+      teams: context.teams.length,
+      players: players.length,
+      weeks: schedule?.weeks?.length || 0,
+      games: schedule ? schedule.weeks.reduce((count, week) => count + week.games.length, 0) : 0,
+      ownersAssigned: owners.length,
+      rostersImported: new Set(memberships.map((entry) => entry.membership.teamId)).size,
+      eastTeams: teams.filter((team) => team.conference === "East").length,
+      westTeams: teams.filter((team) => team.conference === "West").length,
+    },
+    settings: settings || null,
+    teams: serializedTeams,
+    players,
+    schedulePreview,
+    admin: {
+      readyToActivate: preseason.ready,
+      rosterIssues: preseason.issues.filter((issue) => issue.type === "empty-roster" || issue.type === "suspicious-roster-size").length,
+      dataWarnings: preseason.warnings.length,
+      unassignedTeams: dashboard.unassignedTeams,
+      errors: preseason.errors,
+      warnings: preseason.warnings,
+    },
+    preseason,
+  };
+}
+
+function boundLeagueContext() {
+  const guildId = process.env.GUILD_ID;
+  if (!guildId) throw new Error("GUILD_ID is required for website league data.");
+  return leagueService.getBoundLeagueContext({ guildId });
+}
+
+let gameThreadRuntime;
+function setGameThreadRuntime(runtime) { gameThreadRuntime = runtime; }
+function requestHandler(request, response) {
+  const url = new URL(request.url, "http://localhost");
+  if (require("./fantasyhq/box-score/review-route").handleBoxScoreReview(request, response, url, {
+    authorized: Boolean(adminKeyValue()) && request.headers["x-leaguebuddy-admin-key"] === adminKeyValue(),
+  })) return;
+
+  if (url.pathname === "/api/league/admin/game-cleanup") {
+    if (!isAdminRequest(request, url)) { sendJson(response, 403, { error: 'Admin authorization required.' }); return; }
+    (async () => {
+      try {
+        if (!gameThreadRuntime?.client.isReady() || !gameThreadRuntime.cleanupService) throw Error('Start the connected bot with npm start.');
+        const guild = await gameThreadRuntime.client.guilds.fetch(process.env.GUILD_ID), service = gameThreadRuntime.cleanupService;
+        if (request.method === 'GET') { sendJson(response, 200, service.list(guild.id, { authorized: true, id: 'website-commissioner' })); return; }
+        if (request.method !== 'POST') { sendJson(response, 405, { error: 'Method not allowed.' }); return; }
+        let body = ''; for await (const chunk of request) { body += chunk; if (body.length > 4096) throw Error('Request too large.'); }
+        const input = JSON.parse(body), operator = String(input.operator || '').trim(); if (!operator || operator.length > 100) throw Error('Enter your commissioner name.');
+        const league = (gameThreadRuntime.repository || setupService.repository).loadLeagueContext({ guildId: guild.id }).league;
+        const actor = { authorized: true, id: 'website-commissioner:' + operator, operator, commissionerUserId: league.commissionerUserId || 'website-admin' };
+        if (input.action === 'prepare') sendJson(response, 200, await service.prepare(guild, actor, input.week));
+        else if (input.action === 'confirm') sendJson(response, 200, await service.cleanup(guild, actor, input.token));
+        else if (input.action === 'cancel') { service.cancel(input.token, actor); sendJson(response, 200, { cancelled: true }); }
+        else throw Error('Unknown action.');
+      } catch (error) { sendJson(response, 400, { error: error.message }); }
+    })(); return;
+  }
+
+  if (url.pathname === "/api/league/admin/week") {
+    if (!isAdminRequest(request, url)) { sendJson(response, 403, { error: 'Admin authorization required.' }); return; }
+    (async () => {
+      try {
+        if (!gameThreadRuntime?.client.isReady() || !gameThreadRuntime.weekService) throw Error('Start the connected bot with npm start.');
+        const guild = await gameThreadRuntime.client.guilds.fetch(process.env.GUILD_ID), service = gameThreadRuntime.weekService;
+        if (request.method === 'GET') { sendJson(response, 200, service.inspect(guild.id)); return; }
+        if (request.method !== 'POST') { sendJson(response, 405, { error: 'Method not allowed.' }); return; }
+        let body = ''; for await (const chunk of request) { body += chunk; if (body.length > 4096) throw Error('Request too large.'); }
+        const input = JSON.parse(body), operator = String(input.operator || '').trim(); if (!operator || operator.length > 100) throw Error('Enter your commissioner name.');
+        const league = (gameThreadRuntime.repository || setupService.repository).loadLeagueContext({ guildId: guild.id }).league;
+        const actor = { authorized: true, id: 'website-commissioner:' + operator, operator, commissionerUserId: league.commissionerUserId || 'website-admin' };
+        if (input.action === 'prepare') sendJson(response, 200, service.prepare(guild.id, actor, input.force === true));
+        else if (input.action === 'confirm') sendJson(response, 200, await service.advance(guild, actor, input.token));
+        else if (input.action === 'cancel') { service.cancel(input.token, actor); sendJson(response, 200, { cancelled: true }); }
+        else throw Error('Unknown action.');
+      } catch (error) { sendJson(response, 400, { error: error.message }); }
+    })(); return;
+  }
+
+  if (url.pathname === "/api/league/admin/game-threads") {
+    if (!isAdminRequest(request, url)) { sendJson(response, 403, { error: "Admin authorization required." }); return; }
+    (async () => {
+      try {
+        if (!gameThreadRuntime?.client.isReady()) throw Error("Discord bot must be running and connected. Start the app with npm start.");
+        const guild = await gameThreadRuntime.client.guilds.fetch(process.env.GUILD_ID);
+        const service = gameThreadRuntime.service;
+        if (request.method === 'GET') {
+          const channels = await guild.channels.fetch();
+          let state; try { state = service.status(guild.id); } catch (error) { state = { ...service.configuration(guild.id), games: [], notice: error.message }; }
+          sendJson(response, 200, { ...state, channels: [...channels.values()].filter(c => c?.type === 0).map(c => ({ id: c.id, name: c.name })) });
+        } else if (request.method === 'POST') {
+          let body = ''; for await (const chunk of request) { body += chunk; if (body.length > 4096) throw Error('Request too large.'); }
+          const input = JSON.parse(body), operator = websiteOperator(input), repository = gameThreadRuntime.repository || setupService.repository;
+          const context = repository.loadLeagueContext({ guildId: guild.id }), userId = context.league.commissionerUserId || 'website-admin';
+          if (input.action === 'configure') {
+            const result = await service.configure(guild, input.channelId);
+            repository.appendAuditLog(context.league.leagueId, { action: 'website.games-channel.configured', userId, operator, leagueId: context.league.leagueId, timestamp: new Date().toISOString(), metadata: { gamesChannelId: result.gamesChannelId } });
+            sendJson(response, 200, result);
+          }
+          else if (input.action === 'create') {
+            const result = await service.create(guild);
+            repository.appendAuditLog(context.league.leagueId, { action: 'website.game-threads.created', userId, operator, leagueId: context.league.leagueId, timestamp: new Date().toISOString(), metadata: { week: result.week, created: result.created, existing: result.existing, failed: result.failed } });
+            sendJson(response, 200, result);
+          }
+          else throw Error('Unknown action.');
+        } else sendJson(response, 405, { error: 'Method not allowed.' });
+      } catch (error) { sendJson(response, 400, { error: error.message }); }
+    })(); return;
+  }
+
+  if (url.pathname === "/health") {
+    sendJson(response, 200, { ok: true });
+    return;
+  }
+
+  if (url.pathname === "/api/draft-classes") {
+    const boards = Object.values(BOARD_TYPES).map((board) => ({
+      id: board.id,
+      label: board.label,
+      target: board.target,
+      classes: draftClassFiles(board.id).map((file) => ({ file, label: classLabel(file) })),
+    }));
+    sendJson(response, 200, { boards });
+    return;
+  }
+
+  if (url.pathname === "/api/prospects") {
+    const boardId = BOARD_TYPES[url.searchParams.get("board")]?.id || "top-ten";
+    const board = BOARD_TYPES[boardId];
+    const file = resolveDraftClass(url.searchParams.get("class"), boardId);
+    if (!file) {
+      sendJson(response, 404, { error: "Draft class not found" });
+      return;
+    }
+    try {
+      sendJson(response, 200, {
+        board: { id: board.id, label: board.label, target: board.target },
+        draftClass: { file, label: classLabel(file) },
+        prospects: readProspects(file),
+      });
+    } catch (error) {
+      console.error("Website draft data error:", error);
+      sendJson(response, 500, { error: "Unable to load draft class" });
+    }
+    return;
+  }
+
+  if (url.pathname === "/api/league-site") {
+    try {
+      const payload = leagueSitePayload();
+      if (!payload) {
+        sendJson(response, 200, { league: null });
+        return;
+      }
+      sendJson(response, 200, payload);
+    } catch (error) {
+      console.error("Website league data error:", error);
+      sendJson(response, 500, { error: "Unable to load league website data" });
+    }
+    return;
+  }
+
+  if (url.pathname === "/api/league/standings" && request.method === "GET") {
+    try { const context = boundLeagueContext(); sendJson(response, 200, require('./fantasyhq/standings-service').createStandingsService({ repository: leagueService.repository }).getStandings(context.league.leagueId, context.seasonId)); }
+    catch (error) { sendJson(response, 400, { error: error.message }); } return;
+  }
+
+  if (url.pathname === "/api/league/stats" && request.method === "GET") {
+    try {
+      const context = boundLeagueContext();
+      sendJson(response, 200, playerStatsService.getSeasonSnapshot(context.league.leagueId, context.seasonId));
+    } catch (error) { sendJson(response, 400, { error: error.message || "Unable to load player statistics" }); }
+    return;
+  }
+
+  if (url.pathname === "/api/league/team-stats" && request.method === "GET") {
+    try {
+      const context = boundLeagueContext();
+      sendJson(response, 200, teamStatsService.getSeasonSnapshot(context.league.leagueId, context.seasonId));
+    } catch (error) { sendJson(response, 400, { error: error.message || "Unable to load team statistics" }); }
+    return;
+  }
+
+  const teamStatsGameMatch = url.pathname.match(/^\/api\/league\/team-stats\/([^/]+)\/games$/);
+  if (teamStatsGameMatch && request.method === "GET") {
+    try {
+      const context = boundLeagueContext();
+      const data = teamStatsService.getTeamStatsAndGameLog(context.league.leagueId, context.seasonId, decodeURIComponent(teamStatsGameMatch[1]));
+      if (!data) { sendJson(response, 404, { error: "Team not found." }); return; }
+      sendJson(response, 200, data);
+    } catch (error) { sendJson(response, 400, { error: error.message || "Unable to load team game log" }); }
+    return;
+  }
+
+  const playerStatsGameMatch = url.pathname.match(/^\/api\/league\/stats\/players\/([^/]+)\/games$/);
+  if (playerStatsGameMatch && request.method === "GET") {
+    try {
+      const context = boundLeagueContext(), playerId = decodeURIComponent(playerStatsGameMatch[1]);
+      const player = playerService.getPlayer(context.league.leagueId, context.seasonId, playerId);
+      const data = playerStatsService.getPlayerStatsAndGameLog(context.league.leagueId, context.seasonId, playerId);
+      sendJson(response, 200, { player: { playerId: player.playerId, name: player.name }, stats: data.stats, games: data.games, warnings: data.warnings });
+    } catch (error) { sendJson(response, 404, { error: error.message || "Player game log not found" }); }
+    return;
+  }
+
+  if (url.pathname === "/api/league/teams" && request.method === "GET") {
+    try {
+      const context = boundLeagueContext();
+      sendJson(response, 200, {
+        teams: teamService.listTeams(context.league.leagueId, context.seasonId),
+      });
+    } catch (error) {
+      console.error("Website teams data error:", error);
+      sendJson(response, 500, { error: error.message || "Unable to load teams" });
+    }
+    return;
+  }
+
+  const teamMatch = url.pathname.match(/^\/api\/league\/teams\/([^/]+)$/);
+  if (teamMatch && request.method === "GET") {
+    try {
+      const context = boundLeagueContext();
+      sendJson(response, 200, {
+        team: teamService.getTeam(context.league.leagueId, context.seasonId, decodeURIComponent(teamMatch[1])),
+      });
+    } catch (error) {
+      console.error("Website team detail error:", error);
+      sendJson(response, 500, { error: error.message || "Unable to load team" });
+    }
+    return;
+  }
+
+  if (url.pathname === "/api/league/players" && request.method === "GET") {
+    try {
+      const context = boundLeagueContext();
+      sendJson(response, 200, {
+        players: playerService.listPlayers(context.league.leagueId, context.seasonId),
+      });
+    } catch (error) {
+      console.error("Website players data error:", error);
+      sendJson(response, 500, { error: error.message || "Unable to load players" });
+    }
+    return;
+  }
+
+  const playerMatch = url.pathname.match(/^\/api\/league\/players\/([^/]+)$/);
+  if (playerMatch && request.method === "GET") {
+    try {
+      const context = boundLeagueContext();
+      sendJson(response, 200, {
+        player: playerService.getPlayer(context.league.leagueId, context.seasonId, decodeURIComponent(playerMatch[1])),
+      });
+    } catch (error) {
+      console.error("Website player detail error:", error);
+      sendJson(response, 500, { error: error.message || "Unable to load player" });
+    }
+    return;
+  }
+
+  const adminPlayerMatch = url.pathname.match(/^\/api\/league\/admin\/players\/([^/]+)$/);
+
+  if (url.pathname === "/api/league/schedule" && request.method === "GET") {
+    try {
+      const context = boundLeagueContext();
+      const schedule = setupService.repository.scheduleExists(context.league.leagueId, context.seasonId)
+        ? setupService.repository.loadSchedule(context.league.leagueId, context.seasonId)
+        : null;
+      const teams = teamService.listTeams(context.league.leagueId, context.seasonId);
+      sendJson(response, 200, { schedule, teams });
+    } catch (error) {
+      console.error("Website schedule data error:", error);
+      sendJson(response, 500, { error: error.message || "Unable to load schedule" });
+    }
+    return;
+  }
+
+  if (url.pathname === "/api/league/admin/data-issues" && request.method === "GET") {
+    if (!isAdminRequest(request, url)) {
+      sendJson(response, 403, { error: "Admin authorization required." });
+      return;
+    }
+    try {
+      const context = boundLeagueContext();
+      sendJson(response, 200, {
+        issues: dataIssuesService.issuesForLeague(context.league.leagueId, context.seasonId),
+      });
+    } catch (error) {
+      console.error("Website data issues error:", error);
+      sendJson(response, 500, { error: error.message || "Unable to load data issues" });
+    }
+    return;
+  }
+
+  if (url.pathname === "/api/league/admin/audit-log" && request.method === "GET") {
+    if (!isAdminRequest(request, url)) {
+      sendJson(response, 403, { error: "Admin authorization required." });
+      return;
+    }
+    try {
+      const context = boundLeagueContext();
+      const auditLog = setupService.repository.loadAuditLog(context.league.leagueId)
+        .sort((left, right) => String(right.timestamp).localeCompare(String(left.timestamp)));
+      sendJson(response, 200, { auditLog });
+    } catch (error) {
+      console.error("Website audit log error:", error);
+      sendJson(response, 500, { error: error.message || "Unable to load audit log" });
+    }
+    return;
+  }
+
+  if (url.pathname === "/api/league/admin/preseason/validate" && request.method === "GET") {
+    if (!isAdminRequest(request, url)) {
+      sendJson(response, 403, { error: "Admin authorization required." });
+      return;
+    }
+    try {
+      const context = boundLeagueContext();
+      sendJson(response, 200, preseasonValidator.validate({ leagueId: context.league.leagueId, seasonId: context.seasonId }));
+    } catch (error) {
+      console.error("Website preseason validation error:", error);
+      sendJson(response, 500, { error: error.message || "Unable to validate preseason" });
+    }
+    return;
+  }
+
+  if (url.pathname === "/api/league/admin/start-season" && request.method === "POST") {
+    if (!isAdminRequest(request, url)) {
+      sendJson(response, 403, { error: "Admin authorization required." });
+      return;
+    }
+    parseJsonBody(request).then((body) => {
+      const context = boundLeagueContext(), operator = websiteOperator(body);
+      const league = leagueService.startRegularSeason({
+        leagueId: context.league.leagueId,
+        seasonId: context.seasonId,
+        actingUserId: context.league.commissionerUserId || "website-admin",
+        operator,
+        validator: (params) => preseasonValidator.validate(params),
+      });
+      sendJson(response, 200, { league });
+    }).catch((error) => {
+      console.error("Website start season error:", error);
+      sendJson(response, 400, { error: error.message || "Unable to start regular season" });
+    });
+    return;
+  }
+
+  if (adminPlayerMatch && request.method === "PATCH") {
+    if (!isAdminRequest(request, url)) {
+      sendJson(response, 403, { error: "Admin authorization required." });
+      return;
+    }
+    parseJsonBody(request)
+      .then((body) => {
+        const context = boundLeagueContext(), operator = websiteOperator(body), { operator: ignoredOperator, ...patch } = body;
+        const player = playerService.updatePlayer({
+          leagueId: context.league.leagueId,
+          seasonId: context.seasonId,
+          playerId: decodeURIComponent(adminPlayerMatch[1]),
+          patch,
+          actingUserId: context.league.commissionerUserId || "website-admin",
+          operator,
+        });
+        sendJson(response, 200, { player });
+      })
+      .catch((error) => {
+        console.error("Website player update error:", error);
+        sendJson(response, 400, { error: error.message || "Unable to update player" });
+      });
+    return;
+  }
+
+  if (url.pathname === "/api/league/admin/rosters/add-player" && request.method === "POST") {
+    if (!isAdminRequest(request, url)) {
+      sendJson(response, 403, { error: "Admin authorization required." });
+      return;
+    }
+    parseJsonBody(request)
+      .then((body) => {
+        const context = boundLeagueContext(), operator = websiteOperator(body), { operator: ignoredOperator, ...playerInput } = body;
+        const player = playerService.addPlayer({
+          leagueId: context.league.leagueId,
+          seasonId: context.seasonId,
+          teamId: body.teamId,
+          player: playerInput,
+          actingUserId: context.league.commissionerUserId || "website-admin",
+          operator,
+        });
+        sendJson(response, 200, { player });
+      })
+      .catch((error) => {
+        console.error("Website add player error:", error);
+        sendJson(response, 400, { error: error.message || "Unable to add player" });
+      });
+    return;
+  }
+
+  if (url.pathname === "/api/league/admin/rosters/move-player" && request.method === "POST") {
+    if (!isAdminRequest(request, url)) {
+      sendJson(response, 403, { error: "Admin authorization required." });
+      return;
+    }
+    parseJsonBody(request)
+      .then((body) => {
+        const context = boundLeagueContext(), operator = websiteOperator(body);
+        const membership = rosterService.movePlayer({
+          leagueId: context.league.leagueId,
+          seasonId: context.seasonId,
+          playerId: body.playerId,
+          fromTeamId: body.fromTeamId,
+          toTeamId: body.toTeamId,
+          actingUserId: context.league.commissionerUserId || "website-admin",
+          operator,
+        });
+        sendJson(response, 200, { membership });
+      })
+      .catch((error) => {
+        console.error("Website move player error:", error);
+        sendJson(response, 400, { error: error.message || "Unable to move player" });
+      });
+    return;
+  }
+
+  if (url.pathname === "/api/league/admin/rosters/remove-player" && request.method === "POST") {
+    if (!isAdminRequest(request, url)) {
+      sendJson(response, 403, { error: "Admin authorization required." });
+      return;
+    }
+    parseJsonBody(request)
+      .then((body) => {
+        const context = boundLeagueContext(), operator = websiteOperator(body);
+        const membership = rosterService.removePlayer({
+          leagueId: context.league.leagueId,
+          seasonId: context.seasonId,
+          playerId: body.playerId,
+          teamId: body.teamId,
+          actingUserId: context.league.commissionerUserId || "website-admin",
+          operator,
+        });
+        sendJson(response, 200, { membership });
+      })
+      .catch((error) => {
+        console.error("Website remove player error:", error);
+        sendJson(response, 400, { error: error.message || "Unable to remove player" });
+      });
+    return;
+  }
+
+  if (url.pathname === "/api/league/admin/rosters/bulk-update" && request.method === "PATCH") {
+    if (!isAdminRequest(request, url)) {
+      sendJson(response, 403, { error: "Admin authorization required." });
+      return;
+    }
+    parseJsonBody(request)
+      .then((body) => {
+        const context = boundLeagueContext(), operator = websiteOperator(body);
+        const result = rosterService.bulkUpdateRoster({
+          leagueId: context.league.leagueId,
+          seasonId: context.seasonId,
+          teamId: body.teamId,
+          updates: body.updates,
+          actingUserId: context.league.commissionerUserId || "website-admin",
+          operator,
+        });
+        sendJson(response, 200, { result });
+      })
+      .catch((error) => {
+        console.error("Website bulk roster update error:", error);
+        sendJson(response, 400, { error: error.message || "Unable to bulk update roster" });
+      });
+    return;
+  }
+
+  if (url.pathname === "/api/league/admin/import/preview" && request.method === "POST") {
+    if (!isAdminRequest(request, url)) {
+      sendJson(response, 403, { error: "Admin authorization required." });
+      return;
+    }
+    parseJsonBody(request)
+      .then((body) => {
+        const context = boundLeagueContext();
+        const preview = rosterService.diffRosterImport({
+          leagueId: context.league.leagueId,
+          seasonId: context.seasonId,
+          teamId: body.teamId,
+        });
+        sendJson(response, 200, { preview });
+      })
+      .catch((error) => {
+        console.error("Website roster preview error:", error);
+        sendJson(response, 400, { error: error.message || "Unable to preview import" });
+      });
+    return;
+  }
+
+  if (url.pathname === "/api/league/admin/import/apply" && request.method === "POST") {
+    if (!isAdminRequest(request, url)) {
+      sendJson(response, 403, { error: "Admin authorization required." });
+      return;
+    }
+    parseJsonBody(request)
+      .then((body) => {
+        const context = boundLeagueContext(), operator = websiteOperator(body);
+        const preview = rosterService.applyRosterImport({
+          leagueId: context.league.leagueId,
+          seasonId: context.seasonId,
+          teamId: body.teamId,
+          actingUserId: context.league.commissionerUserId || "website-admin",
+          operator,
+        });
+        sendJson(response, 200, { preview });
+      })
+      .catch((error) => {
+        console.error("Website roster import apply error:", error);
+        sendJson(response, 400, { error: error.message || "Unable to apply import" });
+      });
+    return;
+  }
+
+  if (url.pathname.startsWith("/ratings-assets/")) {
+    const slug = url.pathname.slice("/ratings-assets/".length);
+    if (!/^[a-z0-9-]+$/.test(slug)) {
+      sendJson(response, 404, { error: "Not found" });
+      return;
+    }
+    const root = path.join(ROOT_DIR, "data", "2kratings", "images");
+    const portrait = ["png", "webp", "jpg", "jpeg"].map((extension) => path.join(root, `${slug}.${extension}`))
+      .find((file) => fs.existsSync(file));
+    sendFile(response, portrait, "public, max-age=3600");
+    return;
+  }
+
+  if (url.pathname.startsWith("/draft-assets/")) {
+    const relativePath = decodeURIComponent(url.pathname.slice("/draft-assets/".length));
+    sendFile(response, safeFile(DRAFT_IMAGE_DIR, relativePath), "public, max-age=31536000, immutable");
+    return;
+  }
+
+  const requested = url.pathname === "/" ? "index.html" : url.pathname.slice(1);
+  const filePath = safeFile(WEB_DIR, requested);
+  if (filePath && fs.existsSync(filePath)) {
+    sendFile(response, filePath);
+    return;
+  }
+  sendFile(response, path.join(WEB_DIR, "index.html"));
+}
+
+function startWebsite({ port = Number(process.env.PORT || 3000), host = "0.0.0.0" } = {}) {
+  const server = http.createServer(requestHandler);
+  server.on("error", (error) => console.error("Website server error:", error));
+  server.listen(port, host, () => {
+    console.log(`Draft website listening on http://${host}:${port}`);
+  });
+  return server;
+}
+
+module.exports = { requestHandler, startWebsite, setGameThreadRuntime };
+
+if (require.main === module) {
+  startWebsite();
+}

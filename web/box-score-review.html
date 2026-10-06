@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>LEAGUEbuddy · Submission Review</title>
+    <link rel="stylesheet" href="/styles.css">
+    <script src="/box-score-review.js" defer></script>
+</head>
+
+<body>
+    <header class="site-header"><a class="brand" href="/"><img class="brand-mark" src="/assets/leaguebuddy-logo.png"
+                alt=""><span><strong>LEAGUE<span>buddy</span></strong><small>League hub + draft room</small></span></a>
+        <nav aria-label="Primary navigation"><a href="/#league-home">Home</a><a href="/#schedule-hub">Schedule</a><a
+                href="/#league-admin">Admin</a></nav>
+    </header>
+    <main class="review-page">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Commissioner tools</p>
+                <h2>Game Submission Review</h2>
+                <p>Compare both originals, correct the box scores, then save and revalidate before approval.</p>
+            </div>
+        </div>
+        <form id="access" class="review-toolbar"><label>Commissioner website key <input id="key" type="password"
+                    autocomplete="off"></label><button class="primary-action">Load submission</button></form>
+        <p id="status" role="status" aria-live="polite"></p>
+        <section id="summary"></section><a href="/#league-admin">Return to commissioner tools</a>
+    </main>
+</body>
+
+</html>

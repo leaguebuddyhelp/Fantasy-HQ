@@ -1,0 +1,162 @@
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const { createFantasyHQRepository } = require("../src/fantasyhq/repository");
+const { createTradeService } = require("../src/fantasyhq/trade-service");
+const { createDiscordTradeWorkflow } = require("../src/fantasyhq/discord-trades");
+
+function fixture(t, testMode = false, logger = { error() { } }) {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "lb-discord-trades-"));
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    const repository = createFantasyHQRepository({ dataRoot: root });
+    const teams = ["alpha", "bravo", "charlie"].map(teamId => ({ teamId, teamName: `${teamId} team`, abbreviation: teamId.toUpperCase(), conference: teamId === "alpha" ? "East" : "West" }));
+    repository.saveLeague("league", { currentPhase: "REGULAR_SEASON", currentSeasonId: "1", seasonNumber: 1, currentWeek: 1, guildId: "guild" });
+    repository.saveGuildLeagueBinding("guild", { leagueId: "league", seasonId: "1" });
+    repository.saveTeams("league", teams);
+    repository.saveSettings("league", { testMode, discordChannels: {} });
+    repository.saveOwners("league", teams.map(team => ({ teamId: team.teamId, userId: `coach-${team.teamId}` })));
+    const players = [], memberships = [];
+    for (const team of teams) for (let index = 0; index < 15; index += 1) {
+        const playerId = `${team.teamId}-player-${index}`;
+        players.push({ playerId, name: `${team.teamName} player ${index}`, overall: 80, birthdate: "2000-01-01", position1: "SF", height: "6'7\"", wingspan: "7'0\"", yearsInNBA: 5 });
+        memberships.push({ playerId, teamId: team.teamId, seasonId: "1", active: true });
+    }
+    repository.savePlayers("league", players);
+    repository.saveRosterMemberships("league", memberships);
+    const roleIds = { alpha: "team-alpha", bravo: "team-bravo", charlie: "team-charlie" };
+    const ownershipPath = path.join(repository.buildLeaguePaths(root, "league").leagueRoot, "role-ownership.json");
+    fs.writeFileSync(ownershipPath, JSON.stringify({ guildId: "guild", roleIds }));
+    const service = createTradeService({ repository });
+    service.initializeDraftPicks({ leagueId: "league", seasonId: "1" });
+    const roleEntries = [
+        { id: "coach", name: "LEAGUEbuddy Coach" },
+        { id: "gm", name: "LEAGUEbuddy GM" },
+        ...teams.map(team => ({ id: roleIds[team.teamId], name: team.teamName })),
+    ];
+    const roleCache = [...roleEntries];
+    roleCache.find = predicate => Array.prototype.find.call(roleCache, predicate);
+    const guild = { id: "guild", roles: { cache: roleCache }, channels: { fetch: async () => null } };
+    const workflow = createDiscordTradeWorkflow({ repository, tradeService: service, logger });
+    function interaction(customId, { kind = "button", userId = "coach-alpha", selected = [], roles = ["coach", "team-alpha"], guildContext = guild, manageGuild = false } = {}) {
+        const result = {
+            customId, guildId: guildContext?.id || null, guild: guildContext, user: { id: userId }, values: selected, replied: false, deferred: false,
+            member: { roles: { cache: new Set(roles) }, permissions: { has: () => false } },
+            memberPermissions: { has: () => manageGuild }, client: { guilds: { fetch: async () => guild } },
+            isButton: () => kind === "button", isStringSelectMenu: () => kind === "select",
+            reply: async payload => { result.payload = payload; result.replied = true; },
+            update: async payload => { result.payload = payload; result.replied = true; },
+            followUp: async payload => { result.followup = payload; },
+        };
+        return result;
+    }
+    return { guild, interaction, repository, service, teams, workflow };
+}
+
+test("pinned builder supports third teams, routed assets, value/roster feedback, and full package review", async t => {
+    const f = fixture(t);
+    const opened = f.interaction("trade:build");
+    await f.workflow.handleTradeInteraction(opened);
+    assert.equal(opened.payload.components[0].components[0].toJSON().options.length, 2);
+    const selectedTeam = f.interaction("trade:select-other:alpha:0", { kind: "select", selected: ["bravo"] });
+    await f.workflow.handleTradeInteraction(selectedTeam);
+    const addThird = selectedTeam.payload.components[0].components[4].data.custom_id;
+    const thirdPicker = f.interaction(addThird);
+    await f.workflow.handleTradeInteraction(thirdPicker);
+    const tradeId = addThird.split(":")[2];
+    assert.equal(thirdPicker.payload.components[0].components[0].toJSON().options[0].value, "charlie");
+    const addCharlie = f.interaction(`trade:select-third:${tradeId}:0`, { kind: "select", selected: ["charlie"] });
+    await f.workflow.handleTradeInteraction(addCharlie);
+    const addPlayer = f.interaction(`trade:add:PLAYER:${tradeId}`);
+    await f.workflow.handleTradeInteraction(addPlayer);
+    const sourceAlpha = f.interaction(`trade:source:PLAYER:${tradeId}:alpha`);
+    await f.workflow.handleTradeInteraction(sourceAlpha);
+    const choosePlayer = f.interaction(`trade:asset:PLAYER:${tradeId}:alpha`, { kind: "select", selected: [encodeURIComponent("alpha-player-0")] });
+    await f.workflow.handleTradeInteraction(choosePlayer);
+    const routePlayer = f.interaction(`trade:destination:${tradeId}:PLAYER:alpha:${encodeURIComponent("alpha-player-0")}`, { kind: "select", selected: ["bravo|UNPROTECTED"] });
+    await f.workflow.handleTradeInteraction(routePlayer);
+    assert.ok(routePlayer.payload.embeds[0].data.fields.some(field => field.value.includes("would have 14 players") || field.value.includes("would have 16 players")));
+    const sourceBravo = f.interaction(`trade:source:PLAYER:${tradeId}:bravo`);
+    await f.workflow.handleTradeInteraction(sourceBravo);
+    const chooseBravo = f.interaction(`trade:asset:PLAYER:${tradeId}:bravo`, { kind: "select", selected: [encodeURIComponent("bravo-player-0")] });
+    await f.workflow.handleTradeInteraction(chooseBravo);
+    const routeBravo = f.interaction(`trade:destination:${tradeId}:PLAYER:bravo:${encodeURIComponent("bravo-player-0")}`, { kind: "select", selected: ["alpha|UNPROTECTED"] });
+    await f.workflow.handleTradeInteraction(routeBravo);
+    const packageButton = routeBravo.payload.components[1].components[0].data.custom_id;
+    const packageReview = f.interaction(packageButton);
+    await f.workflow.handleTradeInteraction(packageReview);
+    assert.match(packageReview.payload.embeds[0].data.title, /alpha team Package/);
+    assert.match(packageReview.payload.embeds[0].data.description, /Receives from bravo team/);
+});
+
+test("existing Test Mode lets league staff choose a team without weakening production entry", async t => {
+    const testFixture = fixture(t, true);
+    const simulated = testFixture.interaction("trade:build", { userId: "commissioner", roles: [], manageGuild: true });
+    await testFixture.workflow.handleTradeInteraction(simulated);
+    assert.match(simulated.payload.content, /Choose the team you are building for/);
+    assert.equal(simulated.payload.components[0].components[0].toJSON().options.length, 3);
+    const production = fixture(t, false);
+    const denied = production.interaction("trade:build", { userId: "visitor", roles: [] });
+    await production.workflow.handleTradeInteraction(denied);
+    assert.match(denied.payload.content, /Coaches and GMs/);
+});
+
+test("counter builder remains interactive in DMs and a team cannot bypass production ownership", async t => {
+    const f = fixture(t);
+    const draft = f.service.createDraft({ leagueId: "league", seasonId: "1", initiatingUserId: "coach-alpha", initiatingTeamId: "alpha", secondTeamId: "bravo" });
+    f.service.updateDraft({
+        leagueId: "league", tradeId: draft.tradeId, actorUserId: "coach-alpha", transfers: [
+            { assetType: "PLAYER", assetId: "alpha-player-0", fromTeamId: "alpha", toTeamId: "bravo" },
+            { assetType: "PLAYER", assetId: "bravo-player-0", fromTeamId: "bravo", toTeamId: "alpha" },
+        ]
+    });
+    f.service.submitTrade({ leagueId: "league", tradeId: draft.tradeId, actorUserId: "coach-alpha" });
+    f.service.counterTrade({ leagueId: "league", tradeId: draft.tradeId, version: 1, actorUserId: "coach-bravo", actorTeamId: "bravo" });
+    const dm = { id: "dm", roles: f.guild.roles, channels: f.guild.channels };
+    const editCounter = f.interaction(`trade:add:PLAYER:${draft.tradeId}`, { userId: "coach-bravo", roles: [], guildContext: null });
+    await f.workflow.handleTradeInteraction(editCounter);
+    assert.match(editCounter.payload.content, /Choose the team sending a player/);
+    const attemptedTakeover = f.service.createDraft({ leagueId: "league", seasonId: "1", initiatingUserId: "coach-bravo", initiatingTeamId: "alpha", secondTeamId: "bravo" });
+    f.service.updateDraft({
+        leagueId: "league", tradeId: attemptedTakeover.tradeId, actorUserId: "coach-bravo", transfers: [
+            { assetType: "PLAYER", assetId: "alpha-player-1", fromTeamId: "alpha", toTeamId: "bravo" },
+            { assetType: "PLAYER", assetId: "bravo-player-1", fromTeamId: "bravo", toTeamId: "alpha" },
+        ]
+    });
+    assert.throws(() => f.service.submitTrade({ leagueId: "league", tradeId: attemptedTakeover.tradeId, actorUserId: "coach-bravo" }), /assigned coach/);
+});
+
+test("trade interaction failures write the component ID and stack to the bot logger", async t => {
+    const errors = [], logger = { error: (...parts) => errors.push(parts) }, f = fixture(t, false, logger);
+    const interaction = f.interaction("trade:source:PLAYER:missing:alpha");
+    await f.workflow.handleTradeInteraction(interaction);
+    assert.match(errors[0][0], /trade:source:PLAYER:missing:alpha/);
+    assert.match(errors[0][0], /user coach-alpha/);
+    assert.match(String(errors[0][1]), /no longer available/);
+    assert.match(interaction.payload.content, /no longer available/);
+});
+
+test("player selectors page through all roster assets when a team exceeds Discord's 25-option limit", async t => {
+    const f = fixture(t), players = f.repository.loadPlayers("league"), memberships = f.repository.loadRosterMemberships("league");
+    for (let index = 0; index < 11; index += 1) {
+        const playerId = `alpha-extra-${index}`;
+        players.push({ playerId, name: `Extra Player ${index}`, overall: 70, birthdate: "2000-01-01", position1: "SF" });
+        memberships.push({ playerId, teamId: "alpha", seasonId: "1", active: true });
+    }
+    f.repository.savePlayers("league", players);
+    f.repository.saveRosterMemberships("league", memberships);
+    const draft = f.service.createDraft({ leagueId: "league", seasonId: "1", initiatingUserId: "coach-alpha", initiatingTeamId: "alpha", secondTeamId: "bravo" });
+    const add = f.interaction(`trade:add:PLAYER:${draft.tradeId}`);
+    await f.workflow.handleTradeInteraction(add);
+    const sourceId = add.payload.components[0].components[0].data.custom_id;
+    const chooseSource = f.interaction(sourceId);
+    await f.workflow.handleTradeInteraction(chooseSource);
+    const firstPage = chooseSource.payload.components[0].components[0].toJSON();
+    assert.equal(firstPage.options.length, 25);
+    const nextPageId = chooseSource.payload.components[1].components.find(button => button.data.label === "More players").data.custom_id;
+    const secondPage = f.interaction(nextPageId);
+    await f.workflow.handleTradeInteraction(secondPage);
+    assert.match(secondPage.payload.content, /Page 2\/2/);
+    assert.equal(secondPage.payload.components[0].components[0].toJSON().options.length, 1);
+});

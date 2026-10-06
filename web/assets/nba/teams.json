@@ -1,0 +1,182 @@
+[
+  {
+    "slug": "atlanta-hawks",
+    "name": "Atlanta Hawks",
+    "abbreviation": "ATL",
+    "logo": "/assets/nba/atlanta-hawks.png"
+  },
+  {
+    "slug": "boston-celtics",
+    "name": "Boston Celtics",
+    "abbreviation": "BOS",
+    "logo": "/assets/nba/boston-celtics.png"
+  },
+  {
+    "slug": "brooklyn-nets",
+    "name": "Brooklyn Nets",
+    "abbreviation": "BKN",
+    "logo": "/assets/nba/brooklyn-nets.png"
+  },
+  {
+    "slug": "charlotte-hornets",
+    "name": "Charlotte Hornets",
+    "abbreviation": "CHA",
+    "logo": "/assets/nba/charlotte-hornets.png"
+  },
+  {
+    "slug": "chicago-bulls",
+    "name": "Chicago Bulls",
+    "abbreviation": "CHI",
+    "logo": "/assets/nba/chicago-bulls.png"
+  },
+  {
+    "slug": "cleveland-cavaliers",
+    "name": "Cleveland Cavaliers",
+    "abbreviation": "CLE",
+    "logo": "/assets/nba/cleveland-cavaliers.png"
+  },
+  {
+    "slug": "detroit-pistons",
+    "name": "Detroit Pistons",
+    "abbreviation": "DET",
+    "logo": "/assets/nba/detroit-pistons.png"
+  },
+  {
+    "slug": "indiana-pacers",
+    "name": "Indiana Pacers",
+    "abbreviation": "IND",
+    "logo": "/assets/nba/indiana-pacers.png"
+  },
+  {
+    "slug": "miami-heat",
+    "name": "Miami Heat",
+    "abbreviation": "MIA",
+    "logo": "/assets/nba/miami-heat.png"
+  },
+  {
+    "slug": "milwaukee-bucks",
+    "name": "Milwaukee Bucks",
+    "abbreviation": "MIL",
+    "logo": "/assets/nba/milwaukee-bucks.png"
+  },
+  {
+    "slug": "new-york-knicks",
+    "name": "New York Knicks",
+    "abbreviation": "NYK",
+    "logo": "/assets/nba/new-york-knicks.png"
+  },
+  {
+    "slug": "orlando-magic",
+    "name": "Orlando Magic",
+    "abbreviation": "ORL",
+    "logo": "/assets/nba/orlando-magic.png"
+  },
+  {
+    "slug": "philadelphia-76ers",
+    "name": "Philadelphia 76ers",
+    "abbreviation": "PHI",
+    "logo": "/assets/nba/philadelphia-76ers.png"
+  },
+  {
+    "slug": "toronto-raptors",
+    "name": "Toronto Raptors",
+    "abbreviation": "TOR",
+    "logo": "/assets/nba/toronto-raptors.png"
+  },
+  {
+    "slug": "washington-wizards",
+    "name": "Washington Wizards",
+    "abbreviation": "WAS",
+    "logo": "/assets/nba/washington-wizards.png"
+  },
+  {
+    "slug": "dallas-mavericks",
+    "name": "Dallas Mavericks",
+    "abbreviation": "DAL",
+    "logo": "/assets/nba/dallas-mavericks.png"
+  },
+  {
+    "slug": "denver-nuggets",
+    "name": "Denver Nuggets",
+    "abbreviation": "DEN",
+    "logo": "/assets/nba/denver-nuggets.png"
+  },
+  {
+    "slug": "golden-state-warriors",
+    "name": "Golden State Warriors",
+    "abbreviation": "GSW",
+    "logo": "/assets/nba/golden-state-warriors.png"
+  },
+  {
+    "slug": "houston-rockets",
+    "name": "Houston Rockets",
+    "abbreviation": "HOU",
+    "logo": "/assets/nba/houston-rockets.png"
+  },
+  {
+    "slug": "los-angeles-clippers",
+    "name": "Los Angeles Clippers",
+    "abbreviation": "LAC",
+    "logo": "/assets/nba/los-angeles-clippers.png"
+  },
+  {
+    "slug": "los-angeles-lakers",
+    "name": "Los Angeles Lakers",
+    "abbreviation": "LAL",
+    "logo": "/assets/nba/los-angeles-lakers.png"
+  },
+  {
+    "slug": "memphis-grizzlies",
+    "name": "Memphis Grizzlies",
+    "abbreviation": "MEM",
+    "logo": "/assets/nba/memphis-grizzlies.png"
+  },
+  {
+    "slug": "minnesota-timberwolves",
+    "name": "Minnesota Timberwolves",
+    "abbreviation": "MIN",
+    "logo": "/assets/nba/minnesota-timberwolves.png"
+  },
+  {
+    "slug": "new-orleans-pelicans",
+    "name": "New Orleans Pelicans",
+    "abbreviation": "NOP",
+    "logo": "/assets/nba/new-orleans-pelicans.png"
+  },
+  {
+    "slug": "oklahoma-city-thunder",
+    "name": "Oklahoma City Thunder",
+    "abbreviation": "OKC",
+    "logo": "/assets/nba/oklahoma-city-thunder.png"
+  },
+  {
+    "slug": "phoenix-suns",
+    "name": "Phoenix Suns",
+    "abbreviation": "PHX",
+    "logo": "/assets/nba/phoenix-suns.png"
+  },
+  {
+    "slug": "portland-trail-blazers",
+    "name": "Portland Trail Blazers",
+    "abbreviation": "POR",
+    "logo": "/assets/nba/portland-trail-blazers.png"
+  },
+  {
+    "slug": "sacramento-kings",
+    "name": "Sacramento Kings",
+    "abbreviation": "SAC",
+    "logo": "/assets/nba/sacramento-kings.png"
+  },
+  {
+    "slug": "san-antonio-spurs",
+    "name": "San Antonio Spurs",
+    "abbreviation": "SAS",
+    "logo": "/assets/nba/san-antonio-spurs.png"
+  },
+  {
+    "slug": "utah-jazz",
+    "name": "Utah Jazz",
+    "abbreviation": "UTA",
+    "logo": "/assets/nba/utah-jazz.png"
+  }
+]

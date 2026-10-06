@@ -1,20 +1,37 @@
 {
-  "name": "sleeper-discord",
+  "name": "leaguebuddy-draft-bot",
   "version": "0.1.0",
-  "description": "Discord bot for pulling Sleeper fantasy football league data into slash commands.",
+  "description": "Discord bot and website for Leaguebuddy draft boards and prospect profiles.",
   "main": "src/index.js",
   "type": "commonjs",
   "scripts": {
     "start": "node src/index.js",
+    "start:web": "node src/web.js",
+    "scrape": "tsx src/scrapers/2kratings/index.ts",
+    "normalize:bigboard": "node scripts/normalize-big-board.js",
+    "images:bigboard": "node scripts/assign-big-board-images.js",
+    "images:optimize": "node scripts/optimize-draft-images.js",
+    "test": "node --test",
     "deploy:commands": "node deploy-commands.js",
-    "audit:season": "node scripts/audit-sleeper-season.js",
-    "check": "node --check src/index.js && node --check src/config.js && node --check src/sleeper.js && node --check src/format.js && node --check src/store.js && node --check deploy-commands.js"
+    "check": "node --check src/index.js && node --check src/config.js && node --check src/web.js && node --check src/2kratings/repository.js && node --check src/2kratings/discord-ratings.js && node --check src/fantasyhq/bootstrap.js && node --check src/fantasyhq/constants.js && node --check src/fantasyhq/data-issues-service.js && node --check src/fantasyhq/discord-admin.js && node --check src/fantasyhq/discord-channels.js && node --check src/fantasyhq/discord-player-stats.js && node --check src/fantasyhq/discord-preseason.js && node --check src/fantasyhq/discord-setup.js && node --check src/fantasyhq/game-submissions.js && node --check src/fantasyhq/league-service.js && node --check src/fantasyhq/official-game.js && node --check src/fantasyhq/phase-guards.js && node --check src/fantasyhq/player-service.js && node --check src/fantasyhq/preseason-validator.js && node --check src/fantasyhq/repository.js && node --check src/fantasyhq/roster-service.js && node --check src/fantasyhq/schedule-generator.js && node --check src/fantasyhq/schedule-validator.js && node --check src/fantasyhq/schedule-formatters.js && node --check src/fantasyhq/service-helpers.js && node --check src/fantasyhq/discord-schedule.js && node --check src/fantasyhq/setup-service.js && node --check src/fantasyhq/setup-validator.js && node --check src/fantasyhq/team-service.js && node --check src/fantasyhq/asset-valuation.js && node --check src/fantasyhq/trade-service.js && node --check src/fantasyhq/discord-trades.js && node --check src/shared/discord-player-card.js && node --check deploy-commands.js && node --check src/fantasyhq/draft-order.js && node --check src/fantasyhq/mock-engine.js && node --check src/fantasyhq/mock-storage.js && node --check src/fantasyhq/mock-simulations.js && node --check src/fantasyhq/live-mock-service.js && node --check src/fantasyhq/discord-mock-draft.js && node --check scripts/refresh-mock-simulations.js && tsc --noEmit && npm test",
+    "mock:refresh": "node scripts/refresh-mock-simulations.js"
   },
   "dependencies": {
+    "@tesseract.js-data/eng": "^1.0.0",
+    "cheerio": "^1.2.0",
     "discord.js": "^14.16.3",
-    "dotenv": "^16.4.7"
+    "dotenv": "^16.4.7",
+    "p-limit": "^7.3.3",
+    "playwright": "^1.63.0",
+    "sharp": "^0.35.5",
+    "tesseract.js": "^7.0.0"
   },
   "engines": {
     "node": ">=20"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.3",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
   }
 }

@@ -1,225 +1,347 @@
 require("dotenv").config();
 
-const { REST, Routes, SlashCommandBuilder } = require("discord.js");
+const { PermissionFlagsBits, REST, Routes, SlashCommandBuilder } = require("discord.js");
 const { requireEnv } = require("./src/config");
 
-function seasonOption(option) {
-  return option
-    .setName("season")
-    .setDescription("Season year, like 2025. Defaults to the connected league season.")
-    .setRequired(false);
-}
-
-function periodOption(option) {
-  return option
-    .setName("week")
-    .setDescription("Scoring period. Defaults to the sport's current period.")
-    .setMinValue(1)
-    .setMaxValue(30)
-    .setRequired(false);
-}
-
-function teamOption(name, description, required = true) {
-  return (option) =>
-    option
-      .setName(name)
-      .setDescription(description)
-      .setRequired(required)
-      .setAutocomplete(true);
-}
-
-function playerOption(name = "player", description = "Choose a rostered player from the connected league.", required = true) {
-  return (option) =>
-    option
-      .setName(name)
-      .setDescription(description)
-      .setRequired(required)
-      .setAutocomplete(true);
-}
-
-function pickOption(name, description) {
-  return (option) =>
-    option
-      .setName(name)
-      .setDescription(description)
-      .setRequired(false)
-      .addChoices(
-        { name: "No pick", value: "none" },
-        { name: "1st", value: "first" },
-        { name: "2nd", value: "second" },
-        { name: "3rd", value: "third" },
-        { name: "1st + 2nd", value: "first_second" },
-      );
-}
-
-function needOption(option) {
-  return option
-    .setName("need")
-    .setDescription("What the team wants to improve.")
-    .setRequired(false)
-    .addChoices(
-      { name: "Whatever Helps Most", value: "fit" },
-      { name: "Points", value: "pts" },
-      { name: "Rebounds", value: "reb" },
-      { name: "Assists", value: "ast" },
-      { name: "Steals", value: "stl" },
-      { name: "Blocks", value: "blk" },
-      { name: "Threes", value: "tpm" },
-      { name: "Younger Players", value: "youth" },
-      { name: "Help Now", value: "win_now" },
-    );
-}
-
 const commands = [
+  new SlashCommandBuilder().setName("mockdraft").setDescription("Generate a private current first-round mock draft projection."),
+  new SlashCommandBuilder().setName("week").setDescription("Manage regular-season week advancement.")
+    .addSubcommand(sub => sub.setName("advance").setDescription("Review and confirm completion of the active week.").addBooleanOption(option => option.setName("force").setDescription("Request confirmation to close the week with unresolved games."))),
+  new SlashCommandBuilder().setName("standings").setDescription("Regular-season standings from official game results.")
+    .addStringOption(option => option.setName("conference").setDescription("Show one conference, or omit for both.").addChoices({ name: "East", value: "East" }, { name: "West", value: "West" })),
+  new SlashCommandBuilder().setName("stats").setDescription("View a player's official regular-season statistics.")
+    .addStringOption(option => option.setName("player").setDescription("Search a league player.").setRequired(true).setAutocomplete(true)),
+  new SlashCommandBuilder().setName("teamstats").setDescription("View a team's official regular-season statistics.")
+    .addStringOption(option => option.setName("team").setDescription("Search for a league team.").setRequired(true).setAutocomplete(true)),
+  new SlashCommandBuilder().setName("games").setDescription("Manage active-week private game threads.")
+    .addSubcommand(sub => sub.setName("create").setDescription("Confirm replacement of all ACTIVE-week game threads."))
+    .addSubcommand(sub => sub.setName("cleanup").setDescription("Confirm deletion of all game threads for a selected week.").addIntegerOption(option => option.setName("week").setDescription("Regular-season week to clean, including unfinished games.").setRequired(true).setMinValue(1).setMaxValue(15))),
+  new SlashCommandBuilder().setName("game").setDescription("Set up screenshot submission in an existing private game thread.")
+    .addSubcommand(sub => sub.setName("setup").setDescription("Link this private thread to a scheduled game and post Submit Game.")
+      .addIntegerOption(option => option.setName("week").setDescription("Scheduled week.").setRequired(true).setMinValue(1).setMaxValue(15))
+      .addStringOption(option => option.setName("team").setDescription("One team's exact name or abbreviation.").setRequired(true))),
+  new SlashCommandBuilder().setName("bigboard").setDescription("Browse this season's full Big Board, ten prospects per page."),
+  new SlashCommandBuilder().setName("scout").setDescription("Spend 10 scouting points to unlock a prospect's next rating.")
+    .addStringOption(option => option.setName("position").setDescription("Filter prospects by position.").setRequired(true).addChoices(...["PG", "SG", "SF", "PF", "C"].map(value => ({ name: value, value }))))
+    .addStringOption(option => option.setName("prospect").setDescription("Search prospects at the selected position by name or team.").setRequired(true).setAutocomplete(true)),
   new SlashCommandBuilder()
-    .setName("connect")
-    .setDescription("Connect this Discord server to Sleeper by league ID, or find leagues by username.")
+    .setName("toptenpreview")
+    .setDescription("Browse the 2K27 top ten preview.")
     .addStringOption((option) =>
       option
-        .setName("league_id")
-        .setDescription("Sleeper league ID. Use this to connect immediately.")
-        .setRequired(false),
-    )
-    .addStringOption((option) =>
-      option
-        .setName("username")
-        .setDescription("Sleeper username. Use this to find league IDs.")
-        .setRequired(false),
-    )
-    .addStringOption((option) =>
-      option
-        .setName("season")
-        .setDescription("Sleeper season for username lookup. Defaults to SLEEPER_SEASON or 2026.")
-        .setRequired(false),
-    )
-    .addStringOption((option) =>
-      option
-        .setName("sport")
-        .setDescription("Sport for username lookup. Defaults to NBA and NFL.")
+        .setName("draft_class")
+        .setDescription("Choose one of the available draft classes.")
         .setRequired(false)
-        .addChoices(
-          { name: "NBA", value: "nba" },
-          { name: "NFL", value: "nfl" },
+        .setAutocomplete(true),
+    ),
+  new SlashCommandBuilder()
+    .setName("schedule")
+    .setDescription("Generate and view FantasyHQ MyNBA schedules.")
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("generate")
+        .setDescription("Generate a new randomized conference schedule preview."),
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("preview")
+        .setDescription("Show the current unconfirmed schedule preview."),
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("regenerate")
+        .setDescription("Regenerate the pending schedule preview."),
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("confirm")
+        .setDescription("Confirm and save the pending schedule."),
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("mine")
+        .setDescription("Show the full 15-week schedule for your assigned team."),
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("week")
+        .setDescription("Show one week from the saved schedule.")
+        .addIntegerOption((option) =>
+          option
+            .setName("week")
+            .setDescription("Week number (1-15).")
+            .setMinValue(1)
+            .setMaxValue(15)
+            .setRequired(false),
         ),
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("team")
+        .setDescription("Show one team's full 15-week schedule.")
+        .addStringOption((option) =>
+          option
+            .setName("team")
+            .setDescription("Team name or abbreviation.")
+            .setRequired(true)
+            .setAutocomplete(true),
+        ),
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("full")
+        .setDescription("Download the full saved schedule."),
+    ),
+  new SlashCommandBuilder()
+    .setName("ratings")
+    .setDescription("Browse the local 2KRatings roster and free agency data.")
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("team")
+        .setDescription("Show a team's latest 2KRatings roster.")
+        .addStringOption((option) =>
+          option
+            .setName("team")
+            .setDescription("Team name.")
+            .setRequired(true)
+            .setAutocomplete(true),
+        ),
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("player")
+        .setDescription("Show one player's latest 2KRatings card.")
+        .addStringOption((option) =>
+          option
+            .setName("player")
+            .setDescription("Player name.")
+            .setRequired(true)
+            .setAutocomplete(true),
+        ),
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("top")
+        .setDescription("Show the highest-rated current roster players.")
+        .addIntegerOption((option) =>
+          option
+            .setName("limit")
+            .setDescription("How many players to show.")
+            .setMinValue(1)
+            .setMaxValue(25)
+            .setRequired(false),
+        )
+        .addStringOption((option) =>
+          option
+            .setName("position")
+            .setDescription("Filter by position.")
+            .addChoices(
+              { name: "PG", value: "PG" },
+              { name: "SG", value: "SG" },
+              { name: "SF", value: "SF" },
+              { name: "PF", value: "PF" },
+              { name: "C", value: "C" },
+            )
+            .setRequired(false),
+        ),
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("freeagency")
+        .setDescription("Show the highest-rated free agents.")
+        .addIntegerOption((option) =>
+          option
+            .setName("limit")
+            .setDescription("How many free agents to show.")
+            .setMinValue(1)
+            .setMaxValue(25)
+            .setRequired(false),
+        )
+        .addStringOption((option) =>
+          option
+            .setName("position")
+            .setDescription("Filter by position.")
+            .addChoices(
+              { name: "PG", value: "PG" },
+              { name: "SG", value: "SG" },
+              { name: "SF", value: "SF" },
+              { name: "PF", value: "PF" },
+              { name: "C", value: "C" },
+            )
+            .setRequired(false),
+        ),
+    ),
+  new SlashCommandBuilder()
+    .setName("player")
+    .setDescription("Show one LEAGUEbuddy player profile.")
+    .addStringOption((option) =>
+      option
+        .setName("player")
+        .setDescription("Player name.")
+        .setRequired(true)
+        .setAutocomplete(true),
+    ),
+  new SlashCommandBuilder().setName("myteam").setDescription("Your roster, owner, and upcoming schedule."),
+  new SlashCommandBuilder().setName("freeagents").setDescription("Browse available players in your league.")
+    .addIntegerOption((option) => option.setName("page").setDescription("Page to view.").setMinValue(1))
+    .addStringOption((option) => option.setName("position").setDescription("Filter by position.")
+      .addChoices(...["PG", "SG", "SF", "PF", "C"].map((value) => ({ name: value, value })))),
+  new SlashCommandBuilder()
+    .setName("admin")
+    .setDescription("Configure FantasyHQ league data for this Discord server.")
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("bind")
+        .setDescription("Bind this Discord server to an existing FantasyHQ league.")
+        .addStringOption((option) =>
+          option
+            .setName("league_id")
+            .setDescription("League identifier.")
+            .setRequired(true),
+        )
+        .addStringOption((option) =>
+          option
+            .setName("season_id")
+            .setDescription("Season identifier.")
+            .setRequired(false),
+        ),
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("season")
+        .setDescription("Set the active season for this server's bound league.")
+        .addStringOption((option) =>
+          option
+            .setName("season_id")
+            .setDescription("Season identifier.")
+            .setRequired(true),
+        ),
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("status")
+        .setDescription("Show the current FantasyHQ league binding and schedule status."),
     ),
   new SlashCommandBuilder()
     .setName("league")
-    .setDescription("Show the Sleeper league connected to this Discord server."),
-  new SlashCommandBuilder()
-    .setName("standings")
-    .setDescription("Show standings with a simple team strength note.")
-    .addStringOption(seasonOption),
-  new SlashCommandBuilder()
-    .setName("matchups")
-    .setDescription("Show Sleeper matchups for a scoring period.")
-    .addIntegerOption(periodOption)
-    .addStringOption(seasonOption),
-  new SlashCommandBuilder()
-    .setName("roster")
-    .setDescription("Show a manager's Sleeper roster.")
-    .addStringOption(teamOption("team", "Choose a team from the connected league."))
-    .addStringOption(seasonOption),
-  new SlashCommandBuilder()
-    .setName("transactions")
-    .setDescription("Show Sleeper league transactions for a scoring period.")
-    .addIntegerOption(periodOption)
-    .addStringOption(seasonOption)
-    .addStringOption((option) =>
-      option
-        .setName("type")
-        .setDescription("Filter transaction type.")
-        .setRequired(false)
-        .addChoices(
-          { name: "Free Agent", value: "free_agent" },
-          { name: "Waiver", value: "waiver" },
-          { name: "Trade", value: "trade" },
+    .setDescription("Create and configure a LEAGUEbuddy setup league.")
+    .addSubcommand((subcommand) => subcommand.setName("delete").setDescription("Permanently delete this server’s league after confirmation."))
+    .addSubcommand((subcommand) => subcommand.setName("roles").setDescription("Create or repair the 30 team roles and five LEAGUEbuddy roles."))
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("create")
+        .setDescription("Create a new league in SETUP phase and bind it to this server.")
+        .addStringOption((option) =>
+          option.setName("league_id").setDescription("Unique short label, e.g. 2k-test-03. Letters, numbers, hyphens, underscores.").setRequired(true),
+        )
+        .addStringOption((option) =>
+          option.setName("league_name").setDescription("League display name.").setRequired(true),
+        )
+        .addIntegerOption((option) =>
+          option.setName("season_number").setDescription("Season number; defaults to 1.").setRequired(false).setMinValue(1),
+        )
+        .addBooleanOption((option) => option.setName("test_mode").setDescription("Allow vacant teams for solo testing. Defaults to false.")),
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("status")
+        .setDescription("Show current setup status and league progress."),
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("setup")
+        .setDescription("Show the setup dashboard."),
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("settings")
+        .setDescription("Update league-level setup settings.")
+        .addBooleanOption((option) =>
+          option.setName("require_all_owners").setDescription("Require all 30 teams to have owners before activation.").setRequired(false),
+        )
+        .addIntegerOption((option) =>
+          option.setName("playoff_teams").setDescription("Number of playoff teams.").setRequired(false).setMinValue(2).setMaxValue(30),
+        )
+        .addIntegerOption((option) =>
+          option.setName("game_deadline_hours").setDescription("Game deadline window in hours.").setRequired(false).setMinValue(1),
+        )
+        .addBooleanOption((option) =>
+          option.setName("result_confirmation_required").setDescription("Require result confirmation.").setRequired(false),
+        )
+        .addBooleanOption((option) =>
+          option.setName("commissioner_approval_required").setDescription("Require commissioner approval.").setRequired(false),
         ),
     ),
   new SlashCommandBuilder()
-    .setName("leaders")
-    .setDescription("Show season player leaders.")
-    .addStringOption((option) =>
-      option
-        .setName("stat")
-        .setDescription("Leaderboard stat.")
-        .setRequired(true)
-        .addChoices(
-          { name: "Fantasy", value: "fantasy" },
-          { name: "Points", value: "pts" },
-          { name: "Rebounds", value: "reb" },
-          { name: "Assists", value: "ast" },
-          { name: "Steals", value: "stl" },
-          { name: "Blocks", value: "blk" },
-          { name: "Threes", value: "tpm" },
-          { name: "Turnovers", value: "to" },
-        ),
+    .setName("roster")
+    .setDescription("Import and inspect setup roster data.")
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("import")
+        .setDescription("Import the latest roster snapshots into the active league."),
     )
-    .addStringOption(seasonOption),
+    .addSubcommand((subcommand) =>
+      subcommand.setName("freeagency").setDescription("Add missing free agents without replacing league rosters."),
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("status")
+        .setDescription("Show roster import status for the active league."),
+    ),
   new SlashCommandBuilder()
     .setName("team")
-    .setDescription("Show a team summary and what they need.")
-    .addStringOption(teamOption("team", "Choose a team from the selected season."))
-    .addStringOption(seasonOption),
-  new SlashCommandBuilder()
-    .setName("player")
-    .setDescription("Show a player summary, stats, and trend.")
-    .addStringOption(playerOption())
-    .addIntegerOption(periodOption)
-    .addStringOption(seasonOption),
-  new SlashCommandBuilder()
-    .setName("compare")
-    .setDescription("Compare two players in the selected season.")
-    .addStringOption(playerOption("player_a", "First player."))
-    .addStringOption(playerOption("player_b", "Second player."))
-    .addStringOption(seasonOption),
-  new SlashCommandBuilder()
-    .setName("market")
-    .setDescription("Show players to ask about, hot players, steady players, and avoids.")
-    .addStringOption((option) =>
-      option
-        .setName("mode")
-        .setDescription("Which player list to show.")
-        .setRequired(false)
-        .addChoices(
-          { name: "All", value: "all" },
-          { name: "Worth Asking About", value: "buy_low" },
-          { name: "Hot Right Now", value: "sell_high" },
-          { name: "Hold", value: "hold" },
-          { name: "Avoid", value: "fade" },
+    .setDescription("Manage teams during the setup phase.")
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("list")
+        .setDescription("List all teams and their owner assignments."),
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("roster")
+        .setDescription("Show one imported team roster.")
+        .addStringOption((option) =>
+          option.setName("team").setDescription("Team to view.").setRequired(true).setAutocomplete(true),
         ),
     )
-    .addStringOption(teamOption("team", "Optional team filter.", false))
-    .addStringOption(seasonOption),
-  new SlashCommandBuilder()
-    .setName("trade")
-    .setDescription("Quickly check who wins a trade.")
-    .addStringOption(playerOption("a1", "Side A player 1."))
-    .addStringOption(playerOption("b1", "Side B player 1."))
-    .addStringOption(playerOption("a2", "Side A player 2.", false))
-    .addStringOption(playerOption("a3", "Side A player 3.", false))
-    .addStringOption(playerOption("b2", "Side B player 2.", false))
-    .addStringOption(playerOption("b3", "Side B player 3.", false))
-    .addStringOption(pickOption("a_pick", "Pick added to Side A."))
-    .addStringOption(pickOption("b_pick", "Pick added to Side B."))
-    .addStringOption(seasonOption),
-  new SlashCommandBuilder()
-    .setName("tradefinder")
-    .setDescription("Find simple trade ideas for a team.")
-    .addStringOption(teamOption("team", "Team to build trade ideas for."))
-    .addStringOption(needOption)
-    .addStringOption((option) =>
-      option
-        .setName("offer_style")
-        .setDescription("How much you are willing to offer.")
-        .setRequired(false)
-        .addChoices(
-          { name: "Fair", value: "fair" },
-          { name: "Try Cheap", value: "value" },
-          { name: "Overpay", value: "overpay" },
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("assign")
+        .setDescription("Assign a Discord user to a team.")
+        .addStringOption((option) =>
+          option.setName("team").setDescription("Team to assign.").setRequired(true).setAutocomplete(true),
+        )
+        .addUserOption((option) =>
+          option.setName("user").setDescription("User to assign.").setRequired(true),
         ),
     )
-    .addStringOption(seasonOption),
-].map((command) => command.toJSON());
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("unassign")
+        .setDescription("Remove the current owner assignment from a team.")
+        .addStringOption((option) =>
+          option.setName("team").setDescription("Team to unassign.").setRequired(true).setAutocomplete(true),
+        ),
+    ),
+  new SlashCommandBuilder()
+    .setName("setup")
+    .setDescription("Validate and activate the current league setup.")
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("activate")
+        .setDescription("Activate the league and move it to PRESEASON."),
+    ),
+].map((command) => command.toJSON()).filter((command) => command.name !== "setup").map((command) => {
+  const retired = {
+    schedule: ["confirm", "regenerate"],
+    league: ["status"],
+    admin: ["status", "season"],
+    roster: ["status"],
+    ratings: ["freeagency"],
+  };
+  if (retired[command.name]) command.options = command.options.filter((option) => !retired[command.name].includes(option.name));
+  return command;
+});
 
 async function main() {
   const token = requireEnv("DISCORD_TOKEN");

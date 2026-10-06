@@ -1,0 +1,37 @@
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const { createFantasyHQRepository } = require("../src/fantasyhq/repository");
+const { createPlayerService } = require("../src/fantasyhq/player-service");
+const { createTeamService } = require("../src/fantasyhq/team-service");
+const { nbaPlayerCard } = require("../src/shared/discord-player-card");
+
+test("player reads and existing Discord cards expose season age and live trade value", t => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "lb-trade-display-"));
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    const repository = createFantasyHQRepository({ dataRoot: root });
+    repository.saveLeague("league", { currentSeasonId: "1", seasonNumber: 1 });
+    repository.saveTeams("league", [{ teamId: "bos", teamName: "Boston Celtics", abbreviation: "BOS", conference: "East" }]);
+    repository.savePlayers("league", [{ playerId: "p1", name: "Player One", overall: 90, birthdate: "2004-01-01", position1: "SF", height: "6'8\"", wingspan: "7'2\"" }]);
+    repository.saveRosterMemberships("league", [{ playerId: "p1", teamId: "bos", seasonId: "1", active: true }]);
+    const players = createPlayerService({ repository });
+    const player = players.getPlayer("league", "1", "p1");
+    assert.equal(player.age, 22);
+    assert.ok(player.tradeValue > 0);
+    const card = nbaPlayerCard(player, "Test League").embeds[0].data;
+    assert.ok(card.fields.some(field => field.name === "League" && field.value.includes(`Trade Value ${player.tradeValue}`)));
+    repository.saveDraftPicks("league", [{ pickId: "pick_2027_1_bos", draftYear: 2027, round: 1, originalTeamId: "bos", currentOwnerTeamId: "bos", protection: "TOP_5", ownershipHistory: [{ teamId: "bos", action: "CREATED" }] }]);
+    const team = createTeamService({ repository }).getTeam("league", "1", "bos");
+    assert.equal(team.roster[0].player.age, player.age);
+    assert.equal(team.roster[0].player.tradeValue, player.tradeValue);
+    assert.equal(team.draftPicks[0].currentOwnerTeamName, "Boston Celtics");
+    assert.equal(team.draftPicks[0].protectionLabel, "Top-5 Protected");
+    assert.ok(team.draftPicks[0].tradeValue > 0);
+    const nextSeason = players.getPlayer("league", "2", "p1");
+    assert.equal(nextSeason.age, 23);
+    assert.notEqual(nextSeason.tradeValue, player.tradeValue);
+    const updated = players.updatePlayer({ leagueId: "league", seasonId: "1", playerId: "p1", patch: { overall: 95 }, actingUserId: "admin" });
+    assert.ok(updated.tradeValue > player.tradeValue);
+});

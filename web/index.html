@@ -1,0 +1,455 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#ffdc21">
+  <meta name="description"
+    content="LEAGUEbuddy league hub for team rosters, season schedules and stats, commissioner tools, prospect scouting, and mock drafts.">
+  <title>LEAGUEbuddy</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/app.js" defer></script>
+</head>
+
+<body>
+  <a class="skip-link" href="#main-content">Skip to content</a>
+  <header class="site-header">
+    <a class="brand" href="/" aria-label="Leaguebuddy Draft Room home">
+      <img class="brand-mark" src="/assets/leaguebuddy-logo.png" alt="">
+      <span><strong>LEAGUE<span>buddy</span></strong><small>League hub + draft room</small></span>
+    </a>
+    <button class="mobile-nav-toggle" id="mobile-nav-toggle" type="button" aria-controls="primary-nav"
+      aria-expanded="false">Sections</button>
+    <nav id="primary-nav" aria-label="Primary navigation">
+      <a href="#league-home">Home</a>
+      <a href="#teams">Teams</a>
+      <a href="#players">Players</a>
+      <a href="#league-stats">Stats</a>
+      <a href="#team-stats">Team Stats</a>
+      <a href="#schedule-hub">Schedule</a>
+      <a href="#standings">Standings</a>
+      <a href="#board">Draft</a>
+      <a href="#league-admin">Admin</a>
+      <span class="live-pill"><i></i> Board live</span>
+    </nav>
+  </header>
+
+  <main id="main-content" tabindex="-1">
+    <section class="league-summary-section" id="league-home">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">League home</p>
+          <h2>Companion dashboard</h2>
+        </div>
+        <span class="section-class-label" id="league-status-pill">Loading league…</span>
+      </div>
+      <div class="summary-grid" id="summary-grid">
+        <article class="summary-card"><span>Teams</span><strong id="summary-teams">—</strong><small>Imported
+            franchises</small></article>
+        <article class="summary-card"><span>Players</span><strong id="summary-players">—</strong><small>Normalized
+            player records</small></article>
+        <article class="summary-card"><span>Schedule</span><strong id="summary-weeks">—</strong><small>Weeks /
+            games</small></article>
+        <article class="summary-card"><span>Owners</span><strong id="summary-owners">—</strong><small>Assigned
+            franchises</small></article>
+      </div>
+    </section>
+
+    <section class="league-directory" id="teams">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Teams</p>
+          <h2>Team directory</h2>
+          <p class="section-summary">Browse all active franchises, their conference, assigned owner, and imported roster
+            size.</p>
+        </div>
+      </div>
+      <div id="team-directory" class="team-directory-grid"></div>
+    </section>
+
+    <section class="league-schedule-section" id="standings">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Regular season</p>
+          <h2>Standings</h2>
+          <p id="standings-week" role="status"></p>
+        </div><button id="standings-refresh" type="button">Refresh standings</button>
+      </div>
+      <div id="standings-tables"></div>
+    </section>
+    <section class="league-stats-section" id="team-stats">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Regular season</p>
+          <h2>Team Stats</h2>
+        </div>
+        <button id="team-stats-refresh" type="button">Refresh team stats</button>
+      </div>
+      <label class="sort-picker team-stats-conference-filter">
+        <span>Conference</span>
+        <select id="team-stats-conference">
+          <option value="">All</option>
+          <option value="East">East</option>
+          <option value="West">West</option>
+        </select>
+      </label>
+      <p id="team-stats-status" role="status">Open Team Stats to load official team numbers.</p>
+      <div class="standings-scroll">
+        <table class="standings-table team-season-stats-table">
+          <thead>
+            <tr>
+              <th><button type="button" data-team-stats-sort="teamName">Team</button></th>
+              <th><button type="button" data-team-stats-sort="GP">GP</button></th>
+              <th><button type="button" data-team-stats-sort="W">W</button></th>
+              <th><button type="button" data-team-stats-sort="L">L</button></th>
+              <th><button type="button" data-team-stats-sort="PCT">PCT</button></th>
+              <th><button type="button" data-team-stats-sort="PPG">PPG</button></th>
+              <th><button type="button" data-team-stats-sort="OPP_PPG">OPP PPG</button></th>
+              <th><button type="button" data-team-stats-sort="AVG_DIFF">DIFF</button></th>
+              <th><button type="button" data-team-stats-sort="RPG">RPG</button></th>
+              <th><button type="button" data-team-stats-sort="APG">APG</button></th>
+              <th><button type="button" data-team-stats-sort="SPG">SPG</button></th>
+              <th><button type="button" data-team-stats-sort="BPG">BPG</button></th>
+              <th><button type="button" data-team-stats-sort="TOV">TOV</button></th>
+              <th><button type="button" data-team-stats-sort="FGPercent">FG%</button></th>
+              <th><button type="button" data-team-stats-sort="threePPercent">3P%</button></th>
+              <th><button type="button" data-team-stats-sort="FTPercent">FT%</button></th>
+              <th>Games</th>
+            </tr>
+          </thead>
+          <tbody id="team-stats-body"></tbody>
+        </table>
+      </div>
+    </section>
+    <section class="league-schedule-section" id="schedule-hub">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Schedule</p>
+          <h2>Preseason review</h2>
+          <p class="section-summary">Preview the active league schedule from the same backend used by the Discord
+            commands.</p>
+        </div>
+      </div>
+      <div id="schedule-preview" class="schedule-preview-grid"></div>
+    </section>
+
+    <section class="league-players-section" id="players">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Players</p>
+          <h2>Player directory</h2>
+          <p class="section-summary">Browse the full LEAGUEbuddy player database with the same roster/team data used by
+            Discord and admin tools.</p>
+        </div>
+      </div>
+      <div class="player-filters">
+        <label class="search-box">
+          <span aria-hidden="true">⌕</span>
+          <input id="player-search" type="search" placeholder="Search player or team" autocomplete="off">
+        </label>
+        <label class="sort-picker">
+          <span>Team</span>
+          <select id="player-team-filter"></select>
+        </label>
+        <label class="sort-picker">
+          <span>Conference</span>
+          <select id="player-conference-filter">
+            <option value="">All</option>
+            <option value="East">East</option>
+            <option value="West">West</option>
+          </select>
+        </label>
+        <label class="sort-picker">
+          <span>Position</span>
+          <select id="player-position-filter">
+            <option value="">All</option>
+            <option value="PG">PG</option>
+            <option value="SG">SG</option>
+            <option value="SF">SF</option>
+            <option value="PF">PF</option>
+            <option value="C">C</option>
+          </select>
+        </label>
+        <label class="sort-picker">
+          <span>Sort</span>
+          <select id="player-sort">
+            <option value="overall-desc">OVR high-low</option>
+            <option value="overall-asc">OVR low-high</option>
+            <option value="name-asc">Name A-Z</option>
+            <option value="team-asc">Team A-Z</option>
+          </select>
+        </label>
+      </div>
+      <div id="player-directory" class="player-directory-grid prospect-grid"></div>
+      <nav id="player-pagination" class="player-pagination" aria-label="Player pages" hidden>
+        <button type="button" id="players-previous">Previous</button>
+        <span id="players-page-status" aria-live="polite"></span>
+        <button type="button" id="players-next">Next</button>
+      </nav>
+    </section>
+
+    <section class="league-stats-section" id="league-stats">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Regular season</p>
+          <h2>Player Stats</h2>
+        </div>
+        <button id="league-stats-refresh" type="button">Refresh stats</button>
+      </div>
+      <div class="player-filters">
+        <label class="search-box">
+          <span aria-hidden="true">⌕</span>
+          <input id="league-stats-search" type="search" placeholder="Search player" autocomplete="off">
+        </label>
+        <label class="sort-picker">
+          <span>Team</span>
+          <select id="league-stats-team">
+            <option value="">All teams</option>
+          </select>
+        </label>
+        <label class="sort-picker">
+          <span>Conference</span>
+          <select id="league-stats-conference">
+            <option value="">All</option>
+            <option value="East">East</option>
+            <option value="West">West</option>
+          </select>
+        </label>
+      </div>
+      <p id="league-stats-status" role="status">Open Stats to load official regular-season numbers.</p>
+      <div class="standings-scroll">
+        <table class="standings-table league-player-stats-table">
+          <thead>
+            <tr>
+              <th><button type="button" data-season-stats-sort="name">Player</button></th>
+              <th><button type="button" data-season-stats-sort="teamName">Team</button></th>
+              <th><button type="button" data-season-stats-sort="GP">GP</button></th>
+              <th><button type="button" data-season-stats-sort="MPG">MPG</button></th>
+              <th><button type="button" data-season-stats-sort="PPG">PPG</button></th>
+              <th><button type="button" data-season-stats-sort="RPG">RPG</button></th>
+              <th><button type="button" data-season-stats-sort="APG">APG</button></th>
+              <th><button type="button" data-season-stats-sort="SPG">SPG</button></th>
+              <th><button type="button" data-season-stats-sort="BPG">BPG</button></th>
+              <th><button type="button" data-season-stats-sort="FGPercent">FG%</button></th>
+              <th><button type="button" data-season-stats-sort="threePPercent">3P%</button></th>
+              <th><button type="button" data-season-stats-sort="FTPercent">FT%</button></th>
+              <th><button type="button" data-season-stats-sort="TOV">TOV</button></th>
+            </tr>
+          </thead>
+          <tbody id="league-stats-body"></tbody>
+        </table>
+      </div>
+      <nav id="league-stats-pagination" class="player-pagination" aria-label="Stats pages" hidden>
+        <button type="button" id="league-stats-previous">Previous</button>
+        <span id="league-stats-page-status" aria-live="polite"></span>
+        <button type="button" id="league-stats-next">Next</button>
+      </nav>
+    </section>
+
+    <section class="league-admin-section" id="league-admin">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Admin</p>
+          <h2>Commissioner view</h2>
+          <p class="section-summary">The website is the visual control center for setup and preseason review. Discord
+            stays great for quick commands and notifications.</p>
+        </div>
+      </div>
+      <div class="admin-panel">
+        <h3>Admin access</h3>
+        <p>Enter the website key from your league host. Your name is used for review, week advancement and cleanup
+          records.</p>
+        <label class="admin-key-label" for="admin-key">Admin key</label>
+        <div class="admin-key-row">
+          <input id="admin-key" type="password" placeholder="Admin key">
+          <button id="admin-key-save" type="button">Unlock</button>
+        </div>
+        <label class="review-operator">Commissioner name <input id="admin-operator" maxlength="100"
+            placeholder="Your name"></label>
+        <small id="admin-key-status">Admin tools are currently locked.</small>
+      </div>
+      <div class="summary-grid admin-grid">
+        <article class="summary-card"><span>Rosters Imported</span><strong id="admin-rosters">—</strong><small>League
+            roster coverage</small></article>
+        <article class="summary-card"><span>Roster Issues</span><strong id="admin-roster-issues">—</strong><small>Teams
+            needing attention</small></article>
+        <article class="summary-card"><span>Data Warnings</span><strong
+            id="admin-data-warnings">—</strong><small>Non-blocking issues</small></article>
+        <article class="summary-card"><span>Activation</span><strong id="admin-ready">—</strong><small>Setup
+            readiness</small></article>
+      </div>
+      <div class="admin-notes">
+        <h3>Current admin priorities</h3>
+        <ul id="admin-unassigned-list"></ul>
+      </div>
+      <div class="admin-toolbox">
+        <div class="admin-panel" id="roster-import-panel">
+          <h3>Roster import preview</h3>
+          <div class="admin-inline">
+            <select id="import-team-select"></select>
+            <button id="preview-import-button" type="button">Preview import</button>
+            <button id="apply-import-button" type="button" disabled>Apply import</button>
+          </div>
+          <div id="import-preview-output" class="admin-output"></div>
+        </div>
+        <div class="admin-panel" id="season-start-panel">
+          <h3>Start regular season</h3>
+          <p>Start season checks readiness automatically. Use Check readiness to inspect any issues beforehand.</p>
+          <div class="admin-inline">
+            <button id="validate-preseason-button" type="button">Check readiness</button>
+            <button id="start-season-button" type="button">Start season</button>
+          </div>
+          <div id="preseason-validation-output" class="admin-output"></div>
+        </div>
+      </div>
+      <div class="admin-data-grid">
+        <div class="admin-panel">
+          <h3>Data issues</h3>
+          <div id="data-issues-list" class="admin-list"></div>
+        </div>
+        <div class="admin-panel">
+          <h3>Audit log</h3>
+          <div id="audit-log-list" class="admin-list"></div>
+        </div>
+      </div>
+      <div class="admin-panel">
+        <h3>Roster manager</h3>
+        <div class="admin-inline">
+          <select id="roster-team-select"></select>
+          <button id="load-roster-manager" type="button">Refresh roster</button>
+        </div>
+        <div id="roster-manager" class="admin-output"></div>
+      </div>
+    </section>
+
+    <section class="board-section" id="board">
+      <div class="class-switcher" id="class-switcher" role="tablist" aria-label="Draft classes"></div>
+
+      <section class="class-board" id="early-top-ten">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">First look</p>
+            <h2>Early Top Ten</h2>
+          </div>
+          <span class="section-class-label" id="top-ten-class-label">Loading class…</span>
+        </div>
+        <div class="board-meta">
+          <p id="top-ten-count">Loading prospects…</p>
+          <span>Tap a card for the complete scouting report</span>
+        </div>
+        <div id="top-ten-grid" class="prospect-grid top-ten-grid" aria-live="polite"></div>
+        <div id="top-ten-empty" class="empty-state" hidden>Early Top Ten is not available for this class yet.</div>
+      </section>
+
+      <section class="class-board big-board-block" id="big-board">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Scouting board</p>
+            <h2>Big Board</h2>
+          </div>
+          <span class="section-class-label" id="big-board-class-label">Loading class…</span>
+        </div>
+
+        <div class="controls">
+          <label class="search-box">
+            <span aria-hidden="true">⌕</span>
+            <input id="search" type="search" placeholder="Search player, team, build…" autocomplete="off">
+          </label>
+          <div class="board-tools">
+            <label class="sort-picker">
+              <span>Sort</span>
+              <select id="sort-select" aria-label="Sort prospects">
+                <option value="rank">Board rank</option>
+                <option value="position">Position</option>
+              </select>
+            </label>
+            <div id="position-filters" class="filter-row" aria-label="Filter by position"></div>
+          </div>
+        </div>
+
+        <div class="board-meta">
+          <p id="result-count">Loading prospects…</p>
+          <span>Tap a card for the complete scouting report</span>
+        </div>
+        <div id="prospect-grid" class="prospect-grid" aria-live="polite"></div>
+        <div id="empty-state" class="empty-state" hidden></div>
+      </section>
+    </section>
+
+    <section class="stats-section" id="draft-stats">
+      <div class="section-heading stats-heading">
+        <div>
+          <p class="eyebrow">Draft + player scouting</p>
+          <h2>Stats center</h2>
+          <p class="section-summary">This remains the deep-dive scouting area of the companion site, sitting alongside
+            league and admin workflows.</p>
+        </div>
+        <div class="stats-actions">
+          <span class="section-class-label" id="stats-class-label">Loading class…</span>
+          <span class="completion-pill" id="stats-completion">Loading stats…</span>
+          <span class="stats-mode">Per game</span>
+        </div>
+      </div>
+
+      <div class="stats-filter-bar">
+        <span>Overall rank</span>
+        <div id="stats-position-filters" class="stats-position-filters" aria-label="Filter stats by position"></div>
+        <small>Stats are compared within position</small>
+      </div>
+
+      <div class="stats-table-wrap">
+        <table class="stats-table">
+          <thead>
+            <tr>
+              <th><button type="button" data-stat-sort="rank">Rank</button></th>
+              <th class="player-column"><button type="button" data-stat-sort="name">Prospect</button></th>
+              <th><button type="button" data-stat-sort="pts">PTS</button></th>
+              <th><button type="button" data-stat-sort="rbs">REB</button></th>
+              <th><button type="button" data-stat-sort="ast">AST</button></th>
+              <th><button type="button" data-stat-sort="stls">STL</button></th>
+              <th><button type="button" data-stat-sort="blks">BLK</button></th>
+            </tr>
+          </thead>
+          <tbody id="stats-body"></tbody>
+        </table>
+      </div>
+      <p class="stats-note">Blank values are kept at the bottom while position groups are still being loaded.</p>
+    </section>
+
+    <section class="methodology" id="methodology">
+      <p class="eyebrow">How the board works</p>
+      <h2>Projection, not just production.</h2>
+      <div class="method-grid">
+        <article><span>01</span>
+          <h3>Tools</h3>
+          <p>Size, athleticism, shooting indicators, and translatable NBA skills establish the ceiling.</p>
+        </article>
+        <article><span>02</span>
+          <h3>Role</h3>
+          <p>Build and positional context show how a prospect can create value in a real rotation.</p>
+        </article>
+        <article><span>03</span>
+          <h3>Risk</h3>
+          <p>Weaknesses, development runway, and likely outcomes keep the rankings grounded.</p>
+        </article>
+      </div>
+    </section>
+  </main>
+
+  <div id="site-toast" class="site-toast" role="alert" aria-live="assertive" aria-atomic="true" hidden></div>
+
+  <dialog id="prospect-dialog" class="prospect-dialog">
+    <button class="dialog-close" type="button" aria-label="Close prospect profile">×</button>
+    <div id="dialog-content"></div>
+  </dialog>
+  <dialog id="league-dialog" class="prospect-dialog">
+    <button class="dialog-close league-dialog-close" type="button" aria-label="Close league profile">×</button>
+    <div id="league-dialog-content"></div>
+  </dialog>
+
+  <footer><span><strong>LEAGUEbuddy</strong> Companion Hub</span><span>League website, commissioner workspace, and draft
+      room in one place.</span></footer>
+</body>
+
+</html>

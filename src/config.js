@@ -9,9 +9,6 @@ function requireEnv(name) {
 function readConfig() {
   return {
     discordToken: requireEnv("DISCORD_TOKEN"),
-    sleeperUsername: process.env.SLEEPER_USERNAME?.trim() || "",
-    sleeperLeagueId: process.env.SLEEPER_LEAGUE_ID?.trim() || "",
-    sleeperSeason: process.env.SLEEPER_SEASON?.trim() || new Date().getFullYear().toString(),
   };
 }
 
