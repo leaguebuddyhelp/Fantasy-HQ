@@ -6,7 +6,7 @@ const path = require("node:path");
 const { createFantasyHQRepository } = require("../src/fantasyhq/repository");
 const { createTradeService, RESPONSE_WINDOW_MS } = require("../src/fantasyhq/trade-service");
 
-function fixture(t, { week = 4, phase = "REGULAR_SEASON", testMode = false } = {}) {
+function fixture(t, { week = 4, phase = "REGULAR_SEASON", testMode = false, onPlayersMoved = null } = {}) {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "lb-trade-service-"));
     t.after(() => fs.rmSync(root, { recursive: true, force: true }));
     const repository = createFantasyHQRepository({ dataRoot: root });
@@ -27,7 +27,7 @@ function fixture(t, { week = 4, phase = "REGULAR_SEASON", testMode = false } = {
     repository.saveRosterMemberships("league", memberships);
     repository.saveSchedule({ leagueId: "league", seasonId: "1", weeks: Array.from({ length: 15 }, (_, index) => ({ week: index + 1, weekId: `week-${index + 1}`, status: index + 1 === week ? "ACTIVE" : index + 1 < week ? "COMPLETED" : "UPCOMING", games: [], byes: [] })) });
     let currentTime = Date.UTC(2026, 9, 1);
-    const service = createTradeService({ repository, now: () => currentTime });
+    const service = createTradeService({ repository, now: () => currentTime, onPlayersMoved });
     service.initializeDraftPicks({ leagueId: "league", seasonId: "1" });
     function createTwoTeamDraft() {
         const trade = service.createDraft({ leagueId: "league", seasonId: "1", initiatingUserId: "coach-alpha", initiatingTeamId: "alpha", secondTeamId: "bravo" });
@@ -154,7 +154,7 @@ test("proof rejection preserves its original deadline; approved proof commits ex
 });
 
 test("staff proof approval atomically moves players and protected picks, counts once, and invalidates stale offers", t => {
-    const f = fixture(t);
+    const moved = [], f = fixture(t, { onPlayersMoved: event => moved.push(event) });
     const alphaPick = f.repository.loadDraftPicks("league").find(pick => pick.originalTeamId === "alpha" && pick.round === 1);
     const bravoPick = f.repository.loadDraftPicks("league").find(pick => pick.originalTeamId === "bravo" && pick.round === 1);
     const first = f.createTwoTeamDraft();
@@ -189,6 +189,9 @@ test("staff proof approval atomically moves players and protected picks, counts 
     assert.equal(f.service.getTrade("league", conflicting.tradeId).status, "INVALIDATED");
     assert.equal(f.service.reviewProof({ leagueId: "league", tradeId: trade.tradeId, version: 1, actorUserId: "staff-1", approve: true }).alreadyProcessed, true);
     assert.equal(f.repository.loadRosterMemberships("league").find(entry => entry.playerId === "alpha-player-0").ownershipHistory.filter(entry => entry.action === "TRADED").length, 1);
+    assert.equal(moved.length, 1);
+    assert.deepEqual(new Set(moved[0].playerIds), new Set(["alpha-player-0", "bravo-player-0"]));
+    assert.equal(moved[0].reason, "PLAYER_TRADED");
 });
 
 test("pre-deadline proposals can finish after Week 9; new Week 10 and playoff submissions fail", t => {
@@ -252,13 +255,15 @@ test("proof approval invalidates a proposal whose player ownership became stale"
     const result = f.service.reviewProof({ leagueId: "league", tradeId: trade.tradeId, version: 1, actorUserId: "staff", approve: true });
     assert.equal(result.status, "INVALIDATED");
     assert.deepEqual([...f.service.tradeCounts("league", "1").values()], [0, 0, 0]);
-});test('mock simulations refresh only after successful proof-backed current first-round transfers', t => {
+}); test('mock simulations refresh only after successful proof-backed current first-round transfers', t => {
     const f = fixture(t), service = f.service, file = path.join(f.repository.buildLeaguePaths(f.repository.dataRoot, 'league').leagueRoot, 'mock-draft', 'refresh.json');
     const trade = service.createDraft({ leagueId: 'league', seasonId: '1', initiatingUserId: 'coach-alpha', initiatingTeamId: 'alpha', secondTeamId: 'bravo' });
-    service.updateDraft({ leagueId: 'league', tradeId: trade.tradeId, actorUserId: 'coach-alpha', transfers: [
-        { assetType: 'PICK', assetId: 'pick_2027_1_alpha', fromTeamId: 'alpha', toTeamId: 'bravo' },
-        { assetType: 'PICK', assetId: 'pick_2027_1_bravo', fromTeamId: 'bravo', toTeamId: 'alpha' },
-    ] });
+    service.updateDraft({
+        leagueId: 'league', tradeId: trade.tradeId, actorUserId: 'coach-alpha', transfers: [
+            { assetType: 'PICK', assetId: 'pick_2027_1_alpha', fromTeamId: 'alpha', toTeamId: 'bravo' },
+            { assetType: 'PICK', assetId: 'pick_2027_1_bravo', fromTeamId: 'bravo', toTeamId: 'alpha' },
+        ]
+    });
     service.submitTrade({ leagueId: 'league', tradeId: trade.tradeId, actorUserId: 'coach-alpha' });
     assert.equal(fs.existsSync(file), false);
     service.decideGM({ leagueId: 'league', tradeId: trade.tradeId, version: 1, actorUserId: 'coach-bravo', actorTeamId: 'bravo', decision: 'APPROVE', eligibleVoterIds: ['voter'] });
@@ -272,4 +277,17 @@ test("proof approval invalidates a proposal whose player ownership became stale"
     assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).events[0].id, `trade:${result.processingId}`);
     service.reviewProof({ leagueId: 'league', tradeId: trade.tradeId, version: 1, actorUserId: 'staff', approve: true });
     assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).events.length, 1);
+});
+
+
+test('test mode still requires actual online owners to submit and respond', t => {
+  const f = fixture(t, { testMode: true }), draft = f.createTwoTeamDraft();
+  assert.throws(() => f.service.submitTrade({ leagueId: 'league', tradeId: draft.tradeId, actorUserId: 'stranger' }), /cannot be submitted/);
+  const owners = f.repository.loadOwners('league');
+  f.repository.saveOwners('league', owners.map(o => o.teamId === 'alpha' ? { ...o, userId: 'replacement' } : o));
+  assert.throws(() => f.service.submitTrade({ leagueId: 'league', tradeId: draft.tradeId, actorUserId: 'coach-alpha' }), /assigned coach/);
+  f.repository.saveOwners('league', owners);
+  const { trade } = f.service.submitTrade({ leagueId: 'league', tradeId: draft.tradeId, actorUserId: 'coach-alpha' });
+  assert.throws(() => f.service.decideGM({ leagueId: 'league', tradeId: trade.tradeId, version: 1, actorUserId: 'coach-alpha', actorTeamId: 'bravo', decision: 'APPROVE' }), /current team coach/);
+  f.service.decideGM({ leagueId: 'league', tradeId: trade.tradeId, version: 1, actorUserId: 'coach-bravo', actorTeamId: 'bravo', decision: 'APPROVE', eligibleVoterIds: ['independent'] });
 });

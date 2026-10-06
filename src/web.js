@@ -15,6 +15,8 @@ const { createRosterService } = require("./fantasyhq/roster-service");
 const { createSetupService } = require("./fantasyhq/setup-service");
 const { createTeamService } = require("./fantasyhq/team-service");
 const { createTeamStatsService } = require("./fantasyhq/team-stats-service");
+const { createGameSubmissionService } = require("./fantasyhq/game-submissions");
+const { createPlayerUpgradeService } = require("./fantasyhq/player-upgrades-service");
 
 const ROOT_DIR = path.resolve(__dirname, "..");
 const WEB_DIR = path.join(ROOT_DIR, "web");
@@ -25,8 +27,13 @@ const leagueService = createLeagueService({ repository: setupService.repository 
 const playerStatsService = createPlayerStatsService({ repository: setupService.repository });
 const teamService = createTeamService({ repository: setupService.repository, playerStatsService });
 const teamStatsService = createTeamStatsService({ repository: setupService.repository });
-const playerService = createPlayerService({ repository: setupService.repository });
-const rosterService = createRosterService({ repository: setupService.repository });
+const webGameSubmissions = createGameSubmissionService({ repository: setupService.repository });
+const webPlayerUpgrades = createPlayerUpgradeService({ repository: setupService.repository, submissions: webGameSubmissions });
+webGameSubmissions.setFinalizationHandler(record => webPlayerUpgrades.reconcileFinalizedGames({ leagueId: record.game.leagueId, seasonId: record.game.seasonId }));
+let playerUpgradeRuntime = { service: webPlayerUpgrades, submissions: webGameSubmissions };
+const invalidateUpgradeRequests = event => (playerUpgradeRuntime.invalidatePlayerRequests || (value => playerUpgradeRuntime.service.invalidatePlayerRequests(value)))(event);
+const playerService = createPlayerService({ repository: setupService.repository, onRosterMovement: invalidateUpgradeRequests });
+const rosterService = createRosterService({ repository: setupService.repository, onRosterMovement: invalidateUpgradeRequests });
 const dataIssuesService = createDataIssuesService({ repository: setupService.repository });
 const preseasonValidator = createPreseasonValidator({ repository: setupService.repository, dataIssuesService });
 
@@ -296,10 +303,12 @@ function boundLeagueContext() {
 
 let gameThreadRuntime;
 function setGameThreadRuntime(runtime) { gameThreadRuntime = runtime; }
+function setPlayerUpgradeRuntime(runtime) { playerUpgradeRuntime = runtime; }
 function requestHandler(request, response) {
   const url = new URL(request.url, "http://localhost");
   if (require("./fantasyhq/box-score/review-route").handleBoxScoreReview(request, response, url, {
     authorized: Boolean(adminKeyValue()) && request.headers["x-leaguebuddy-admin-key"] === adminKeyValue(),
+    ...(playerUpgradeRuntime?.submissions ? { submissions: playerUpgradeRuntime.submissions } : {}),
   })) return;
 
   if (url.pathname === "/api/league/admin/game-cleanup") {
@@ -819,7 +828,7 @@ function startWebsite({ port = Number(process.env.PORT || 3000), host = "0.0.0.0
   return server;
 }
 
-module.exports = { requestHandler, startWebsite, setGameThreadRuntime };
+module.exports = { requestHandler, startWebsite, setGameThreadRuntime, setPlayerUpgradeRuntime };
 
 if (require.main === module) {
   startWebsite();

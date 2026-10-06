@@ -1,7 +1,7 @@
 const {requireLeagueStaff,canManageLeague}=require('./discord-permissions');
 function cpuState(repository,game){
  const settings=repository.loadSettings(game.leagueId)||{},owners=repository.loadOwners(game.leagueId);
- const testMode=settings.testMode===true || (settings.testMode==null&&settings.requireAllOwners===false);
+ const testMode=settings.testMode===true;
  const cpuTeamIds=testMode?[]:[game.team1Id,game.team2Id].filter(id=>!owners.some(o=>o.teamId===id));
  return {testMode,cpuTeamIds,matchupType:testMode?'TEST':cpuTeamIds.length===2?'CPU_VS_CPU':cpuTeamIds.length===1?'HUMAN_VS_CPU':'HUMAN_VS_HUMAN'};
 }

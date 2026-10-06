@@ -4,7 +4,8 @@ const { PermissionFlagsBits, REST, Routes, SlashCommandBuilder } = require("disc
 const { requireEnv } = require("./src/config");
 
 const commands = [
-  new SlashCommandBuilder().setName("mockdraft").setDescription("Generate a private current first-round mock draft projection."),
+  new SlashCommandBuilder().setName("mockdraft").setDescription("View a private first-round projection for any draft class.")
+    .addIntegerOption(option => option.setName("draft_class").setDescription("Choose a draft class; defaults to the current league class.").addChoices(...[1, 2, 3, 4].map(value => ({ name: `2K27 CUS${String(value).padStart(2, '0')}`, value })))),
   new SlashCommandBuilder().setName("week").setDescription("Manage regular-season week advancement.")
     .addSubcommand(sub => sub.setName("advance").setDescription("Review and confirm completion of the active week.").addBooleanOption(option => option.setName("force").setDescription("Request confirmation to close the week with unresolved games."))),
   new SlashCommandBuilder().setName("standings").setDescription("Regular-season standings from official game results.")
@@ -13,6 +14,7 @@ const commands = [
     .addStringOption(option => option.setName("player").setDescription("Search a league player.").setRequired(true).setAutocomplete(true)),
   new SlashCommandBuilder().setName("teamstats").setDescription("View a team's official regular-season statistics.")
     .addStringOption(option => option.setName("team").setDescription("Search for a league team.").setRequired(true).setAutocomplete(true)),
+  new SlashCommandBuilder().setName("upgrades").setDescription("View your player-upgrade balance, eligibility and history."),
   new SlashCommandBuilder().setName("games").setDescription("Manage active-week private game threads.")
     .addSubcommand(sub => sub.setName("create").setDescription("Confirm replacement of all ACTIVE-week game threads."))
     .addSubcommand(sub => sub.setName("cleanup").setDescription("Confirm deletion of all game threads for a selected week.").addIntegerOption(option => option.setName("week").setDescription("Regular-season week to clean, including unfinished games.").setRequired(true).setMinValue(1).setMaxValue(15))),
@@ -240,7 +242,7 @@ const commands = [
         .addIntegerOption((option) =>
           option.setName("season_number").setDescription("Season number; defaults to 1.").setRequired(false).setMinValue(1),
         )
-        .addBooleanOption((option) => option.setName("test_mode").setDescription("Allow vacant teams for solo testing. Defaults to false.")),
+        .addBooleanOption((option) => option.setName("test_mode").setDescription("Enable staff-only solo test controls and allow vacant teams.")),
     )
     .addSubcommand((subcommand) =>
       subcommand
@@ -256,6 +258,7 @@ const commands = [
       subcommand
         .setName("settings")
         .setDescription("Update league-level setup settings.")
+        .addBooleanOption(option => option.setName("test_mode").setDescription("Explicitly enable or disable solo Test Mode while in SETUP."))
         .addBooleanOption((option) =>
           option.setName("require_all_owners").setDescription("Require all 30 teams to have owners before activation.").setRequired(false),
         )

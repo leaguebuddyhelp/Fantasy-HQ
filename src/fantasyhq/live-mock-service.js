@@ -40,13 +40,13 @@ function createLiveMockService({ repository, simulations, now = () => Date.now()
         if (ownership.conflicts?.length) throw Error('Resolve team role ownership conflicts before starting a mock.');
         return matches[0];
     }
-    function create(leagueId, userId, guildId) {
-        const owner = coach(leagueId, userId), input = simulations.inputFor(leagueId), snapshot = simulations.requireActive(leagueId, input);
+    function create(leagueId, userId, guildId, classNumber = null) {
+        const owner = coach(leagueId, userId), input = simulations.inputFor(leagueId, classNumber), snapshot = simulations.requireActive(leagueId, input);
         return transaction(leagueId, state => {
             const existing = Object.values(state.mocks).find(m => LIVE.has(m.status) && m.hostUserId === userId && m.seasonId === input.seasonId);
-            if (existing) return existing;
+            if (existing) { if (existing.draftClassId !== input.draftClassId) throw Error('You already have an active mock with another draft class. Finish that mock first.'); return existing; }
             const id = randomUUID();
-            const m = { id, leagueId, guildId, seasonId: input.seasonId, draftClassId: input.draftClassId, hostUserId: userId, simulationSnapshotId: snapshot.id, status: 'SETUP', threadId: null, participants: [{ userId, teamId: owner.teamId, available: true }], createdAt: new Date(now()).toISOString(), lotteryRuns: 0, currentPick: 1, selections: [], delivery: {}, dmDelivery: {}, cleanup: { attempts: 0 }, testMode: repository.loadSettings(leagueId)?.testMode === true };
+            const m = { id, leagueId, guildId, seasonId: input.seasonId, draftClassId: input.draftClassId, classNumber, hostUserId: userId, simulationSnapshotId: snapshot.id, status: 'SETUP', threadId: null, participants: [{ userId, teamId: owner.teamId, available: true }], createdAt: new Date(now()).toISOString(), lotteryRuns: 0, currentPick: 1, selections: [], delivery: {}, dmDelivery: {}, cleanup: { attempts: 0 }, testMode: repository.loadSettings(leagueId)?.testMode === true };
             state.mocks[id] = m; return m;
         });
     }
@@ -56,7 +56,7 @@ function createLiveMockService({ repository, simulations, now = () => Date.now()
         });
     }
     function lottery(leagueId, id, actor) {
-        const input = simulations.inputFor(leagueId);
+        const input = simulations.inputFor(leagueId, get(leagueId, id).classNumber);
         return mutate(leagueId, id, m => { host(m, actor); if (!['SETUP', 'LOTTERY_READY'].includes(m.status)) throw Error('Draft order is locked.');
             if (input.draftClassId !== m.draftClassId) throw Error('Draft class changed. Start a new mock.');
             const fingerprint = order => createHash('sha256').update(order.map(s => s.originalTeamId).join('|')).digest('hex');
@@ -72,9 +72,9 @@ function createLiveMockService({ repository, simulations, now = () => Date.now()
             m.orderSource = 'LOTTERY'; m.lotteryOrder = generated.order; m.rules = generated.rules; m.warnings = generated.warnings; m.lotteryRuns++; m.status = 'LOTTERY_READY';
         });
     }
-    function baseOrder(leagueId) { return generateDraftOrder(simulations.inputFor(leagueId), { lottery: false }); }
+    function baseOrder(leagueId, classNumber = null) { return generateDraftOrder(simulations.inputFor(leagueId, classNumber), { lottery: false }); }
     function useBaseOrder(leagueId, id, actor, expectedRun) {
-        const input = simulations.inputFor(leagueId), generated = generateDraftOrder(input, { lottery: false });
+        const input = simulations.inputFor(leagueId, get(leagueId, id).classNumber), generated = generateDraftOrder(input, { lottery: false });
         return mutate(leagueId, id, m => {
             host(m, actor);
             if (!['SETUP', 'LOTTERY_READY'].includes(m.status)) throw Error('Draft order is locked.');
@@ -84,7 +84,7 @@ function createLiveMockService({ repository, simulations, now = () => Date.now()
         });
     }
     function lock(leagueId, id, actor) {
-        const input = simulations.inputFor(leagueId), snapshot = simulations.requireActive(leagueId, input);
+        const input = simulations.inputFor(leagueId, get(leagueId, id).classNumber), snapshot = simulations.requireActive(leagueId, input);
         return mutate(leagueId, id, m => { host(m, actor); if (m.status === 'ORDER_LOCKED') return; if (m.status !== 'LOTTERY_READY') throw Error('Run the lottery first.');
             if (m.draftClassId !== input.draftClassId) throw Error('Draft class changed. Start a new mock.');
             m.lockedDraftOrder = m.lotteryOrder.map(slot => { const asset = input.picks.find(p => p.pickId === slot.originalPickAssetId); if (!asset) throw Error('Pick asset changed. Rerun lottery.'); return { ...slot, currentOwnerTeamId: asset.currentOwnerTeamId }; });
@@ -92,19 +92,36 @@ function createLiveMockService({ repository, simulations, now = () => Date.now()
         });
     }
     function start(leagueId, id, actor) { return mutate(leagueId, id, m => { host(m, actor); if (m.status === 'ACTIVE') return; if (m.status !== 'ORDER_LOCKED') throw Error('Lock the draft order first.'); m.status = 'ACTIVE'; m.startedAt = new Date(now()).toISOString(); activate(m); }); }
+    function setSoloControl(leagueId, id, actor, enabled) {
+        return mutate(leagueId, id, m => {
+            host(m, actor);
+            if (enabled && actor.id !== m.hostUserId) throw Error('The mock host must enable solo control for their account.');
+            if (enabled && (!actor.staff || repository.loadSettings(leagueId)?.testMode !== true)) throw Error('Solo control requires league staff and explicit Test Mode.');
+            if (!LIVE.has(m.status)) throw Error('This mock is finished.');
+            m.soloControl = enabled; m.soloAuthorizedBy = enabled ? actor.id : null;
+            if (m.status === 'ACTIVE') activate(m);
+            repository.appendAuditLog(leagueId, { action: 'test.mock-solo-control', userId: actor.id, metadata: { mockId: id, enabled }, timestamp: new Date(now()).toISOString() });
+        });
+    }
     function controller(m) {
         const slot = m.lockedDraftOrder?.[m.currentPick - 1];
         const participant = slot && m.participants.find(p => p.teamId === slot.currentOwnerTeamId && p.available !== false);
+        if (!participant && slot && m.soloControl && m.soloAuthorizedBy === m.hostUserId && repository.loadSettings(m.leagueId)?.testMode === true
+            && !repository.loadOwners(m.leagueId).some(o => o.teamId === slot.currentOwnerTeamId)) {
+            const host = m.participants.find(p => p.userId === m.hostUserId && p.available !== false);
+            if (host) return { ...host, teamId: slot.currentOwnerTeamId, testControlled: true };
+        }
         if (!participant || !repository.loadOwners(m.leagueId).some(o => o.teamId === participant.teamId && o.userId === participant.userId)) return null;
         return participant;
     }
     function activate(m) { m.deadlineAt = controller(m) ? now() + CLOCK_MS : null; m.remainingMs = null; }
-    function commit(leagueId, id, { userId = null, prospectId = null, expectedPick, type = 'HUMAN' }) {
+    function commit(leagueId, id, { userId = null, prospectId = null, expectedPick, type = 'HUMAN', staff = false }) {
         return mutate(leagueId, id, m => {
             assertCurrent(m);
             if (m.status !== 'ACTIVE' || m.currentPick !== Number(expectedPick)) throw Error('That pick is no longer active.');
             const participant = controller(m), slot = m.lockedDraftOrder[m.currentPick - 1];
             if (type === 'HUMAN') {
+                if (participant?.testControlled && !staff) throw Error('Staff authorization is required to pick for a vacant test team.');
                 if (participant?.userId !== userId) throw Error('Only the current pick owner’s participating coach can confirm.');
                 if (m.deadlineAt == null || now() >= m.deadlineAt) throw Error('The pick clock expired.');
             } else if (participant && !(type === 'TIMEOUT_CPU' && m.deadlineAt != null && now() >= m.deadlineAt)) throw Error('A human coach is still on the clock.');
@@ -113,7 +130,7 @@ function createLiveMockService({ repository, simulations, now = () => Date.now()
             const p = type === 'HUMAN' ? m.input.prospects.find(p => p.prospectId === prospectId) : chooseProspect(m.input, slot, m.selections, market, rng);
             if (!p || m.selections.some(s => s.prospectId === p.prospectId)) throw Error('This prospect is no longer available.');
             const a = market.prospectAggregates[p.prospectId], review = reaction(m.input, slot, p, m.selections, a);
-            m.selections.push({ ...slot, prospectId: p.prospectId, prospect: p, selectedByType: type, selectedByUserId: type === 'HUMAN' ? userId : null, boardRank: p.board_number, avp: a?.avp ?? null, earliest: a?.earliest ?? null, latest: a?.latest ?? null, grade: review.grade, analysis: review.analysis, storyline: review.storyline, metrics: review, selectedAt: new Date(now()).toISOString() });
+            m.selections.push({ ...slot, prospectId: p.prospectId, prospect: p, soloTestControlled: !!participant?.testControlled, selectedByType: type, selectedByUserId: type === 'HUMAN' ? userId : null, boardRank: p.board_number, avp: a?.avp ?? null, earliest: a?.earliest ?? null, latest: a?.latest ?? null, grade: review.grade, analysis: review.analysis, storyline: review.storyline, metrics: review, selectedAt: new Date(now()).toISOString() });
             m.currentPick++; m.deadlineAt = null;
             if (m.selections.length === 30) { m.status = 'COMPLETED'; m.completedAt = new Date(now()).toISOString(); m.recap = { selections: m.selections, awards: awardsFor(m.selections) }; }
             else activate(m);
@@ -126,6 +143,6 @@ function createLiveMockService({ repository, simulations, now = () => Date.now()
         const q = String(query).normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().trim();
         return m.input.prospects.filter(p => !m.selections.some(s => s.prospectId === p.prospectId) && (!q || [p.name, p.team, p.position_1, p.position_2, String(p.board_number)].some(v => String(v || '').normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().includes(q))));
     }
-    return { all, get, mutate, create, coach, invite, lottery, baseOrder, useBaseOrder, lock, start, commit, pause, resume, controller, available, setAvailable, repository };
+    return { all, get, mutate, create, coach, invite, lottery, baseOrder, useBaseOrder, lock, start, commit, pause, resume, controller, available, setAvailable, setSoloControl, repository };
 }
 module.exports = { createLiveMockService, CLOCK_MS, awardsFor };

@@ -1,6 +1,6 @@
 # Discord command and embed audit
 
-The current menu has 19 top-level commands. Eight registered actions were removed; their old handlers remain to avoid abruptly breaking existing interactions during deployment. Apply the menu with `npm run deploy:commands` and restart the bot for embed changes.
+The current menu has 20 top-level commands. Eight registered actions were removed; their old handlers remain to avoid abruptly breaking existing interactions during deployment. Apply the menu with `npm run deploy:commands` and restart the bot for embed changes.
 
 ## Removed from the menu
 
@@ -55,7 +55,7 @@ Completed-week addition: `/games cleanup week:<1–15>` previews private Discord
 
 The existing website Admin area exposes the same service under **Completed-week thread cleanup**, protected by the existing commissioner key and entered audit name. Requested and completed cleanup events use the existing audit log. Original thread IDs and creation times remain on Games; cleanup adds timestamps, commissioner and DELETED/MISSING outcome. No permanent game history is removed.
 
-League setup now provisions 16 `lb-` channels and the `LEAGUEbuddy Trade Committee` role during `/league create`. Existing leagues can use `/league setup` → **Create / repair channels**; commissioner permissions are checked at the button. `/league roles` now repairs 34 roles (30 teams plus four league roles). The channel action reapplies defined channel access, preserves saved IDs/names/locations, creates missing channels, and reports partial failures for retry. Committee members have no commissioner privileges. See TESTING-GUIDE.md for channel access details.
+League setup now provisions 17 `lb-` channels, including the read-only Player Upgrades ledger, and the `LEAGUEbuddy Trade Committee` role during `/league create`. Existing leagues can use `/league setup` → **Create / repair channels**; commissioner permissions are checked at the button. `/league roles` now repairs 34 roles (30 teams plus four league roles). The channel action reapplies defined channel access, preserves saved IDs/names/locations, creates missing channels, and reports partial failures for retry. Committee members have no commissioner privileges. See TESTING-GUIDE.md for channel access details.
 
 NBA application emojis are loaded by name from the connected bot's application at startup. The 30 supplied names decorate Discord schedule previews, weekly/team schedules, standings, team directories, branded roster/team cards, matchups, screenshot instructions and processed score summaries. Team names remain alongside emojis. Existing website logos, autocomplete values, channel/thread names and stored team IDs remain unchanged. Startup reports missing emoji names; API failures leave readable text. Emojis must belong to the application used by the bot token. Restart to reload added/replaced application emojis.
 

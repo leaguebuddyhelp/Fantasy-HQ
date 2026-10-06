@@ -1,357 +1,223 @@
-> Updated setup: `/league create` now imports rosters and free agents automatically. Add `test_mode:true` for solo testing; season defaults to 1. Skip the initial `/roster import` steps below unless creation reports an import failure. Existing league IDs cannot be overwritten.
+# LEAGUEbuddy complete testing walkthrough
 
-# 2K app testing guide
+This guide follows the code scanned on October 6, 2026. Use a disposable league for tests that change rosters, games, trades, or upgrades. Test Mode supports one actual Discord account; it does not give that account multiple real team ownerships.
 
-Work through these stages in order. They follow the implemented app flow, not a recovered version of the earlier development roadmap. Check each box as it passes. Record the exact command or button, expected result, actual result, and terminal error when something fails.
+## 1. Start here: your existing league versus a full fresh test
 
-## 1. Prepare a test session
+Your server was bound to `2k-test`, season `1`, regular-season Week 1 with Test Mode enabled at the time of this audit. You can test games, trades, scouting, upgrades, and live mocks there. No Week 1 game records were present at activation, so run `/games create` and confirm to prepare that week’s matchup threads before the game tests. To test creation, SETUP, and preseason as well, create a **new** league using the instructions below.
 
-Use a test Discord server if possible. Your bot must already be installed there, and your account needs Manage Server permission for administrative commands. Use a new league ID such as `2k-test-01` so edits do not affect your existing league records.
+1. Run `/admin status` and save the current league ID and season ID.
+2. Use a test Discord server where possible. Creating a league also changes the server's binding. Test Mode data is real persisted data within that league.
+3. Confirm you have **LEAGUEbuddy Commish** or **LEAGUEbuddy Assistant Commish**. Manage Server also permits most administrative operations, but upgrade approvals specifically require a configured staff role.
+4. Hold **exactly one** NBA team role and confirm `/myteam` shows that team. Leave the other teams vacant for solo tests. Use `/league roles` to repair missing roles; use `/league setup` and its channel repair control for missing channels/pins.
+5. Allow direct messages from the server if you want to verify the live-mock recap DM.
 
-Creating a league also changes which league that Discord server uses. If you use the existing server, first run `/league setup` and record its league ID and season so you can restore the binding afterward. This workspace currently has a `2kratings-current` league with season `2026`.
+For local startup, from the project folder:
 
-From the project folder, check `.env`:
-
-```env
-DISCORD_TOKEN=your-bot-token
-DISCORD_CLIENT_ID=your-bot-application-id
-GUILD_ID=your-test-discord-server-id
-PORT=3000
-WEBSITE_URL=http://localhost:3000
-WEBSITE_ADMIN_KEY=your-private-test-key
-```
-
-Keep real credentials in `.env`. The website and Discord bot use the same `GUILD_ID` and local league files. `localhost` links work on the computer running the app; people on other devices need a reachable website URL.
-
-Run:
-
-```bash
+```sh
 npm run check
 npm run deploy:commands
 npm start
 ```
 
-- [ ] Checks pass. The current suite has five tests, including setup, preseason, schedule persistence, and 1,000 schedule generations.
-- [ ] Command registration succeeds for the selected server. This replaces that application's registered commands in that server with the current command list.
-- [ ] The terminal reports the website listening and the bot logged in.
-- [ ] Open http://localhost:3000 and confirm the page loads.
-- [ ] Open http://localhost:3000/health and confirm a successful response.
+`npm run check` runs syntax checks, TypeScript, automated service tests, and website/browser tests. Its fixtures use temporary data rather than your bound league. `npm start` runs both bot and website; run only one copy. `npm run start:web` is the website-only alternative.
 
-`npm start` runs both the bot and website. Do not also run `npm run start:web` on the same port. Use `npm run start:web` only when you want the website without the Discord bot.
+Use the URL configured in `WEBSITE_URL` (normally `http://localhost:3000` locally). Check `/health`, then Home. Website Admin uses `WEBSITE_ADMIN_KEY` from your local `.env`; enter it in the Admin key field, not in chat. Users on other computers need a reachable configured website URL for profile/review links.
 
-## 2. Check ratings and draft browsing
+## 2. Create a fresh solo league and test SETUP
 
-These features can be tested before league setup.
-
-In Discord, type the commands and select the supplied options/autocomplete results:
-
-| Test | Expected result |
-| --- | --- |
-| `/ratings team` → Milwaukee Bucks | Roster from the local ratings snapshot |
-| `/ratings player` → choose a player | Ratings profile for that player |
-| `/ratings top` → limit 10 | Ten players ordered by rating |
-| `/ratings top` → position PG | Players whose first or second position is PG |
-| `/freeagents` → limit 10 | Free-agent ratings list |
-| `/toptenpreview` → choose CUS03 | Early-preview player card with browsing controls |
-| Browse the preview and use Full Profile | Correct player/class opens on the website |
-
-The current September 29 snapshot has 30 teams, 536 roster entries, and 117 free agents. These are reference counts; later scrapes may change them. `/ratings` reads source snapshots, so league roster edits should not change those results.
-
-On the website:
-
-- [ ] Switch among CUS01, CUS02, and CUS03.
-- [ ] Each class shows its 10-player early preview and 75-player big board.
-- [ ] Search for a player, clear the search, and try position filters.
-- [ ] Open a prospect and check name, scouting report, strengths, weaknesses, and statistics.
-- [ ] Check portraits for missing/broken images and note affected players.
-- [ ] Sort and filter the Stats Center; confirm rows and profiles match.
-- [ ] Open a profile through its URL, refresh, and verify the intended class/player loads.
-- [ ] Try a narrow browser window and confirm menus, cards, tables, and dialogs remain usable.
-
-Recruiting and transfer-portal commands are hidden until matching class data is available.
-
-## 3. SETUP: create and populate the test league
-
-Run these in Discord. Enter values through Discord's command fields; the lines below show the intended arguments.
+Choose a unique unused ID:
 
 ```text
-/league create league_id:2k-test-01 league_name:2K Test League season_number:1
+/league create league_id:solo-test-01 league_name:Solo Test season_number:1 test_mode:true
 /league setup
-/league setup
-/league setup
-```
-
-- [ ] Status shows the test league in `SETUP`.
-- [ ] Validation reports missing rosters, owners, and schedule. Those failures are expected at this point.
-- [ ] Refresh the website; its league title now matches the test league.
-
-Import the initial roster data:
-
-```text
-/roster import
-/league setup
+/league status
+/roster status
 /team list
-/team roster team:Milwaukee Bucks
-/player player:<choose an imported player>
 ```
 
-- [ ] All 30 teams have imported rosters.
-- [ ] The website player directory populates after refresh.
-- [ ] Search, team, conference, position, and OVR sorting work in the player directory.
-- [ ] Clicking a team or player opens the correct details.
-- [ ] Discord and website show the same imported player information.
+Expected: league creation imports team rosters and free agents, binds the server, and prepares league roles/channels. The setup checklist reports remaining requirements. If an import failed, fix that issue before proceeding; `/roster import` is a replacement operation, not a necessary first step after a successful create.
 
-Run the initial `/roster import` before custom edits. It replaces league player and membership data; it is not a merge of your manual changes.
+- [ ] Assign your own single team through its Discord role or `/team assign`, then verify `/myteam`, `/team roster`, and `/schedule mine` when a schedule exists.
+- [ ] All other teams may remain vacant in Test Mode. Adding a second team role to yourself must create a conflict rather than silently giving you two teams.
+- [ ] Run `/league settings test_mode:true` while in SETUP; the settings embed explicitly labels Test Mode. This normally turns off the all-owner requirement unless you explicitly supply `require_all_owners`.
+- [ ] Generate a schedule from the setup checklist or `/schedule generate`; browse the pending preview, regenerate it, then confirm the intended schedule.
+- [ ] Check `/schedule preview`, `/schedule full`, `/schedule team`, and `/schedule week week:1`. Saved schedules have 15 weeks, 14 games per week, 210 games total, one bye per team, and conference matchups.
+- [ ] Click **Enter preseason** or use `/setup activate`. Missing required setup data must prevent activation.
+- [ ] In preseason, review roster validation on the website or setup panel, then click **Start regular season** and confirm. Week 1 becomes active and game threads are created.
+- [ ] Repeating the start confirmation must not duplicate the season or its game results.
 
-Test owner assignment:
+Test Mode changes through `/league settings` are **SETUP-only**. For a separate normal-league test, create another disposable league with `test_mode:false`; vacancy permission alone must not enable solo controls. Keep normal leagues in normal mode.
 
-```text
-/team assign team:Milwaukee Bucks user:<your Discord account>
-/team list
-/team unassign team:Milwaukee Bucks
-/team assign team:Milwaukee Bucks user:<your Discord account>
+## 3. Website and read-only Discord features
+
+Test the website tabs on desktop and a narrow/mobile window. Refresh a player/prospect deep link and use browser Back. Check empty states before any game has been finalized.
+
+| Area | Actions | Expected result |
+| --- | --- | --- |
+| Home | Refresh, inspect league summary and phase/week | Correct bound league and season |
+| Teams | Search/select team, open roster/player | Correct current owner and memberships |
+| Players | Search, filter, sort, open profile | Current league players; edits reflected |
+| Stats / Team Stats | Filter/search/sort, open game history | Official finalized games only; useful empty states |
+| Schedule | Browse weeks, own/team schedules, game links | Saved matchups, dates, byes, status |
+| Standings | Both conferences, select team | Correct W/L, GP, percentages and points |
+| Draft | Choose each CUS01–CUS04, preview and big board, search/filter/open profile | Correct class, rank, portrait and profile links |
+| Admin | Wrong key, correct key, operator name, refresh | Wrong/missing key cannot read protected data or mutate records |
+
+In Discord:
+
+- [ ] `/ratings team`, `/ratings player`, `/ratings top` with and without position filters, `/ratings freeagency`.
+- [ ] `/player` autocomplete/profile, `/myteam`, `/team list`, `/team roster`, `/freeagents` pages and position filters.
+- [ ] `/toptenpreview draft_class:<each class>`: browse prospects, Full Profile, correct portrait/class.
+- [ ] `/bigboard`: all pages, previous/next boundaries, player profiles.
+
+Ratings commands read the source ratings snapshot. League roster/player edits should change the league views without rewriting that source snapshot.
+
+## 4. Website Admin edits and validation
+
+Perform these on the disposable league before recording important game results:
+
+1. Unlock Admin and enter your commissioner/operator name.
+2. Open a league player; edit supported fields, save, refresh, and compare the Discord `/player` result.
+3. In roster tools, add a free agent, move a player between teams, remove a player back to free agency, then verify both roster views. Restore legal rosters afterward.
+4. Bulk-edit a roster and save. Invalid numbers, unknown players, and duplicate membership must show errors rather than partial silent changes.
+5. Preview a team import. Review the differences before Apply. Try a stale preview after changing the roster; the server must protect against stale writes. Applying an import can replace your test team's roster data.
+6. Review Data Issues and Audit Log after each write. Non-blocking warnings and blocking roster/setup issues should be distinct.
+7. During preseason, test validation failure with an invalid roster, restore it, and repeat validation before starting the season.
+
+## 5. Solo game testing: one account, both real box scores
+
+Run `/games create` only when you intend to confirm replacement of the active week's threads. Existing game history and screenshots are preserved. If linking an existing private thread, use `/game setup week:1 team:<scheduled team>` inside that thread.
+
+1. Open your team's active-week matchup. Staff can access other test matchup threads as needed.
+2. Set the **NBA 2K game date** using the matchup control. Enter just a month and day, such as `Nov 18`, `Dec 19`, or `Oct 24`; no year is required. Upload actions must remain blocked until the date is set.
+3. Play or simulate the scheduled matchup in NBA 2K with the corresponding league rosters. Capture **one full team box-score screenshot for each team**, including the scoreboard and all required rows. These must match this scheduled game; arbitrary sample images will fail validation.
+4. Click **🧪 Test as [first team]**. Upload that team's screenshot in the same private thread.
+5. Wait for the `1 / 2` acknowledgment. Click **🧪 Test as [second team]** and upload the second team's screenshot.
+6. Both uploads come from your actual account, but retain separate team identities and explicit staff test authorization. There should be one complete `TEAM_SIDES` submission, not two unrelated submissions.
+7. Watch extraction and validation. Clean results finalize the game and post a green **✅ GAME APPROVED** thread embed with the final score; the matchup card also turns green. Website review approvals post the same signal. Retries do not duplicate the notice. Uncertain results go to review rather than inventing a score.
+8. Compare final scores and player lines with the screenshots. Verify `/standings`, `/stats player:<player>`, `/teamstats team:<team>`, and website standings/stats/history.
+9. Check DNP players: they do not receive a played-game stat line. Retrying extraction or the same finalization must not double-count results.
+
+The solo buttons require **current staff permission and explicit Test Mode**. They accept your own team or a vacant team. A team owned by another person must submit its own side. Assigning a real owner before an upload or before finalization invalidates the solo override for that side.
+
+**Staff Submit** is still available for uploading both screenshots together. It produces validated official results, but does **not** earn the two-coach game credit used for player upgrades. Use the two **Test as** sides for the upgrade test below.
+
+### Failures and review
+
+- [ ] Upload a non-image, extra screenshot, wrong-team image, incomplete score table, or inconsistent/tied scoreboard. No official stats should be written until validation passes.
+- [ ] Cancel a partial submission and start again; prior originals/history remain available.
+- [ ] Retry extraction from stored images. Review can be required with either configured OCR provider; image quality matters.
+- [ ] Open the provided website review link, unlock with the Admin key, inspect originals, correct uncertain fields/player matches, revalidate, and approve only a clean result.
+- [ ] Reopen the final game: further score uploads/edits must be locked.
+- [ ] Restart the bot after a partial upload and verify it can continue using the stored originals.
+
+### Fair Sim, forfeit, CPU, and advancement
+
+- [ ] Use Fair Sim: staff can record confirmation; normal coaches need the applicable coach approvals. Recording a decision alone does not produce scores or stats.
+- [ ] Record a forfeit/concession. A normal coach cannot award themselves a win; staff may record the decision. Official numeric results still require validated screenshots.
+- [ ] Inspect CPU information. Explicit Test Mode labels test matchups; a normal league with vacant teams correctly labels CPU matchups.
+- [ ] `/week advance` must report unresolved games and block ordinary advancement until the active week is complete.
+- [ ] In a disposable solo league, `/week advance force:true` presents a confirmation and records unresolved games. It does **not** fabricate results. Use it after completing your own matchup when testing earned upgrades across four weeks.
+- [ ] After confirmed advancement, the next week is active and schedule/game-thread controls update. Duplicate/stale confirmations must not advance twice.
+- [ ] `/games cleanup week:<completed week>` requires confirmation and removes Discord threads while preserving records/media/stats. The cleanup command can also target unfinished weeks, so use the completed test week for this check.
+
+The server also exposes protected APIs at `/api/league/admin/week`, `/api/league/admin/game-threads`, and `/api/league/admin/game-cleanup`. The current website does not render dedicated buttons for those operations. Their confirmation/mutation paths are covered by the automated suite; use Discord for the manual workflow. For a read-only API check, open browser DevTools on your local website and run:
+
+```js
+const testAdminKey = prompt('Website Admin key');
+for (const endpoint of ['week', 'game-threads', 'game-cleanup']) {
+  const response = await fetch(`/api/league/admin/${endpoint}`, {
+    headers: { 'x-leaguebuddy-admin-key': testAdminKey }
+  });
+  console.log(endpoint, response.status, await response.json());
+}
 ```
 
-- [ ] Assignment appears, disappears, and returns in the team list and refreshed website.
+The bot must be running for these APIs. Repeat in an unauthenticated private browser session without the header: protected endpoints must return 403. Do not manually call their POST confirmation endpoints against a league you want to preserve.
 
-For solo testing, permit the other teams to remain unassigned:
+## 6. Player upgrades with one account
 
-```text
-/league settings require_all_owners:false
-```
+Keep your one actual team assignment throughout this test. Hold a configured Commish/Assistant Commish role to review your own test request.
 
-This is a test-league setting. You can keep the requirement enabled for a league that needs all 30 owners.
+1. Run `/upgrades`; inspect eligibility and history. During regular season, a qualifying New User entitlement can be available without four games.
+2. Use the pinned **REQUEST UPGRADE** control in Player Upgrades. Select a source, player, category, and allocations. Normal allocations allow at most five total points with +1 to +3 per attribute.
+3. Review, go Back/Edit, then submit. In the ledger, reject one request and confirm that no player update/balance spend occurs.
+4. Submit another eligible request, approve it, and test the approval modes: **NO CHANGE**, **OVR CHANGED**, **BUILD CHANGED**, and **BOTH CHANGED** across separate eligible requests. Compare stored OVR/build and trade value after approval.
+5. To earn a normal game upgrade, complete **four distinct scheduled official games for your own team** using both solo **Test as** sides. Advance between weeks; if your team has a bye, advance past it. Four games must belong to your current ownership tenure. Vacant teams do not earn a fictional owner tenure.
+6. At the fourth qualifying game, inspect `/upgrades` and the earned notification. Test the Special choices after the four-game requirement; New User upgrades cannot use a Special.
+7. Check the two-completed-upgrades-per-player season cap, category reuse restrictions, one Special per team/season, and balances/history. Replaying a finalized game must not award another credit.
+8. On the disposable league, test ownership changes after creating a pending request. Stale requests/tenures must expire or be rejected rather than transferring another coach's entitlement.
 
-## 4. SETUP: generate and confirm the schedule
+This uses real final games and the regular award rules. There is no command that grants arbitrary test credits or bypasses upgrade eligibility.
 
-```text
-/schedule generate
-/schedule preview
-[Click Regenerate in the preview]
-/schedule preview
-[Click Confirm schedule in the preview]
-/schedule week week:1
-/schedule team team:Milwaukee Bucks
-/schedule mine
-/schedule full
-/league setup
-```
+## 7. Trades: GM decisions, committee, proof, processing
 
-- [ ] Generation produces a preview before saving.
-- [ ] Regeneration produces another valid preview.
-- [ ] Confirmation saves the schedule.
-- [ ] There are 15 weeks, 14 games per team, and one bye per team.
-- [ ] Games stay within conferences; each week has one East bye and one West bye.
-- [ ] Each week contains 14 games; the full schedule contains 210 games.
-- [ ] `/schedule mine` resolves the team assigned to your account.
-- [ ] `/schedule full` supplies the saved schedule download.
-- [ ] Website schedule preview shows saved matchups after refresh.
-- [ ] Setup validation passes. Unassigned-owner warnings are allowed with the test setting above.
+During Weeks 1–9, go to the pinned **Build a Trade** panel. Leave counterpart teams vacant for solo testing.
 
-Enter preseason:
+1. Build a two-team player swap. Use similar trade values and keep legal roster sizes. Inspect the preview and each team's package.
+2. Add/remove assets, first-round picks and protections; use menu pagination and Add Third Team, then remove it. Invalid roster/value packages must disable submission.
+3. Submit. Use the counterpart GM controls sent to you for the vacant team. Staff Test Mode permits these vacant-team responses; it cannot respond for an actual online owner.
+4. **Deny** one proposal. For another, **Counter**, edit the package, resubmit, and check the version/timer reset. Old buttons must be stale.
+5. Approve a valid version. With no independent real committee voters, Test Mode displays five virtual reviewer controls. Your account may also have the committee role; being an involved coach should still trigger the solo fallback.
+6. Test three virtual approvals to reach majority and, on a different proposal, three denials. Only staff in explicit Test Mode can use virtual votes. If independent real committee voters exist, real committee voting remains in use.
+7. Approved trades create a proof thread. Upload one actual trade screenshot. Staff reviews the proof; test rejection and then acceptance on separate eligible proposals.
+8. Check the final roster memberships, pick owners, team trade counts and audit log. Assets should move once, only after the required processing step. Repeated approval clicks must not apply the trade twice.
+9. Try offering an asset already moved by a completed trade; stale proposals must be invalidated or rejected. Keep an expired proposal to observe its 24-hour deadline, or use the automated deadline tests instead of waiting.
+10. New proposals after Week 9 must be blocked; existing submitted workflows follow their preserved eligibility and deadlines.
 
-```text
-[Click Enter preseason in /league setup]
-/league setup
-```
+With real people, each actual coach responds for their own team, involved coaches are excluded from committee voting, and an involved coach supplies proof. Nonparticipants do not gain permission through Test Mode. Staff proof simulation is limited to a vacant participating team.
 
-- [ ] Phase changes to `PRESEASON` in Discord and the refreshed website.
-- [ ] Running `/roster import` now fails with a phase error, because initial import is restricted to SETUP.
+## 8. Scouting and mock drafts
 
-Existing league IDs cannot be recreated. Use `/league setup` to continue, or `/league delete` to remove a league before starting fresh.
+### Scouting
 
-## 5. PRESEASON: unlock and test commissioner editing
+- [ ] Run `/scout position:<position> prospect:<autocomplete choice>` in an active regular-season week.
+- [ ] Inspect each reveal in order: Draft Grade, OVR, Potential. Each reveal costs 10 points, from a 60-point weekly allowance.
+- [ ] Verify unlocks persist, an already completed reveal is not charged twice, and insufficient points block the next reveal.
+- [ ] Advance the league week; points reset without rollover. Prospect browsing remains separate from private scouting unlocks.
 
-In the website Commissioner view, enter the value configured as `WEBSITE_ADMIN_KEY`, then click **Unlock**.
+### Regular mock
 
-- [ ] A wrong key fails to load protected admin data.
-- [ ] The correct key loads data issues and the audit log.
+1. Run `/mockdraft draft_class:1`, then repeat for 2, 3, and 4.
+2. Each result should be one 30-pick embed with team emojis. Repeating the same class in the same league week should return the same projection.
+3. Verify all picks are unique and team fit/value affects selections without huge CPU reaches.
+4. After a week transition and successful projection refresh, repeat. Weekly changes are allowed; changing classes must not overwrite another class's cache.
 
-Judge authorization by whether protected data and actions succeed, not merely by the "unlocked" label: the current frontend initially treats any nonempty key as present, while the server checks the actual key.
+### Live mock
 
-Select Milwaukee Bucks in **Roster manager**, then click **Load roster**.
+1. Click the pinned live-mock Start control. It prompts for CUS01–CUS04; select a class and check the room's class label.
+2. Preview the **base order** before the lottery. Choose that order; **Start Draft** must appear.
+3. In another mock, run the lottery. The single 30-pick lottery embed should offer **Start Draft** and **Rerun Lottery**. Reruns are random and must not immediately repeat the same order.
+4. While still in setup, click **TEST: CONTROL VACANT TEAMS**. Confirm **SOLO CONTROL: ON**, lock the intended order, and start.
+5. Vacant teams now give the host the human selection flow. Your actual assigned team remains your own. A real owner's team is never taken over; invite that coach before locking if they want to participate.
+6. Check the on-clock public message beneath the last pick; open its selection controls. The embed displays ten prospects while the dropdown includes up to 25. Test more pages/search, position filters, portraits and confirmation.
+7. Confirm one pick; a duplicate/stale confirmation must not pick again. Choose another prospect, cancel/back, then confirm a different one.
+8. Pause/resume the draft, then let a human clock expire once. Timeout must make exactly one CPU selection. Turn solo control off to exercise normal CPU progression for vacant teams.
+9. Finish all 30 picks. CPU picks should stay within the configured market reach windows, with varied useful grades/storylines.
+10. Check the **same single 30-pick recap embed** in the draft room and your DM. Recap portraits are unnecessary; live pick portraits remain. Review cleanup and DM failure/retry handling if DMs are disabled.
+11. Start a new mock in a different class; old finished controls should be inactive. Restart while paused/active to verify persisted state recovery.
 
-| Action | Expected result |
-| --- | --- |
-| Record a player's OVR, change it by one within 0–99, and save | New OVR persists after refresh |
-| Look up that player using `/player` | Discord shows the edited league value |
-| Look up that player using `/ratings player` | Source snapshot remains unchanged |
-| Restore the original OVR and save | League value returns to its original value |
-| Change a jersey number or position and save | Team details and roster show the saved value |
-| Open a player profile and edit an available field | Saved field persists after reopening |
-| Move a player to another team | Player appears on the destination roster and leaves the original roster |
-| Move that player back | Original team membership is restored |
-| Add `Test Player` with OVR 70 and position PG | New player appears in that team's roster |
-| Remove `Test Player` | Player leaves the active roster; the underlying player record may remain in the directory |
-| Review Audit log | Administrative changes have corresponding entries |
+## 9. Verify normal online behavior
 
-Restore real players' original fields before the next stage. These actions modify the test league; they do not edit raw scraped snapshots or draft-class JSON.
+The automated suite uses distinct identities for owner authorization, private threads, GM decisions, committee exclusions, pick ownership, race handling, and stale controls. Run `npm run check` after changes.
 
-## 6. PRESEASON: import preview, issues, and persistence
+For a real Discord acceptance test with another person, use a separate normal league or disposable setup with `test_mode:false`, and make the second person the owner of a different team. Confirm:
 
-Test refreshing an existing roster:
+- [ ] They see only the appropriate private game/trade/live rooms and their own ephemeral controls.
+- [ ] Each coach uploads their own game side; wrong-user/wrong-thread uploads are rejected.
+- [ ] You cannot make their trade decision or confirm their live pick, including with staff solo controls.
+- [ ] Independent committee members get their voting controls; involved coaches cannot vote.
+- [ ] Each invited participant receives the finished mock recap when DMs are allowed.
+- [ ] A non-staff member cannot repair channels, advance weeks, clean threads, use virtual reviewers, or simulate game sides.
+- [ ] A normal league that permits vacant teams still uses CPU rules and has no solo Test Mode controls.
 
-1. Change one real player's OVR by one and save it.
-2. Select that team under **Roster import preview**.
-3. Click **Preview import** and review the proposed differences.
-4. Verify previewing alone has not changed the edited OVR.
-5. Click **Apply import** to apply the source roster changes.
-6. Reload the roster and verify the OVR matches the source snapshot again.
-7. Check the audit log.
+One account can exercise the implemented workflows in Test Mode. It cannot visually prove what a second person's Discord client displays; the distinct-identity automated tests cover server-side boundaries, and this short two-person pass covers actual Discord delivery/privacy.
 
-Apply import can update multiple roster fields and memberships. Read the complete preview before applying; use the disposable test league for this exercise.
+## 10. Finish and record results
 
-Test the issue panel:
+Run `/admin bind league_id:<saved original ID> season_id:<saved original season>` to restore the binding if you created a temporary league in your existing server. Discord roles/channels are shared server resources; confirm the original team's role and refreshed panels afterward. Do not delete a league to restore a binding.
 
-- [ ] Give two players on one team the same jersey number, save, and reload admin panels by clicking Unlock again. Expect a duplicate-jersey warning.
-- [ ] Restore the original jersey number and reload panels. The warning should disappear unless another duplicate exists.
-- [ ] Click **Validate preseason**. Resolve blocking errors; warnings such as unassigned owners or unusual roster sizes may remain.
+Record failures with: league/season/week, command or button, game/trade/mock ID, expected versus actual result, screenshot, and relevant terminal error. Avoid tokens and Admin keys.
 
-Test persistence:
-
-1. Stop the local process with Ctrl+C.
-2. Run `npm start` again.
-3. Refresh the website and run `/league setup`.
-
-- [ ] League binding, phase, rosters, owners, saved schedule, and audit entries persist.
-
-The browser retains the admin key in local storage. Clear the key field and click Unlock to remove it from that browser. Closing the tab alone does not clear it.
-
-## 7. Optional: test the regular-season transition last
-
-Do this only on the disposable league after all preseason testing. If the current development phase should stop at preseason, skip this section.
-
-1. Click **Validate preseason** and confirm there are no blocking errors.
-2. Click **Start season**.
-3. Refresh the page and run `/league setup`.
-
-- [ ] League phase is `REGULAR_SEASON` and current week is 1.
-- [ ] The saved schedule marks week one active and later weeks upcoming.
-- [ ] Clicking Start season again fails because the league is no longer in PRESEASON.
-
-This is the implemented endpoint so far. Results, standings, week advancement, playoff execution, trades, and draft-pick execution are not yet available to test. Naming a later phase in the code does not mean its full workflow exists. Roster editing also does not yet consistently enforce phase restrictions.
-
-## 8. Restore your usual league
-
-If you changed the binding on your existing Discord server, restore the league and season recorded in stage 1. For the original local scaffold:
-
-```text
-/admin bind league_id:2kratings-current season_id:2026
-/league setup
-```
-
-Refresh the website and confirm the original league name. Its empty rosters are expected if it was never initialized. Binding back does not delete the test league.
-
-If you used a separate server, restore your usual `GUILD_ID` in `.env` and restart the app when finished. For another clean run, choose a fresh test league ID such as `2k-test-02` instead of resetting a populated league.
-
-## Troubleshooting
-
-| Symptom | Check |
-| --- | --- |
-| Discord commands are missing | Correct application/server IDs; run `npm run deploy:commands`, then reopen Discord's command picker |
-| Bot commands do not respond | `npm start` is running and logged in; website-only mode does not run the bot |
-| Port already in use | Stop the previous local app process or choose a different PORT and matching WEBSITE_URL |
-| No league configured | GUILD_ID matches the server where you created the league; restart after changing environment settings |
-| League appears but player directory is empty | Complete initial `/roster import` while in SETUP |
-| Admin authorization required | Server key is nonempty, the app was restarted, and browser key matches it |
-| Website does not reflect a Discord change | Refresh the website; there is no live push update |
-| Start season is rejected | League must be in PRESEASON and pass preseason validation |
-| Import or roster validation fails | Check missing source team files, player ratings, and the displayed data issues |
-| Deployed website differs from local website | Verify deployed environment and persistent league files; `data/` is excluded from Git |
-| Draft board fails alongside a league API error | Check terminal errors for `/api/league-site`; frontend startup currently loads league and draft data together |
-
-When reporting a failure, include the stage, league phase, action, visible error, and relevant terminal output. Omit tokens and the admin key.
-
-## Quick commands
-
-- `/myteam`: your assigned roster and upcoming games.
-- `/freeagents`: league free agents, with optional position and page.
-- `/league setup`: setup checklist, next step, refresh, and Enter preseason button.
-- `/team list`: team directory (replaces `/teams`).
-- Discord player autocomplete is alphabetical across teams.
-
-## Test role ownership
-
-1. Enable Server Members Intent in the bot's Developer Portal settings. Give the bot Manage Roles and move its role above the team and Coach roles.
-2. Register commands, restart, and wait for automatic sync. Existing owner records will be replaced by the current team-role assignments.
-3. Give yourself one team role in Discord. Check `/myteam`, `/schedule mine`, `/team list`, and the refreshed website. You should also receive LEAGUEbuddy Coach.
-4. Remove the team role. The team should become unassigned and your Coach role should be removed.
-5. Try `/team assign` and `/team unassign`; check both Discord roles and the website.
-6. Give a team role to two people. the setup checklist should report a conflict and count neither as its owner. Resolve the roles, then let automatic sync update ownership.
-7. Restart the bot with an existing role assignment. The same owner should remain; this does not advance the league phase.
-
-Owner names now show Discord display names. Change a nickname or team role and allow about one second for bot sync, then up to 10 seconds for the website label to refresh. No manual sync command is needed.
-
-## Regular-season standings
-
-Open **Standings** in the existing website navigation or run `/standings` (optional `conference: East` / `West`). Start with every team at 0–0. Finalize a game using the existing validated submission/approval flow; refresh standings and check GP, W/L, PCT, PF, PA and DIFF in the appropriate conference. Scheduled and review-required games must not change records. Teams on a bye remain unchanged. Click a team in the table to open its existing profile with its current W–L record. The existing Game Review page also shows both teams' current records.
-
-Calculations read permanent Game results every time; nothing writes standings totals. Ranking is PCT, then wins, then team name and ID for a deterministic display—not formal playoff seeding. The website refreshes the visible Standings view every 30 seconds and has a manual refresh button. API and Discord requests always recalculate.
-
-The existing review system locks finalized games. This feature does not introduce reopening or editing approved games. If an authorized result-correction flow updates the official result, the next standings calculation reflects the changed winner and score automatically. Automated tests cover this by updating an official test record.
-
-## Regular-season week advancement
-
-Use **Admin → Regular-season week → Refresh week status** or `/week advance`. Normal advancement requires 14 official final games. Unresolved games show matchup names, activity context and available Game Review / Discord links. The website requires the existing commissioner key and an entered audit name; Discord requires Commish, Assistant Commish or Manage Server.
-
-Prepare advancement, review the confirmation, then confirm. This completes the old week, activates the next, updates `currentWeek`, starts one new 48-hour window and invokes the existing thread creator. Old games, threads, media and standings remain intact. Discord errors do not undo activation; retry with `/games create` or the existing website thread controls.
-
-For an exception, use **Force advance…** or `/week advance force:true`, then explicitly confirm. The closed week's unresolved matchups are preserved on the week and in the audit log with the commissioner and timestamp. No scores or forfeits are assigned.
-
-On Week 15 the action becomes **COMPLETE REGULAR SEASON**. It marks Week 15 completed and sets `regularSeasonStatus: COMPLETED` / `regularSeasonCompletedAt` on the existing league/season record. `currentWeek` remains 15, there is no active regular-season week, and the phase remains REGULAR_SEASON pending a future playoff transition.
-
-Storage remains the existing single-process JSON repository. A durable write-ahead journal commits schedule, league state and audit together; repository readers recover an interrupted commit before exposing those records. No second week-state database is introduced. Confirmation tokens bind the actor, season and expected week, expire after five minutes and are cancellable. Committed request IDs are preserved in the audit log to make repeated confirmation requests harmless across restarts. If a committed write cannot finish because disk writes still fail, reads fail rather than exposing partial state; restore storage access, refresh, and retry missing threads if needed. Run only one bot process against this JSON data directory.
-
-## Completed-week Discord thread cleanup
-
-Use `/games cleanup week:1` or **Admin → Completed-week thread cleanup**. Load completed weeks, choose one, enter your commissioner audit name on the website, and prepare cleanup. Nothing is deleted until the explicit Delete confirmation. Cancel leaves threads intact. Discord requires existing league staff permissions; the website uses the existing commissioner key. ACTIVE and future weeks are blocked, including when the week status changes after preparation.
-
-Deletion removes only the saved private Discord channels. Game records retain original `discordThreadId`, `threadCreatedAt`, scores, stats, extractions, submissions, activity and screenshot files. Added fields are `discordThreadCleanedAt`, `discordThreadCleanedBy`, `discordThreadCleanupOutcome` (DELETED or MISSING), and `discordThreadDeletedAt` only for actual successful deletion. Historical Game Review continues to load saved records and originals, displaying “Cleaned after Week N”.
-
-The summary reports deleted, already cleaned/missing and failed counts. Successful deletions remain committed if another thread fails. Fix Discord permissions and prepare cleanup again to retry failures; previously cleaned threads are skipped without Discord requests. Missing channels count as already missing, not fatal errors. Other lookup errors remain failures. Shared thread IDs, foreign-server channels and non-private channels are blocked. Requested/completed audit events retain actor, league, season, week, timestamp, request ID and counts. Repeated confirmation requests replay the stored result; a fresh preparation retries failures.
-
-Automated coverage: `node --test test/game-thread-cleanup.test.js` uses temporary repositories and mocked Discord channels. It checks 14 deletions, byte-for-byte original image retention, full permanent record equality apart from cleanup metadata, standings/schedule invariance, permissions, confirmation/cancellation/expiry, active/future restrictions, idempotence, partial failures, retry scope and historical review/media routes. `npm run check` runs the entire regression suite. No automated test deletes live Discord threads. Register the updated commands and restart the bot when ready to use the new controls.
-
-## Discord channels and Trade Committee role
-
-New `/league create` setup creates four LEAGUEbuddy roles (Coach, Commish, Assistant Commish, Trade Committee), 30 team roles, a `LEAGUEbuddy 2K` category and the agreed 16 `lb-` text channels. Existing leagues use `/league setup` → **Create / repair channels**. Only existing commissioner/admin permissions can invoke this action. The bot needs Manage Channels and Manage Roles; its role must be high enough to manage the relevant roles and channels.
-
-Channels: league-staff, announcements, chat, available-teams, schedule, standings, game-threads, scouting-hub, activitycheck, submit-trade, trade-block, trade-counts, trade-committee, trade-proof, approved-trades, denied-trades. Staff and the bot can post throughout. Coaches can discuss in chat/scouting/activity/submit-trade/trade-block/trade-proof; feeds are read-only. Staff is private to commissioners; trade-committee is private to commissioners and the Trade Committee role. Assign committee members manually in Discord; committee membership does not grant league administration permissions.
-
-Setup saves channel IDs under league settings `discordChannels`, and connects game-threads to existing `gamesChannelId`. Repeated setup reuses saved IDs even after renames. Without a saved ID it reuses a unique channel with the exact default name; ambiguous names or wrong channel types report errors. Reused channels keep names and locations but receive the defined permission overwrites. Deleted channels are recreated. Partial failures keep successful mappings and can be retried. Each completed attempt is audited. Existing games and permanent game history are untouched.
-
-Channel creation does not implement trade processing or automatic publishing to other feeds. Only the existing Games channel integration is connected by this change. Tests use mocked Discord APIs; no live server channels are created by automated checks.
-
-Confirmed access policy: visitors can view announcements and available-teams, but cannot post or create/reply in threads there. All other league channels remain hidden from visitors. Commissioners and assistant commissioners have equal channel access. The Trade Committee role grants the private committee room only; its members need Coach for the other league/trade channels. Trade submissions and proof are visible to all coaches. Activity check remains unchanged. Schedule, standings, trade counts, approved/denied trades and the two public feeds allow staff/bot posting only, including thread replies. The game-threads parent blocks coach posts and thread creation while allowing invited coaches to talk and upload screenshots in private game threads. Server owners and Administrators bypass Discord channel restrictions. Apply updated overwrites using /league setup → Create / repair channels after restarting the bot.
-
-Schedule generation is now available directly in `/league setup`: click **Generate schedule**, browse the 15-week preview, then **Confirm schedule** and **Back to setup**. An existing pending preview is reopened rather than replaced. The button requires imported rosters, is disabled once a valid schedule is saved, and is available only during SETUP to league staff. Regenerate and Cancel remain in the preview. Confirming saves the schedule; entering preseason is still a separate setup button. Existing `/schedule` commands remain available.
-
-Discord regular-season start: during PRESEASON, staff open `/league setup` → **Start regular season**. Existing preseason validation runs before a commissioner-bound confirmation is shown and again when confirmed. Confirm starts Week 1's 48-hour clock through the existing league service and audit log. Cancel, expired confirmations and stale league/season buttons do not start the season. Use `/games create` afterward to create private matchup threads. The website start control remains available.
-
-Updated matchup creation: all 14 scheduled private threads are created regardless of vacant teams or ownership conflicts. Opening messages tag the two saved team roles with an explicit mention whitelist. Existing human role holders and league staff are added as thread members; role mentions alone do not grant private-thread access. Rerun `/games create` after assigning team roles to add new holders without duplicate threads or repeated opening pings. Ownership validation for score submissions remains in place. Run Create / repair channels once after this update so the bot has Mention Everyone in the Games channel (needed to notify non-mentionable team roles); only the two matchup roles are allowed in opening-message mentions. Discord permission/API errors can still prevent individual operations and are reported for retry.
-
-Countdown timing update: activating a season/week does not start its deadline. The shared 48-hour window starts with the first successfully created/linked matchup thread in that week's creation batch. All games use that same deadline. If no thread can be created, no countdown starts; retries and creation of remaining threads do not extend it. Previously launched weeks retain their deadline, while an older active week with no linked threads starts its clock when threads are first created.
-
-Matchup controls: Submit Score retains one screenshot per coach. Staff Submit permits Commish/Assistant Commish (or existing Manage Server authorization) to upload both screenshots for any matchup, including CPU games. Staff upload sessions cannot mix with an in-progress coach collection. The saved submission identifies the staff member and the existing audit log records session creation. Both originals pass the same OCR, roster matching, stat checks and finalization; commissioner corrections remain available. No button fabricates scores or standings.
-
-Fair Sim records agreement from both coaches, or staff approval. The two Forfeit buttons name the winning team and use its application emoji; a coach can only concede to the opponent, while staff can select either. Decisions are retained in game history, separately from official results. CPU reports automatic classification from current ownership: zero owned sides means CPU vs CPU; one means human vs CPU. Test leagues remain TEST; legacy leagues with vacant-owner setup enabled are treated as tests until an explicit testMode setting exists. No strikes, streaming or Game Completed button were added. Refresh existing matchup cards with /games create after restarting.
-
-NBA player directory now shares draft-section horizontal padding and grid gap, so portrait dimensions, card borders and corners align at the same viewport width.
-
-
-### Review feedback and cleanup of unfinished weeks
-- Open a submission review, enter the website key and load it. Leave commissioner name empty and press Save corrections & revalidate: the page should focus the name and explain the requirement beside the actions.
-- Review items name the team, player and stat. Show in table focuses the corresponding field. For OCR confidence warnings, verify against the original and tick Matches the original screenshot; mathematical errors require corrected values.
-- Save reports success or an error beside the buttons. Approval stays unavailable until a saved revision passes validation. Approval then records the result, stats and standings.
-- In Admin → Weekly thread cleanup, Load weeks and select any scheduled week, or use `/games cleanup week:<number>` in Discord. Preview and confirm deletion to remove all linked game threads from that week, regardless of completion. This does not complete games or advance the week.
-- Saved results, submissions, images and stats remain available. Automatically creating current-week threads again skips intentionally cleaned threads.
-
-
-### Permanent league deletion
-`/league delete` now removes the league folder and every matching game archive across all seasons, including original screenshots, OCR revisions, submission history and game stats. The confirmation describes this scope. Shared source ratings, draft classes and image assets remain, as do Discord channels, threads, roles and assignments. Other leagues are unaffected. This applies to future deletions; it does not automatically purge archives from leagues previously deleted.
-
-### Game date and approval confirmation
-- Restart the bot; active game cards refresh on the activity tick. `/games create` can refresh existing active-week cards immediately without duplicating them.
-- A matchup without a date shows only **Set game date**. A matchup coach or staff member clicks it and enters the date shown inside NBA 2K, e.g. `10/24/2027`. This is not a real-world scheduling date and does not change the 48-hour deadline.
-- A saved date appears bold under **NBA 2K GAME DATE**. Edit game date remains first; submission, staff submission, processing, Fair Sim, forfeits and CPU controls become available. Invalid calendar dates, unrelated users and wrong threads are rejected. Finalized games cannot have their date edited.
-- On the website, successful approval immediately opens **Game approved**, then leaves an **APPROVED ✓** disabled button. A failed approval displays its error and never shows a success popup. If approval succeeds but reloading the page fails, the confirmation remains and explains that a refresh is needed.
+Some configured fields are not full workflows: a playoff-team setting does not implement a playoff engine. The game deadline setting is stored/displayed, but the actual week-thread clock currently uses 48 hours. Result-confirmation and commissioner-approval settings are also stored/displayed; the implemented result gate is validated screenshots and review when required, rather than separate configurable post-game approvals. There is no actual NBA 2K game execution inside the bot, no full real draft execution from the mock, and no playoff bracket simulation implemented. Test the present features above rather than treating those missing systems as Test Mode failures.

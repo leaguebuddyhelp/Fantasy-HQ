@@ -33,7 +33,7 @@ function boardEmbeds(input, selections, title = 'LEAGUEbuddy Mock Draft') {
 }
 function projectionEmbed(input, selections, snapshot, warnings = []) {
     const card = new EmbedBuilder().setColor(COLOR).setTitle('🏀 LEAGUEbuddy Mock Draft')
-        .setDescription(`**${input.draftYear} Draft · First Round**\n📈 Weekly projected order · All 30 picks`)
+        .setDescription(`**${input.draftYear} Draft · First Round**\n📈 Weekly projected order · All 30 picks\n🗂 ${safe(input.draftClassId.replace(/ - Big Board$/i, ''))}`)
         .setFooter({ text: `Week ${input.currentWeek ?? 'Preseason'} · 1,000 simulations · ${snapshot.generatedAt}${warnings.length ? ` · ${warnings.join(' ')}` : ''}` });
     const lines = selections.map(s => {
         const p = input.prospects.find(p => p.prospectId === s.prospectId);
@@ -68,7 +68,7 @@ function reactionPayload(m, s) {
 function awardsEmbed(m) { return embed('🎯 Final draft takeaways', m.recap.awards.map(a => `**${a.category}** · ${a.pickNumber ? `#${a.pickNumber} ${m.selections[a.pickNumber - 1].prospect.name}` : `${teamEmoji(m.input.teams.find(t => t.teamId === a.teamId).teamName) || '🏀'} ${m.input.teams.find(t => t.teamId === a.teamId).teamName} · Picks ${a.pickNumbers.join(', ')}`}`).join('\n')); }
 function finalRecapPayload(m) {
     const card = projectionEmbed(m.input, m.selections, { generatedAt: m.startedAt || m.createdAt });
-    card.setTitle('🏁 FINAL MOCK DRAFT RECAP').setDescription(`**${m.input.draftYear} Draft · All 30 picks**\n✅ Completed live mock · Board rank, AVP and pick grades`);
+    card.setTitle('🏁 FINAL MOCK DRAFT RECAP').setDescription(`**${m.input.draftYear} Draft · All 30 picks**\n✅ Completed live mock · Board rank, AVP and pick grades\n🗂 ${safe(m.input.draftClassId.replace(/ - Big Board$/i, ''))}`);
     for (const field of card.data.fields) field.value = field.value.replace(/(\*\*#(\d+)\*\*[^\n]*)(\n)/g, (_, line, number, newline) => `${line} · **${m.selections[Number(number) - 1].grade}**${newline}`);
     const takeaways = awardsEmbed(m).data.description;
     card.addFields({ name: '🎯 Draft takeaways', value: takeaways });
@@ -136,7 +136,7 @@ function createDiscordMockDraft({ repository, simulations, live, client = null }
         return channel.send({ ...payload, nonce: require('crypto').createHash('sha256').update(`${channel.id}:${marker}`).digest('hex').slice(0, 24), enforceNonce: true, allowedMentions: { parse: [] } });
     }
     function panelPayload(m) {
-        const prefix = `mock:${m.id}`, controls = [], lines = [`📋 Status: **${m.status.replace(/_/g, ' ')}**`, `👤 Host: <@${m.hostUserId}> · ${m.participants.length} participating coach${m.participants.length === 1 ? '' : 'es'}`, `✅ ${m.selections.length}/30 picks complete`];
+        const prefix = `mock:${m.id}`, controls = [], lines = [`🗂 ${safe(m.draftClassId.replace(/ - Big Board$/i, ''))}`, `📋 Status: **${m.status.replace(/_/g, ' ')}**`, `👤 Host: <@${m.hostUserId}> · ${m.participants.length} participating coach${m.participants.length === 1 ? '' : 'es'}`, `✅ ${m.selections.length}/30 picks complete`];
         if (['SETUP', 'LOTTERY_READY'].includes(m.status)) { controls.push(button(`${prefix}:invite:0`, 'INVITE COACHES'), button(`${prefix}:lottery:${m.lotteryRuns}`, m.lotteryRuns && m.orderSource !== 'BASE' ? 'RERUN LOTTERY' : 'RUN LOTTERY', ButtonStyle.Primary)); if (m.lotteryRuns) controls.push(button(`${prefix}:lock:${m.lotteryRuns}`, 'LOCK DRAFT ORDER', ButtonStyle.Success), button(`${prefix}:startorder:${m.lotteryRuns}`, 'START DRAFT', ButtonStyle.Success)); }
         if (['SETUP', 'LOTTERY_READY'].includes(m.status)) controls.push(button(`${prefix}:base`, 'VIEW BASE ORDER').setEmoji('📋'));
         else if (m.lotteryOrder?.length) controls.push(button(`${prefix}:order`, 'VIEW CURRENT ORDER').setEmoji('📋'));
@@ -151,7 +151,7 @@ function createDiscordMockDraft({ repository, simulations, live, client = null }
         }
         if (m.warnings?.length) lines.push(`\n${m.warnings.join('\n')}`);
         if (m.participants.some(p => p.accessError)) lines.push('Some invited coaches could not join and are CPU controlled.');
-        return { embeds: [embed('🏀 LEAGUEbuddy Live Mock', lines.join('\n'))], components: controls.length ? [row(...controls)] : [], allowedMentions: { parse: [] } };
+        return { embeds: [embed('🏀 LEAGUEbuddy Live Mock', lines.join('\n'))], components: controls.length ? [row(...controls), ...(m.testMode && ['SETUP', 'LOTTERY_READY', 'ORDER_LOCKED', 'ACTIVE', 'PAUSED'].includes(m.status) ? [row(button(`${prefix}:solo:${m.soloControl ? 'off' : 'on'}`, m.soloControl ? 'SOLO CONTROL: ON' : 'TEST: CONTROL VACANT TEAMS').setEmoji('🧪'))] : [])] : [], allowedMentions: { parse: [] } };
     }
     async function publishTurn(guild, thread, m) {
         const coach = ['ACTIVE', 'PAUSED'].includes(m.status) && live.controller(m);
@@ -173,19 +173,20 @@ function createDiscordMockDraft({ repository, simulations, live, client = null }
         live.mutate(m.leagueId, m.id, draft => { draft.delivery[currentKey] ||= {}; draft.delivery[currentKey].announcement = msg.id; draft.delivery[currentKey].panelSignature = signature; });
     }
     async function publishPanel(thread, m) {
-        const signature = `v6:${m.status}:${m.currentPick}:${m.lotteryRuns}:${m.participants.map(p => `${p.userId}:${p.available}:${p.accessError || ''}`).join(',')}:${m.deadlineAt}:${m.remainingMs}`;
+        const signature = `v7:${m.soloControl}:${m.status}:${m.currentPick}:${m.lotteryRuns}:${m.participants.map(p => `${p.userId}:${p.available}:${p.accessError || ''}`).join(',')}:${m.deadlineAt}:${m.remainingMs}`;
         if (m.panelSignature === signature && m.panelMessageId) return;
         if (m.panelMessageId) { try { const msg = await thread.messages.fetch(m.panelMessageId); await msg.edit({ ...panelPayload(m), embeds: panelPayload(m).embeds.map(e => e.setFooter({ text: `Live Mock ${m.id} · controls` })) }); live.mutate(m.leagueId, m.id, draft => { draft.panelSignature = signature; }); return; } catch (e) { if (e.code !== 10008) throw e; } }
         const msg = await sendOnce(thread, panelPayload(m), `Live Mock ${m.id} · controls`);
         await msg.edit({ ...panelPayload(m), embeds: panelPayload(m).embeds.map(e => e.setFooter({ text: `Live Mock ${m.id} · controls` })) }); live.mutate(m.leagueId, m.id, draft => { draft.panelMessageId = msg.id; draft.panelSignature = signature; });
     }
     function currentOrderPayload(m) {
-        const card = lotteryEmbed(m.input || simulations.inputFor(m.leagueId), m.lockedDraftOrder || m.lotteryOrder, m.lotteryRuns, !!m.lockedDraftOrder);
+        const card = lotteryEmbed(m.input || simulations.inputFor(m.leagueId, m.classNumber), m.lockedDraftOrder || m.lotteryOrder, m.lotteryRuns, !!m.lockedDraftOrder);
         if (m.orderSource === 'BASE') card.setTitle(`📋 ${m.lockedDraftOrder ? 'Locked Base Draft Order' : 'Base Draft Order'} · All 30 picks`);
-        return { embeds: [card], allowedMentions: { parse: [] } };
+        const components = m.status === 'LOTTERY_READY' ? [row(button(`mock:${m.id}:startorder:${m.lotteryRuns}`, 'START DRAFT', ButtonStyle.Success), button(`mock:${m.id}:lottery:${m.lotteryRuns}`, 'RERUN LOTTERY', ButtonStyle.Primary))] : m.status === 'ORDER_LOCKED' ? [row(button(`mock:${m.id}:begin`, 'START DRAFT', ButtonStyle.Success))] : [];
+        return { embeds: [card], components, allowedMentions: { parse: [] } };
     }
     async function publishLottery(thread, m) {
-        if (!m.lotteryOrder?.length || m.lotteryPresentation === `v2:${m.lotteryRuns}:${!!m.lockedDraftOrder}`) return;
+        if (!m.lotteryOrder?.length || m.lotteryPresentation === `v3:${m.lotteryRuns}:${m.status}`) return;
         const marker = `Live Mock ${m.id} · lottery ${m.lotteryRuns} · 0`;
         const payload = currentOrderPayload(m);
         payload.embeds[0].setFooter({ text: marker });
@@ -193,7 +194,7 @@ function createDiscordMockDraft({ repository, simulations, live, client = null }
         await msg.edit(payload);
         const recent = await thread.messages.fetch({ limit: 100 });
         for (const old of recent.values()) if (old.author.id === thread.client.user.id && old.embeds.some(e => [10, 20].some(start => e.footer?.text === `Live Mock ${m.id} · lottery ${m.lotteryRuns} · ${start}`))) { try { await old.delete(); } catch (e) { if (e.code !== 10008) throw e; } }
-        live.mutate(m.leagueId, m.id, draft => { draft.lotteryMessageId = msg.id; draft.lotteryPresentation = `v2:${m.lotteryRuns}:${!!m.lockedDraftOrder}`; });
+        live.mutate(m.leagueId, m.id, draft => { draft.lotteryMessageId = msg.id; draft.lotteryPresentation = `v3:${m.lotteryRuns}:${m.status}`; });
     }
     async function publishSelections(thread, m) {
         for (const s of m.selections) {
@@ -248,7 +249,7 @@ function createDiscordMockDraft({ repository, simulations, live, client = null }
                 await publishSelections(thread, m);
                 let coach = live.controller(m);
                 if (coach) {
-                    try { await validateCoach(guild, leagueId, coach.userId); await thread.members.fetch(coach.userId); }
+                    try { await validateCoach(guild, leagueId, coach.userId); await thread.members.fetch(coach.userId); if (coach.testControlled) { const member = await guild.members.fetch(coach.userId); if (!canManageLeague({ guildId: guild.id, guild, member, memberPermissions: member.permissions })) { m = live.mutate(leagueId, id, draft => { draft.soloControl = false; }); coach = null; } } }
                     catch (e) { if ([10007, 10013].includes(e.code) || e.message.includes('Coach role') || e.message.includes('league team') || e.message.includes('ownership conflicts')) { m = live.setAvailable(leagueId, id, coach.userId, false); coach = null; } else throw e; }
                 }
                 if (coach && m.deadlineAt != null && m.deadlineAt > Date.now()) break;
@@ -263,11 +264,12 @@ function createDiscordMockDraft({ repository, simulations, live, client = null }
         return { pool: pool.slice(index * 10, index * 10 + 10), page: index, pages };
     }
     function selectionPayload(m, requestedPick, query = '', page = 0, searchToken = null) {
-        if (m.status !== 'ACTIVE' || m.currentPick !== Number(requestedPick)) throw Error('That pick is no longer active.');
+                    if (m.status !== 'ACTIVE' || m.currentPick !== Number(requestedPick)) throw Error('That pick is no longer active.');
         const saved = simulations.byId(m.leagueId, m.simulationSnapshotId), prefix = `mock:${m.id}`, result = searchToken ? choices(m, query, page) : { pool: live.available(m).slice(0, 10), page: 0, pages: 1 };
         const info = embed(searchToken ? `🔎 Search results · Page ${result.page + 1}/${result.pages}` : '🔎 TOP 10 BEST AVAILABLE', result.pool.map(p => `**${safe(p.name)}** · ${safe(p.position_1)} · ${safe(p.team || p.nationality)}\nBoard #${p.board_number} | AVP ${saved.prospectAggregates[p.prospectId]?.avp?.toFixed(1) || 'Unselected'}`).join('\n\n') || 'No undrafted prospects match this search.');
+        const menuPool = searchToken ? result.pool : live.available(m).slice(0, 25);
         const components = [];
-        if (result.pool.length) components.push(new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId(`${prefix}:select:${m.currentPick}`).setPlaceholder('Select a prospect to preview and confirm').addOptions(result.pool.map(p => ({ label: `${p.board_number}. ${p.name}`.slice(0, 100), description: `${p.position_1} · ${p.team || p.nationality || 'Prospect'}`.slice(0, 100), value: String(p.board_number) })))));
+        if (menuPool.length) components.push(new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId(`${prefix}:select:${m.currentPick}`).setPlaceholder(`Select from ${menuPool.length} prospects to preview and confirm`).addOptions(menuPool.map(p => ({ label: `${p.board_number}. ${p.name}`.slice(0, 100), description: `${p.position_1} · ${p.team || p.nationality || 'Prospect'}`.slice(0, 100), value: String(p.board_number) })))));
         const controls = [button(`${prefix}:search:${m.currentPick}`, 'SEARCH ALL PROSPECTS', ButtonStyle.Primary)];
         if (searchToken) { controls.push(button(`${prefix}:results:${m.currentPick}:${searchToken}:${Math.max(0, result.page - 1)}`, 'Previous').setDisabled(result.page === 0), button(`${prefix}:results:${m.currentPick}:${searchToken}:${result.page + 1}`, 'Next').setDisabled(result.page === result.pages - 1)); }
         components.push(row(...controls));
@@ -280,7 +282,8 @@ function createDiscordMockDraft({ repository, simulations, live, client = null }
     async function projection(interaction) {
         const c = context(interaction), leagueId = c.league.leagueId;
         await validateCoach(interaction.guild, leagueId, interaction.user.id);
-        const weekly = simulations.weeklyProjection(leagueId);
+        const classNumber = interaction.options?.getInteger?.('draft_class') ?? null;
+        const weekly = await simulations.classProjection(leagueId, classNumber);
         await interaction.editReply({ embeds: [projectionEmbed(weekly.input, weekly.selections, weekly, weekly.warnings)], allowedMentions: { parse: [] } });
     }
     async function handle(interaction) {
@@ -290,12 +293,13 @@ function createDiscordMockDraft({ repository, simulations, live, client = null }
             if (!guild) throw Error('This live mock server is unavailable.');
             const c = repository.loadLeagueContext({ guildId: guild.id }), leagueId = c.league.leagueId;
             if (action !== 'search') await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-            if (id !== 'start') {
+            if (!['start', 'startclass'].includes(id)) {
                 const m = live.get(leagueId, id);
                 if (m.guildId !== guild.id || (m.threadId !== interaction.channelId)) throw Error('Use this control inside its private mock room.');
                 if (!m.participants.some(p => p.userId === interaction.user.id) && !canManageLeague(interaction)) throw Error('You are not participating in this mock.');
                 if (['search', 'available', 'select', 'confirm', 'results', 'searchsubmit'].includes(action)) {
                     await validateCoach(guild, leagueId, interaction.user.id, interaction.member);
+                    if (live.controller(m)?.testControlled && !canManageLeague(interaction)) throw Error('Only staff can control vacant test teams.');
                     if (m.status !== 'ACTIVE' || m.currentPick !== Number(pickValue) || live.controller(m)?.userId !== interaction.user.id || m.deadlineAt <= Date.now()) throw Error('You are not on the clock for this pick.');
                 }
                 if (action === 'search') {
@@ -305,13 +309,21 @@ function createDiscordMockDraft({ repository, simulations, live, client = null }
             }
             if (id === 'start') {
                 await validateCoach(guild, leagueId, interaction.user.id);
-                await serial(key(leagueId, `host:${interaction.user.id}`), async () => { const m = live.create(leagueId, interaction.user.id, guild.id); await serial(key(leagueId, m.id), () => pump(guild, leagueId, m.id)); const current = live.get(leagueId, m.id); await interaction.editReply(`Your private Live Mock is ready: <#${current.threadId}>`); });
+                await interaction.editReply({ embeds: [embed('🗂 Choose a draft class', 'Select the prospect class for your Live Mock Draft.')], components: [new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId('mock:startclass').setPlaceholder('Choose CUS01, CUS02, CUS03 or CUS04').addOptions([1, 2, 3, 4].map(n => ({ label: `2K27 CUS${String(n).padStart(2, '0')}`, value: String(n) }))))], allowedMentions: { parse: [] } });
+                return;
+            }
+            if (id === 'startclass') {
+                await validateCoach(guild, leagueId, interaction.user.id);
+                const classNumber = Number(interaction.values?.[0]);
+                if (!Number.isInteger(classNumber) || classNumber < 1 || classNumber > 4) throw Error('Choose draft class CUS01 through CUS04.');
+                await simulations.classProjection(leagueId, classNumber);
+                await serial(key(leagueId, `host:${interaction.user.id}`), async () => { const m = live.create(leagueId, interaction.user.id, guild.id, classNumber); await serial(key(leagueId, m.id), () => pump(guild, leagueId, m.id)); const current = live.get(leagueId, m.id); await interaction.editReply({ content: `Your private Live Mock is ready: <#${current.threadId}>`, embeds: [], components: [] }); });
                 return;
             }
             await serial(key(leagueId, id), async () => {
                 let m = live.get(leagueId, id), a = actor(interaction);
                 if (action === 'base') {
-                    const input = simulations.inputFor(leagueId), generated = live.baseOrder(leagueId), card = lotteryEmbed(input, generated.order, 0).setTitle('📋 Base Draft Order · Before Lottery');
+                    const input = simulations.inputFor(leagueId, m.classNumber), generated = live.baseOrder(leagueId, m.classNumber), card = lotteryEmbed(input, generated.order, 0).setTitle('📋 Base Draft Order · Before Lottery');
                     card.setDescription(`**Current standings · No lottery draw**\nOriginal team → current owner\n\n${generated.order.map(s => `**#${s.pickNumber}** ${ownerIcon(input, s)} **${ownership(input, s)}**`).join('\n')}`);
                     const controls = ['SETUP', 'LOTTERY_READY'].includes(m.status) && (a.id === m.hostUserId || a.staff) ? [row(button(`mock:${id}:usebase:${m.lotteryRuns}`, 'USE THIS ORDER', ButtonStyle.Secondary), button(`mock:${id}:startbase:${m.lotteryRuns}`, 'START DRAFT', ButtonStyle.Success))] : [];
                     await interaction.editReply({ embeds: [card], components: controls, allowedMentions: { parse: [] } }); return;
@@ -340,6 +352,7 @@ function createDiscordMockDraft({ repository, simulations, live, client = null }
                     m = live.start(leagueId, id, a);
                 } else if (action === 'usebase') { m = live.useBaseOrder(leagueId, id, a, pickValue); } else if (action === 'lock') { if (m.lotteryRuns !== Number(pickValue)) throw Error('This lottery order was replaced. Use the latest controls.'); m = live.lock(leagueId, id, a); }
                 else if (action === 'begin') m = live.start(leagueId, id, a);
+                else if (action === 'solo') m = live.setSoloControl(leagueId, id, a, pickValue === 'on');
                 else if (action === 'pause') m = live.pause(leagueId, id, a);
                 else if (action === 'resume') m = live.resume(leagueId, id, a);
                 else if (action === 'leave') m = live.setAvailable(leagueId, id, interaction.user.id, false);
@@ -360,9 +373,9 @@ function createDiscordMockDraft({ repository, simulations, live, client = null }
                     // Recheck after queued Discord work, immediately before atomic commit.
                     await validateCoach(guild, leagueId, interaction.user.id);
                     const p = m.input.prospects.find(p => p.board_number === Number(token));
-                    m = live.commit(leagueId, id, { expectedPick: Number(pickValue), userId: interaction.user.id, prospectId: p?.prospectId });
+                    m = live.commit(leagueId, id, { expectedPick: Number(pickValue), userId: interaction.user.id, staff: canManageLeague(interaction), prospectId: p?.prospectId });
                 } else throw Error('Unknown mock control.');
-                await interaction.editReply({ content: action === 'confirm' ? 'Selection confirmed and saved.' : 'Mock updated.', components: [], embeds: [] });
+                await interaction.editReply(['lottery', 'usebase'].includes(action) ? currentOrderPayload(m) : { content: action === 'confirm' ? 'Selection confirmed and saved.' : 'Mock updated.', components: [], embeds: [] });
                 await pump(guild, leagueId, id);
             });
         } catch (error) {

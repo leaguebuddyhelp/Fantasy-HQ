@@ -51,6 +51,14 @@ During preseason:
 
 The regular season supports game submissions, official standings, and confirmed advancement through Week 15. Playoffs and the postseason workflow are not implemented.
 
+## Player Upgrades
+
+Run `/league setup` → **Create / repair channels** to create the read-only `lb-player-upgrades` ledger and its single pinned **REQUEST UPGRADE** entry. Coaches use `/upgrades` for private balances, player eligibility, and their current-season history. Only configured Commish or Assistant Commish roles can approve or reject ledger requests.
+
+One game-earned upgrade is awarded after each four qualifying games under the current coach tenure. Only finalized two-coach `TEAM_SIDES` box scores with at least one non-DNP player for the team count; staff-submitted games and decisions/sims do not. Normal upgrades record the coach's 1–5 point allocation without storing individual 2K ratings. Each player can complete two upgrades per season; each team can complete one Special after its current coach reaches four qualifying games.
+
+Upgrade state is stored beside the existing league JSON in `player-upgrades.json`; player OVR, archetype, and Strength Training weight changes update the existing permanent player record. Trade Value continues to be calculated by the existing valuation service. Run `npm run deploy:commands` and restart the bot to enable `/upgrades` and its interaction handlers.
+
 ## Regular-Season Trades
 
 Run `/league setup` and choose **Create / repair channels**. Setup creates or updates one pinned **Build a Trade** message in Submit Trade and one pinned Trade Counts embed; their message IDs are stored under `settings.discordPins`. Channel IDs continue to use `settings.discordChannels`. Coaches use the pinned button; there is no trade slash command or separate test mode. The existing league Test Mode enables commissioner simulation.
@@ -199,3 +207,5 @@ Replace placeholders with existing league team IDs and record every known origin
 After pick 30, the bot persists the complete recap and supported awards, attempts recap DMs to every invited participant, records closed-DM failures independently, and deletes the private thread. Failed cleanup retries with backoff. Restart recovery restores active/paused deadlines, unsent reactions, recap pages and pending cleanup. Run one Discord bot process per guild; persisted selection locks also protect backend commits across processes, while Discord message/thread operations are serialized within the bot process.
 
 See [MOCK-DRAFT-TESTING.md](MOCK-DRAFT-TESTING.md) for the exact live test checklist and remaining data assumptions.
+
+Player Trade Value adds an OVR tier premium to the nonlinear base: 85–89 OVR ×1.25, 90–94 ×1.60, and 95–99 ×2.10. These are exclusive tiers, combined with a separate prime-age premium: ages 24–29 ×1.25, ages 23/30 ×1.18, ages 22/31 ×1.10, and age 32 ×1.05. Existing age/development, positional size, wingspan, versatility, and experience factors remain part of the calculation. League age follows the league season rather than the real-world clock. The formula applies to all players without name-based overrides; submitted trade versions retain their frozen valuations.

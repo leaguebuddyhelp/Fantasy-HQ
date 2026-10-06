@@ -59,6 +59,22 @@ function ageMultiplier(age) {
     return Math.max(0.68, 0.79 - (age - 33) * 0.025);
 }
 
+function overallTierMultiplier(overall) {
+    if (overall >= 95) return 2.1;
+    if (overall >= 90) return 1.6;
+    if (overall >= 85) return 1.25;
+    return 1;
+}
+
+function primeAgeMultiplier(age) {
+    if (age == null) return 1;
+    if (age >= 24 && age <= 29) return 1.25;
+    if (age === 23 || age === 30) return 1.18;
+    if (age === 22 || age === 31) return 1.1;
+    if (age === 32) return 1.05;
+    return 1;
+}
+
 function evaluatePlayerTradeValue(player = {}, seasonNumber = 1) {
     const overall = Number(player.overall);
     const safeOverall = Number.isFinite(overall) ? Math.max(0, Math.min(99, overall)) : 0;
@@ -78,11 +94,13 @@ function evaluatePlayerTradeValue(player = {}, seasonNumber = 1) {
     const archetypeModifier = /rim protector|defensive anchor|two-way/.test(archetype) && ["PF", "C"].includes(position) ? 1.01 : 1;
     const contractModifier = 1;
     const overallBase = 1 + 1100 * (safeOverall / 99) ** 4.5;
-    const unrounded = overallBase * ageMultiplier(age) * heightModifier * wingspanModifier * versatilityModifier * experienceModifier * archetypeModifier * contractModifier;
+    const overallTier = overallTierMultiplier(safeOverall);
+    const primeAge = primeAgeMultiplier(age);
+    const unrounded = overallBase * overallTier * ageMultiplier(age) * primeAge * heightModifier * wingspanModifier * versatilityModifier * experienceModifier * archetypeModifier * contractModifier;
     return {
         value: Math.max(1, Math.round(unrounded)),
         age,
-        components: { overallBase, ageMultiplier: ageMultiplier(age), heightModifier, wingspanModifier, versatilityModifier, experienceModifier, archetypeModifier, contractModifier },
+        components: { overallBase, overallTierMultiplier: overallTier, ageMultiplier: ageMultiplier(age), primeAgeMultiplier: primeAge, heightModifier, wingspanModifier, versatilityModifier, experienceModifier, archetypeModifier, contractModifier },
     };
 }
 

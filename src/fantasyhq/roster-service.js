@@ -24,6 +24,13 @@ const ROSTER_COMPARISON_FIELDS = [
 function createRosterService(options = {}) {
   const repository = options.repository || createFantasyHQRepository(options);
   const sourceRosterLoader = options.sourceRosterLoader || loadTeamRoster;
+  const onRosterMovement = options.onRosterMovement || null;
+
+  function notifyRosterMovement(event) {
+    if (!onRosterMovement) return;
+    try { Promise.resolve(onRosterMovement(event)).catch(error => console.error("Upgrade request invalidation after roster change failed:", error.message)); }
+    catch (error) { console.error("Upgrade request invalidation after roster change failed:", error.message); }
+  }
 
   function currentRosterEntries(leagueId, seasonId, teamId = null) {
     const players = new Map(repository.loadPlayers(leagueId).map((player) => [player.playerId, player]));
@@ -47,6 +54,7 @@ function createRosterService(options = {}) {
     membership.teamId = toTeamId;
     membership.updatedAt = new Date().toISOString();
     repository.saveRosterMemberships(leagueId, memberships);
+    if (previousTeamId !== toTeamId) notifyRosterMovement({ leagueId, seasonId: String(seasonId), playerIds: [playerId], reason: "PLAYER_NO_LONGER_ON_ROSTER" });
     repository.appendAuditLog(leagueId, {
       action: "roster.player.moved",
       userId: String(actingUserId || "system"),
@@ -75,6 +83,7 @@ function createRosterService(options = {}) {
     membership.endedReason = "ADMIN_REMOVAL";
     membership.updatedAt = membership.endedAt;
     repository.saveRosterMemberships(leagueId, memberships);
+    notifyRosterMovement({ leagueId, seasonId: String(seasonId), playerIds: [playerId], reason: "PLAYER_NO_LONGER_ON_ROSTER" });
     repository.appendAuditLog(leagueId, {
       action: "roster.player.removed",
       userId: String(actingUserId || "system"),

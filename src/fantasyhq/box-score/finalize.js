@@ -1,5 +1,5 @@
 // Runs inside the game record's serialized atomic update: result + stats commit together.
-function finalizeValidatedSubmission(record, extractionId) {
+function finalizeValidatedSubmission(record, extractionId, { testMode = false, owners = [] } = {}) {
   const extraction=record.extractions.find(e=>e.extractionId===extractionId);
   const submission=record.submissions.find(s=>s.submissionId===extraction?.submissionId);
   if(record.game.finalizedAt) {
@@ -13,7 +13,11 @@ function finalizeValidatedSubmission(record, extractionId) {
   const staff=submission.mode==='STAFF_BOTH' && submission.staffAuthorizedBy===submission.submittingUserId && !!submission.staffAuthorizedBy;
   if(submission.mode==='STAFF_BOTH'&&!staff)throw new Error('Missing staff authorization record.');
   if(staff && (media.length!==2||media.some(m=>m.uploadedBy!==submission.staffAuthorizedBy)))throw new Error('Both screenshots must come from the authorized staff submitter.');
-  if(!staff && (media.length!==2 || new Set(media.map(m=>m.teamId)).size!==2 || new Set(media.map(m=>m.uploadedBy)).size!==2)) throw new Error('Each coach must submit their own team’s box score.');
+  const solo = testMode === true && !!submission.soloTestAuthorizedBy && submission.mode === 'TEAM_SIDES'
+    && media.every(m => m.uploadedBy === submission.soloTestAuthorizedBy && submission.participants?.[m.teamId] === m.uploadedBy
+      && !owners.some(o => o.teamId === m.teamId && o.userId !== m.uploadedBy));
+  if(submission.soloTestAuthorizedBy && !solo) throw Error('Solo test authorization is no longer valid.');
+  if(!staff && (media.length!==2 || new Set(media.map(m=>m.teamId)).size!==2 || (new Set(media.map(m=>m.uploadedBy)).size!==2 && !solo))) throw new Error('Each coach must submit their own team’s box score.');
   const teamIds=[record.game.team1Id,record.game.team2Id];
   if(sides.length!==2 || teamIds.some(id=>!sides.some(s=>s.teamId===id)))throw new Error('Scheduled teams do not match.');
   const scores=Object.fromEntries(sides.map(s=>[s.teamId,s.totals.PTS]));
@@ -34,6 +38,7 @@ function finalizeValidatedSubmission(record, extractionId) {
   record.dnpPlayers=dnpPlayers;
   record.game.result={submissionId:submission.submissionId,extractionId,scores,
     winnerTeamId:scores[teamIds[0]]>scores[teamIds[1]]?teamIds[0]:teamIds[1]};
+  if(solo) record.game.soloTest = { authorizedBy: submission.soloTestAuthorizedBy };
   record.game.status='FINAL';record.game.finalizedAt=new Date().toISOString();record.game.locked=true;
   submission.status='FINAL';
 }

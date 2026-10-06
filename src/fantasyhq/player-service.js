@@ -46,6 +46,13 @@ function validatePlayerPatch(patch = {}) {
 
 function createPlayerService(options = {}) {
   const repository = options.repository || createFantasyHQRepository(options);
+  const onRosterMovement = options.onRosterMovement || null;
+
+  function notifyRosterMovement(event) {
+    if (!onRosterMovement) return;
+    try { Promise.resolve(onRosterMovement(event)).catch(error => console.error("Upgrade request invalidation after player change failed:", error.message)); }
+    catch (error) { console.error("Upgrade request invalidation after player change failed:", error.message); }
+  }
 
   function playerTeamIndex(leagueId, seasonId) {
     const memberships = activeMemberships(repository.loadRosterMemberships(leagueId), seasonId);
@@ -110,6 +117,9 @@ function createPlayerService(options = {}) {
 
     const updated = getPlayer(leagueId, context.seasonId, playerId);
     const changes = diffObject(current, updated, EDITABLE_PLAYER_FIELDS);
+    if (activeMembership && current.teamId !== updated.teamId && onRosterMovement) {
+      notifyRosterMovement({ leagueId, seasonId: context.seasonId, playerIds: [playerId], reason: "PLAYER_NO_LONGER_ON_ROSTER" });
+    }
     repository.appendAuditLog(leagueId, {
       action: "player.updated",
       userId: String(actingUserId || context.league.commissionerUserId || "system"),

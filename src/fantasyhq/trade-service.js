@@ -12,6 +12,7 @@ function createTradeService(options = {}) {
     const repository = options.repository || createFantasyHQRepository(options);
     const standingsService = options.standingsService || createStandingsService({ repository, ...(options.submissions ? { submissions: options.submissions } : {}) });
     const now = options.now || (() => Date.now());
+    const onPlayersMoved = options.onPlayersMoved || null;
 
     function exclusive(leagueId, work) {
         const key = `${repository.dataRoot}:${leagueId}`;
@@ -252,7 +253,7 @@ function createTradeService(options = {}) {
         const preview = thisPreview(leagueId, trade);
         if (!preview.valid) throw new Error(preview.errors.join("\n"));
         const ownersByTeam = new Map(state.owners.map(owner => [owner.teamId, owner]));
-        if (!state.settings.testMode && ownersByTeam.get(trade.initiatingTeamId)?.userId !== String(actorUserId)) throw new Error("Only the assigned coach for the initiating team may submit this proposal.");
+        if ((!state.settings.testMode || ownersByTeam.has(trade.initiatingTeamId)) && ownersByTeam.get(trade.initiatingTeamId)?.userId !== String(actorUserId)) throw new Error("Only the assigned coach for the initiating team may submit this proposal.");
         if (!state.settings.testMode && trade.participatingTeams.some(teamId => !ownersByTeam.get(teamId)?.userId)) throw new Error("Every participating team needs an assigned coach before submission.");
         const nowIso = timestamp();
         const gmDecisions = [{ teamId: trade.initiatingTeamId, userId: String(actorUserId), decision: "APPROVE", timestamp: nowIso, implicit: true }];
@@ -298,7 +299,7 @@ function createTradeService(options = {}) {
     function responseTeam(state, trade, actorTeamId, actorUserId) {
         if (!trade.participatingTeams.includes(actorTeamId)) throw new Error("You are not a coach for a team in this trade.");
         const owner = state.owners.find(entry => entry.teamId === actorTeamId);
-        if (!state.settings.testMode && owner?.userId !== String(actorUserId)) throw new Error("Only the current team coach may respond to this trade.");
+        if ((!state.settings.testMode || owner) && owner?.userId !== String(actorUserId)) throw new Error("Only the current team coach may respond to this trade.");
         return owner;
     }
 
@@ -490,6 +491,10 @@ function createTradeService(options = {}) {
         });
         const auditEntry = { action: "trade.completed", userId: String(actorUserId), leagueId, seasonId: trade.seasonId, tradeId: trade.tradeId, version: trade.version, timestamp: completedAt, metadata: { teams: trade.participatingTeams, affectedPlayerIds: [...movedPlayerIds], affectedPickIds: [...movedPickIds], processingId: trade.processingId, invalidatedTrades: invalidatedTrades.map(entry => entry.tradeId) } };
         repository.commitTradeTransaction({ leagueId, players: playerRows, rosterMemberships: memberships, draftPicks: picks, trades: updatedTrades, auditEntry });
+        if (movedPlayerIds.size && onPlayersMoved) {
+            try { Promise.resolve(onPlayersMoved({ leagueId, seasonId: trade.seasonId, playerIds: [...movedPlayerIds], reason: "PLAYER_TRADED" })).catch(error => console.error("Upgrade request invalidation after trade failed:", error.message)); }
+            catch (error) { console.error("Upgrade request invalidation after trade failed:", error.message); }
+        }
         return { status: "COMPLETED", processingId: trade.processingId, invalidatedTrades };
     }
 

@@ -21,7 +21,7 @@ test("player reads and existing Discord cards expose season age and live trade v
     assert.equal(player.age, 22);
     assert.ok(player.tradeValue > 0);
     const card = nbaPlayerCard(player, "Test League").embeds[0].data;
-    assert.ok(card.fields.some(field => field.name === "League" && field.value.includes(`Trade Value ${player.tradeValue}`)));
+    assert.ok(card.fields.some(field => field.name === "League" && field.value.includes(`Trade Value ${player.tradeValue.toLocaleString("en-US")}`)));
     repository.saveDraftPicks("league", [{ pickId: "pick_2027_1_bos", draftYear: 2027, round: 1, originalTeamId: "bos", currentOwnerTeamId: "bos", protection: "TOP_5", ownershipHistory: [{ teamId: "bos", action: "CREATED" }] }]);
     const team = createTeamService({ repository }).getTeam("league", "1", "bos");
     assert.equal(team.roster[0].player.age, player.age);

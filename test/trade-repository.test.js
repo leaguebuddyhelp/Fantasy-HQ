@@ -33,3 +33,26 @@ test("trade JSON persistence and interrupted multi-file transaction recovery", t
     assert.equal(repository.loadAuditLog("league")[0].action, "trade.completed");
     assert.equal(fs.existsSync(journal), false);
 });
+
+test("player upgrade transaction recovers player and upgrade state together", t => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "lb-upgrade-repository-"));
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    const repository = createFantasyHQRepository({ dataRoot: root });
+    repository.saveLeague("league", { currentSeasonId: "1" });
+    const paths = repository.buildLeaguePaths(root, "league");
+    fs.mkdirSync(paths.leagueRoot, { recursive: true });
+    const journal = path.join(paths.leagueRoot, "player-upgrade-transaction.json");
+    fs.writeFileSync(journal, JSON.stringify({
+        leagueId: "league", files: [
+            { name: "players.json", value: [{ playerId: "p1", overall: 86, weightLbs: 224 }] },
+            { name: "player-upgrades.json", value: { requests: [{ requestId: "request-1", status: "COMPLETED" }] } },
+            { name: "audit-log.json", value: [{ action: "player.upgrade.completed" }] },
+        ],
+    }));
+
+    const recovered = createFantasyHQRepository({ dataRoot: root });
+    assert.deepEqual(recovered.loadPlayers("league"), [{ playerId: "p1", overall: 86, weightLbs: 224 }]);
+    assert.deepEqual(recovered.loadPlayerUpgradeState("league"), { requests: [{ requestId: "request-1", status: "COMPLETED" }] });
+    assert.equal(recovered.loadAuditLog("league")[0].action, "player.upgrade.completed");
+    assert.equal(fs.existsSync(journal), false);
+});

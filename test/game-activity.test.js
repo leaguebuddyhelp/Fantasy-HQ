@@ -59,3 +59,69 @@ test('late restart sends only current alert and failed sends are not repeatedly 
     const f = fixture(t); f.setHours(49); await f.service.tick(f.client); assert.equal(f.sent.length, 1); assert.equal(f.sent[0].embeds[0].toJSON().title, 'DEADLINE REACHED'); assert.deepEqual(f.sent[0].allowedMentions.users, []);
     const failed = fixture(t); let attempts = 0; failed.channel.send = async () => { attempts++; throw Error('Discord unavailable'); }; failed.setHours(24); await failed.service.tick(failed.client); await createGameActivityService(failed.options).tick(failed.client); assert.equal(attempts, 1); assert.equal(failed.submissions.load(failed.game.gameId).game.activityReminders['24h'].error, 'Discord unavailable');
 });
+
+
+test('existing active matchup cards gain solo controls without creating or replacing threads', async t => {
+    const f = fixture(t);
+    f.repository.saveSettings('test', { testMode: true });
+    await f.submissions.setMessage(f.game.gameId, 'existing-card');
+    await f.submissions.mutate(f.game.gameId, r => { r.game.inGameDate = '10/24/2027'; });
+    await f.service.tick(f.client);
+    assert.equal(f.submissions.load(f.game.gameId).game.testMode, true);
+    const ids = f.edits.at(-1).components.flatMap(r => r.components.map(c => c.data.custom_id));
+    assert.equal(ids.filter(id => id.startsWith('gametest:')).length, 2);
+    assert.equal(f.sent.length, 0);
+    f.repository.saveSettings('test', { testMode: false, requireAllOwners: false });
+    await f.service.tick(f.client);
+    assert.equal(f.edits.at(-1).components.flatMap(r => r.components).some(c => c.data.custom_id.startsWith('gametest:')), false);
+});
+
+
+test('official approval publishes one green score notice across concurrent calls and restarts', async t => {
+    const f = fixture(t), { createDiscordGameApprovals } = require('../src/fantasyhq/discord-game-approvals');
+    await f.submissions.setMessage(f.game.gameId, 'matchup-card');
+    await f.submissions.mutate(f.game.gameId, r => {
+        Object.assign(r.game, { status: 'FINAL', finalizedAt: new Date().toISOString(), inGameDate: 'Nov 18', result: { scores: { a: 100, b: 95 } } });
+    });
+    f.channel.send = async payload => { f.sent.push(payload); return { id: 'approval-message' }; };
+    const first = createDiscordGameApprovals({ submissions: f.submissions });
+    const second = createDiscordGameApprovals({ submissions: f.submissions });
+    await assert.rejects(first.publish({ ...f.channel, id: 'wrong-thread' }, f.game.gameId), /private thread/);
+    await Promise.all([first.publish(f.channel, f.game.gameId), second.publish(f.channel, f.game.gameId)]);
+    assert.equal(f.sent.length, 1);
+    const embed = f.sent[0].embeds[0].toJSON();
+    assert.equal(embed.title, '✅ GAME APPROVED');
+    assert.equal(embed.color, 0x35a76f);
+    assert.match(embed.description, /100/); assert.match(embed.description, /95/);
+    assert.match(embed.footer.text, /Automatically approved/);
+    assert.equal(f.sent[0].enforceNonce, true);
+    assert.match(f.edits.at(-1).embeds[0].toJSON().title, /GAME APPROVED/);
+    assert.equal(f.submissions.load(f.game.gameId).game.approvalNotice.messageId, 'approval-message');
+    await createDiscordGameApprovals({ submissions: f.submissions }).publish(f.channel, f.game.gameId);
+    assert.equal(f.sent.length, 1);
+});
+
+test('website-reviewed finals notify completed-week threads and failed sends retry without changing results', async t => {
+    const f = fixture(t);
+    const schedule = f.repository.loadSchedule('test', '1'); schedule.weeks[0].status = 'COMPLETED'; f.repository.saveSchedule(schedule);
+    await f.submissions.setMessage(f.game.gameId, 'card');
+    await f.submissions.mutate(f.game.gameId, r => Object.assign(r.game, { status: 'FINAL', finalizedAt: new Date().toISOString(), result: { scores: { a: 80, b: 90 } }, approval: { operator: 'Commissioner Test' } }));
+    let fail = true;
+    f.channel.send = async payload => { if (fail) throw Error('Temporary Discord failure'); f.sent.push(payload); return { id: 'review-approved' }; };
+    await f.service.tick(f.client);
+    assert.equal(f.submissions.load(f.game.gameId).game.approvalNotice, undefined);
+    assert.equal(f.submissions.load(f.game.gameId).game.status, 'FINAL');
+    fail = false; await f.service.tick(f.client);
+    assert.equal(f.sent.length, 1);
+    assert.match(f.sent[0].embeds[0].toJSON().footer.text, /commissioner review by Commissioner Test/);
+    await f.service.tick(f.client); assert.equal(f.sent.length, 1);
+});
+
+test('unvalidated submissions do not publish an approval notice', async t => {
+    const f = fixture(t), { createDiscordGameApprovals } = require('../src/fantasyhq/discord-game-approvals');
+    const approvals = createDiscordGameApprovals({ submissions: f.submissions });
+    await approvals.publish(f.channel, f.game.gameId);
+    await f.submissions.mutate(f.game.gameId, r => { r.game.status = 'FINAL'; });
+    await approvals.publish(f.channel, f.game.gameId);
+    assert.equal(f.sent.length, 0);
+});

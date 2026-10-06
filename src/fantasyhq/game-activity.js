@@ -13,6 +13,7 @@ function activityView(record,now=Date.now()) {
 function activityLines(view){return view.teams.map(t=>`**${t.name}:** ${t.participated?`Active <t:${Math.floor(Date.parse(t.lastActivityAt)/1000)}:R>`:'No activity yet ⚠'}`).join('\n');}
 function createGameActivityService({submissions=require('./game-submissions').createGameSubmissionService(),now=()=>Date.now(),logger=console}={}){
  let running;
+ const approvals = require("./discord-game-approvals").createDiscordGameApprovals({ submissions });
  async function recordActivity({guildId,threadId,userId,bot=false,privateThread,eventId}){
   if(bot||!privateThread)return false;
   const record=submissions.findThread(guildId,threadId);if(!record)return false;
@@ -29,7 +30,7 @@ function createGameActivityService({submissions=require('./game-submissions').cr
  }
  async function refresh(channel,record,force=false){
   if(!record.game.discordMessageId)return;
-  const view=activityView(record,now()),signature=JSON.stringify(["date-gate-v1",record.game.inGameDate,view.status,view.submissionStatus,view.screenshots,view.pastDeadline,view.teams.map(t=>t.participated)]);
+  const view=activityView(record,now()),signature=JSON.stringify(["approved-game-v4",record.game.testMode,record.game.matchupType,record.game.inGameDate,view.status,view.submissionStatus,view.screenshots,view.pastDeadline,view.teams.map(t=>t.participated)]);
   const card=record.game.activityCard;
   if(!force&&card?.signature===signature)return;
   try{
@@ -51,12 +52,19 @@ function createGameActivityService({submissions=require('./game-submissions').cr
  }
  function tick(client){if(running)return running;running=run(client).finally(()=>running=null);return running;}
  async function run(client){for(const saved of submissions.records()){
-  const game=saved.game;if(!game.discordThreadId)continue;
+  const game=saved.game;if(!game.discordThreadId || game.discordThreadCleanedAt)continue;
   try{
+   if (game.status === 'FINAL' && game.finalizedAt && game.result?.scores) {
+    const guild = await client.guilds.fetch(game.guildId), channel = await guild.channels.fetch(game.discordThreadId);
+    if (channel?.type === ChannelType.PrivateThread) { await approvals.publish(channel, game.gameId); await refresh(channel, submissions.load(game.gameId)); }
+    continue;
+   }
    const schedule=submissions.repository.loadSchedule(game.leagueId,game.seasonId),week=schedule.weeks.find(w=>w.weekId===game.weekId);
    if(week?.status!=='ACTIVE')continue;
    const deadline=Date.parse(week.deadlineAt);if(!Number.isFinite(deadline))continue;
    if(game.deadlineAt!==week.deadlineAt || game.startedAt!==week.startedAt)await submissions.mutate(game.gameId,r=>{r.game.startedAt=week.startedAt;r.game.deadlineAt=week.deadlineAt;});
+   const matchup = require("./game-decisions").cpuState(submissions.repository, game);
+   if (game.testMode !== matchup.testMode || game.matchupType !== matchup.matchupType || JSON.stringify(game.cpuTeamIds) !== JSON.stringify(matchup.cpuTeamIds)) await submissions.mutate(game.gameId, r => Object.assign(r.game, matchup));
    const record=submissions.load(game.gameId),view=activityView(record,now());
    const guild=await client.guilds.fetch(game.guildId),channel=await guild.channels.fetch(game.discordThreadId);
    if(!channel||channel.type!==ChannelType.PrivateThread)continue;

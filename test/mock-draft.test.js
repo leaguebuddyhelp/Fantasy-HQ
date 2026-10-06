@@ -19,13 +19,13 @@ function inputFixture() {
 }
 let saved;
 test.before(async () => { saved = await simulate(inputFixture(), { seed: 'suite-baseline' }); });
-function fixture(t, { clock = Date.now() } = {}) {
+function fixture(t, { clock = Date.now(), alternateClasses = false } = {}) {
     const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lb-mock-')); t.after(() => fs.rmSync(dataRoot, { recursive: true, force: true }));
     const repository = createFantasyHQRepository({ dataRoot }), input = inputFixture();
     repository.saveLeague('l', { currentSeasonId: '1', seasonNumber: 1, currentPhase: 'REGULAR_SEASON', currentWeek: 2, guildId: 'guild' }); repository.saveTeams('l', input.teams); repository.saveSettings('l', { testMode: true, discordChannels: { scouting: 'hub' } }); repository.saveGuildLeagueBinding('guild', { leagueId: 'l', seasonId: '1' }); repository.saveDraftPicks('l', input.picks);
     repository.saveOwners('l', input.teams.map((t, i) => ({ teamId: t.teamId, userId: `u${i}` })));
     atomicWrite(path.join(repository.buildLeaguePaths(dataRoot, 'l').leagueRoot, 'role-ownership.json'), { roleIds: Object.fromEntries(input.teams.map((t, i) => [t.teamId, `r${i}`])), conflicts: [] });
-    const scoutingService = { boardForContext: () => ({ file: 'class.json', prospects: input.prospects }) }, standingsService = { getStandings: () => input.standings }, rosterService = { currentRosterEntries: () => [] };
+    const scoutingService = { boardForContext: c => ({ file: alternateClasses && c.league.seasonNumber > 1 ? `class${c.league.seasonNumber}.json` : 'class.json', prospects: input.prospects.map(p => alternateClasses && c.league.seasonNumber > 1 ? { ...p, name: `CUS${c.league.seasonNumber} ${p.name}` } : p) }) }, standingsService = { getStandings: () => input.standings }, rosterService = { currentRosterEntries: () => [] };
     const simulations = createMockSimulationService({ repository, scoutingService, standingsService, rosterService });
     const snapshot = structuredClone(saved); snapshot.input = simulations.inputFor('l'); snapshot.draftClassId = 'class'; snapshot.metadata.processedEvents = [];
     const root = rootFor(repository, 'l'); atomicWrite(path.join(root, 'snapshots', `${snapshot.id}.json`), snapshot); atomicWrite(path.join(root, 'active.json'), { id: snapshot.id });
@@ -52,7 +52,8 @@ function discordFixture(f) {
     client.guilds.cache.set('guild', guild);
     const workflow = createDiscordMockDraft({ repository: f.repository, simulations: f.simulations, live: f.live, client });
     function interaction(customId, userId = 'u0', channelId = 'hub') { return { customId, guildId: 'guild', guild, channelId, user: { id: userId }, replies: [], deferReply: async function(p) { this.deferred = true; this.deferPayload = p; }, editReply: async function(p) { this.replies.push(p); }, followUp: async function(p) { this.replies.push(p); }, reply: async function(p) { this.replied = true; this.replies.push(p); }, showModal: async function(m) { this.modal = m; }, memberPermissions: { has: () => false } }; }
-    return { workflow, interaction, guild, channels, client, dmChannels, failDM, deleted: () => deleted, failDelete: value => { failDelete = value; } };
+    const start = async () => { const i = interaction('mock:startclass'); i.values = ['1']; await workflow.handle(i); return i; };
+    return { start, workflow, interaction, guild, channels, client, dmChannels, failDM, deleted: () => deleted, failDelete: value => { failDelete = value; } };
 }
 
 test('1,000 valid first rounds, realistic variation and correct all-prospect aggregates', () => {
@@ -105,29 +106,29 @@ test('confirm and timeout races yield one final selection, no duplicates or repi
 test('human confirmation consumes prospect; search includes all remaining prospects', t => { const f = fixture(t), m = f.ready('u0', f.repository.loadOwners('l').map(o => o.userId)), active = f.live.start('l', m.id, { id: 'u0' }); assert.equal(f.live.available(active, 'Prospect 70')[0].board_number, 70); const p = f.live.available(active)[0], userId = f.live.controller(active).userId; const next = f.live.commit('l', m.id, { expectedPick: 1, userId, prospectId: p.prospectId }); assert.equal(next.selections[0].selectedByType, 'HUMAN'); assert.equal(f.live.available(next, p.name).some(a => a.prospectId === p.prospectId), false); assert.throws(() => f.live.commit('l', m.id, { expectedPick: 1, userId, prospectId: p.prospectId }), /no longer/); });
 test('pause freezes clock, rejects unauthorized user and restart restores remaining time', t => { const f = fixture(t), m = f.ready('u0', f.repository.loadOwners('l').map(o => o.userId)), active = f.live.start('l', m.id, { id: 'u0' }); f.time(f.now() + 45000); assert.throws(() => f.live.pause('l', m.id, { id: 'u1' }), /host/); const paused = f.live.pause('l', m.id, { id: 'u0' }); assert.equal(paused.remainingMs, 75000); f.time(f.now() + 600000); assert.throws(() => f.live.commit('l', m.id, { expectedPick: 1, type: 'TIMEOUT_CPU' }), /no longer/); const recovered = createLiveMockService({ repository: f.repository, simulations: f.simulations, now: f.now }); assert.equal(recovered.get('l', m.id).status, 'PAUSED'); const resumed = recovered.resume('l', m.id, { id: 'u0' }); assert.equal(resumed.deadlineAt - f.now(), 75000); });
 test('every reaction has a valid grade, four sentences and a distinct opening; optional data is safe', () => { const input = inputFixture(), order = generateDraftOrder(input, { lottery: false }).order, selections = project(input, order, saved, seededRandom('reactions')), openings = new Set(); selections.forEach((s, i) => { const p = input.prospects.find(p => p.prospectId === s.prospectId), r = reaction(input, s, p, selections.slice(0, i), saved.prospectAggregates[p.prospectId]); assert.ok(GRADES.includes(r.grade)); assert.equal(r.analysis.match(/\.(?:\s|$)/g).length, 4); openings.add(r.analysis.split('. ')[0]); }); assert.equal(openings.size, 30); assert.doesNotThrow(() => reaction(input, order[0], { prospectId: 'unknown', name: 'Unknown', board_number: 60 }, [], null)); });
-test('pinned Hub entry is reused; start creates one private thread and no public picks', async t => { const f = fixture(t), d = discordFixture(f); await d.workflow.ensurePin(d.guild, 'l'); await d.workflow.ensurePin(d.guild, 'l'); assert.equal(d.channels.get('hub')._messages.size, 1); const a = d.interaction('mock:start'), b = d.interaction('mock:start'); await Promise.all([d.workflow.handle(a), d.workflow.handle(b)]); assert.equal(d.channels.size, 2); assert.equal(f.live.all('l').length, 1); assert.equal(a.deferPayload.flags, MessageFlags.Ephemeral); const m = f.live.all('l')[0]; assert.ok(d.channels.get(m.threadId)._members.has('u0')); });
+test('pinned Hub entry is reused; start creates one private thread and no public picks', async t => { const f = fixture(t), d = discordFixture(f); await d.workflow.ensurePin(d.guild, 'l'); await d.workflow.ensurePin(d.guild, 'l'); assert.equal(d.channels.get('hub')._messages.size, 1); const a = d.interaction('mock:startclass'), b = d.interaction('mock:startclass'); a.values = ['1']; b.values = ['1']; await Promise.all([d.workflow.handle(a), d.workflow.handle(b)]); assert.equal(d.channels.size, 2); assert.equal(f.live.all('l').length, 1); assert.equal(a.deferPayload.flags, MessageFlags.Ephemeral); const m = f.live.all('l')[0]; assert.ok(d.channels.get(m.threadId)._members.has('u0')); });
 test('/mockdraft stays ephemeral, contains all 30 current-owner picks and uses saved snapshot', async t => { const f = fixture(t), d = discordFixture(f), picks = f.repository.loadDraftPicks('l'); picks[14].currentOwnerTeamId = 't0'; f.repository.saveDraftPicks('l', picks); const interaction = d.interaction('unused'); interaction.deferred = true; await d.workflow.projection(interaction); assert.equal(interaction.replies.length, 1); assert.equal(interaction.replies[0].embeds.length, 1); const card = interaction.replies[0].embeds[0].toJSON(); const text = card.fields.map(f => f.value).join('\n'); assert.equal(text.match(/\*\*#\d+\*\*/g).length, 30); assert.match(card.title, /🏀/); assert.match(text, /🏀/); assert.ok(interaction.replies[0].embeds[0].length <= 6000); assert.ok(card.fields.every(f => f.value.length <= 1024)); assert.match(text, /T14 → T0/); assert.match(interaction.replies[0].embeds[0].toJSON().footer.text, /1,000/); assert.equal(d.channels.size, 1); const source = fs.readFileSync('src/index.js', 'utf8'); assert.match(source, /const privateReply = interaction.commandName === "mockdraft"/); });
-test('invite menu contains only configured coaches and supports all 30 via pages', async t => { const f = fixture(t), d = discordFixture(f); await d.workflow.handle(d.interaction('mock:start')); const m = f.live.all('l')[0]; for (const page of [0, 1]) { const i = d.interaction(`mock:${m.id}:invite:${page}`, 'u0', m.threadId); await d.workflow.handle(i); const select = i.replies[0].components[0].toJSON().components[0]; assert.ok(select.options.length <= 15); assert.ok(select.options.every(o => f.repository.loadOwners('l').some(c => c.userId === o.value))); assert.equal(select.type, 3); } });
-test('human UI top ten, modal search, preview and irrevocable confirmation', async t => { const f = fixture(t), d = discordFixture(f); await d.workflow.handle(d.interaction('mock:start')); const base = f.live.all('l')[0]; f.live.invite('l', base.id, { id: 'u0' }, f.repository.loadOwners('l').map(o => o.userId)); f.live.lottery('l', base.id, { id: 'u0' }); f.live.lock('l', base.id, { id: 'u0' }); let m = f.live.start('l', base.id, { id: 'u0' }); await d.workflow.pump(d.guild, 'l', m.id); m = f.live.get('l', m.id); const userId = f.live.controller(m).userId;
-    const available = d.interaction(`mock:${m.id}:available:1`, userId, m.threadId); await d.workflow.handle(available); assert.equal(available.replies[0].components[0].toJSON().components[0].options.length, 10);
+test('invite menu contains only configured coaches and supports all 30 via pages', async t => { const f = fixture(t), d = discordFixture(f); await d.start(); const m = f.live.all('l')[0]; for (const page of [0, 1]) { const i = d.interaction(`mock:${m.id}:invite:${page}`, 'u0', m.threadId); await d.workflow.handle(i); const select = i.replies[0].components[0].toJSON().components[0]; assert.ok(select.options.length <= 15); assert.ok(select.options.every(o => f.repository.loadOwners('l').some(c => c.userId === o.value))); assert.equal(select.type, 3); } });
+test('human UI top ten, modal search, preview and irrevocable confirmation', async t => { const f = fixture(t), d = discordFixture(f); await d.start(); const base = f.live.all('l')[0]; f.live.invite('l', base.id, { id: 'u0' }, f.repository.loadOwners('l').map(o => o.userId)); f.live.lottery('l', base.id, { id: 'u0' }); f.live.lock('l', base.id, { id: 'u0' }); let m = f.live.start('l', base.id, { id: 'u0' }); await d.workflow.pump(d.guild, 'l', m.id); m = f.live.get('l', m.id); const userId = f.live.controller(m).userId;
+    const available = d.interaction(`mock:${m.id}:available:1`, userId, m.threadId); await d.workflow.handle(available); assert.equal(available.replies[0].components[0].toJSON().components[0].options.length, 25); assert.equal(available.replies[0].embeds[0].data.description.match(/Board #/g).length, 10);
     const search = d.interaction(`mock:${m.id}:search:1`, userId, m.threadId); await d.workflow.handle(search); assert.ok(search.modal);
     const submit = d.interaction(`mock:${m.id}:searchsubmit:1`, userId, m.threadId); submit.fields = { getTextInputValue: () => 'Prospect 70' }; await d.workflow.handle(submit); assert.equal(submit.replies[0].components[0].toJSON().components[0].options[0].value, '70');
-    const preview = d.interaction(`mock:${m.id}:select:1`, userId, m.threadId); preview.values = ['1']; await d.workflow.handle(preview); const confirm = preview.replies[0].components[0].toJSON().components[0].custom_id; assert.match(confirm, /:confirm:1:1$/);
+    const preview = d.interaction(`mock:${m.id}:select:1`, userId, m.threadId); preview.values = ['25']; await d.workflow.handle(preview); const confirm = preview.replies[0].components[0].toJSON().components[0].custom_id; assert.match(confirm, /:confirm:1:25$/);
     await d.workflow.handle(d.interaction(confirm, userId, m.threadId)); assert.equal(f.live.get('l', m.id).selections.length, 1); await d.workflow.handle(d.interaction(confirm, userId, m.threadId)); assert.equal(f.live.get('l', m.id).selections.length, 1);
 });
-test('CPU immediately advances, completion preserves 30 picks, DMs fail independently and cleanup retries', async t => { const f = fixture(t), d = discordFixture(f); await d.workflow.handle(d.interaction('mock:start')); let m = f.live.all('l')[0]; f.live.invite('l', m.id, { id: 'u0' }, ['u1']); f.live.lottery('l', m.id, { id: 'u0' }); f.live.lock('l', m.id, { id: 'u0' }); f.live.setAvailable('l', m.id, 'u0', false); f.live.setAvailable('l', m.id, 'u1', false); f.live.start('l', m.id, { id: 'u0' }); d.failDM.add('u0'); d.failDelete(true); await d.workflow.pump(d.guild, 'l', m.id); m = f.live.get('l', m.id); assert.equal(m.selections.length, 30); assert.equal(m.status, 'CLEANUP_PENDING'); assert.equal(m.dmDelivery.u0.delivered, false); assert.equal(m.dmDelivery.u1.delivered, true); assert.equal(d.dmChannels.get('u1')._messages.size, 1); assert.equal(boardEmbeds(m.input, m.selections).length, 3); assert.ok(m.cleanup.error); d.failDelete(false); await d.workflow.pump(d.guild, 'l', m.id); m = f.live.get('l', m.id); assert.equal(m.status, 'CLEANED'); assert.equal(m.recap.selections.length, 30); assert.equal(d.dmChannels.get('u1')._messages.size, 1); assert.equal(d.deleted(), true); assert.equal(fs.existsSync(path.join(f.root, 'live.json')), true); });
-test('active deadline and CPU progress survive restart; paused pump cannot advance', async t => { const f = fixture(t), d = discordFixture(f); await d.workflow.handle(d.interaction('mock:start')); let m = f.live.all('l')[0]; f.live.invite('l', m.id, { id: 'u0' }, f.repository.loadOwners('l').map(o => o.userId)); f.live.lottery('l', m.id, { id: 'u0' }); f.live.lock('l', m.id, { id: 'u0' }); m = f.live.start('l', m.id, { id: 'u0' }); const deadline = m.deadlineAt; const recovered = createLiveMockService({ repository: f.repository, simulations: f.simulations }); assert.equal(recovered.get('l', m.id).deadlineAt, deadline); f.live.pause('l', m.id, { id: 'u0' }); await d.workflow.pump(d.guild, 'l', m.id); assert.equal(f.live.get('l', m.id).selections.length, 0); });
-test('outbox reconciliation prevents duplicate reactions after delivery-state loss', async t => { const f = fixture(t), d = discordFixture(f); await d.workflow.handle(d.interaction('mock:start')); let m = f.live.all('l')[0]; f.live.invite('l', m.id, { id: 'u0' }, f.repository.loadOwners('l').map(o => o.userId)); f.live.lottery('l', m.id, { id: 'u0' }); f.live.lock('l', m.id, { id: 'u0' }); m = f.live.start('l', m.id, { id: 'u0' }); f.live.commit('l', m.id, { expectedPick: 1, userId: f.live.controller(m).userId, prospectId: m.input.prospects[0].prospectId }); await d.workflow.pump(d.guild, 'l', m.id); const thread = d.channels.get(m.threadId), count = thread._messages.size; f.live.mutate('l', m.id, draft => { draft.delivery = {}; }); await d.workflow.pump(d.guild, 'l', m.id); assert.equal(thread._messages.size, count); });
+test('CPU immediately advances, completion preserves 30 picks, DMs fail independently and cleanup retries', async t => { const f = fixture(t), d = discordFixture(f); await d.start(); let m = f.live.all('l')[0]; f.live.invite('l', m.id, { id: 'u0' }, ['u1']); f.live.lottery('l', m.id, { id: 'u0' }); f.live.lock('l', m.id, { id: 'u0' }); f.live.setAvailable('l', m.id, 'u0', false); f.live.setAvailable('l', m.id, 'u1', false); f.live.start('l', m.id, { id: 'u0' }); d.failDM.add('u0'); d.failDelete(true); await d.workflow.pump(d.guild, 'l', m.id); m = f.live.get('l', m.id); assert.equal(m.selections.length, 30); assert.equal(m.status, 'CLEANUP_PENDING'); assert.equal(m.dmDelivery.u0.delivered, false); assert.equal(m.dmDelivery.u1.delivered, true); assert.equal(d.dmChannels.get('u1')._messages.size, 1); assert.equal(boardEmbeds(m.input, m.selections).length, 3); assert.ok(m.cleanup.error); d.failDelete(false); await d.workflow.pump(d.guild, 'l', m.id); m = f.live.get('l', m.id); assert.equal(m.status, 'CLEANED'); assert.equal(m.recap.selections.length, 30); assert.equal(d.dmChannels.get('u1')._messages.size, 1); assert.equal(d.deleted(), true); assert.equal(fs.existsSync(path.join(f.root, 'live.json')), true); });
+test('active deadline and CPU progress survive restart; paused pump cannot advance', async t => { const f = fixture(t), d = discordFixture(f); await d.start(); let m = f.live.all('l')[0]; f.live.invite('l', m.id, { id: 'u0' }, f.repository.loadOwners('l').map(o => o.userId)); f.live.lottery('l', m.id, { id: 'u0' }); f.live.lock('l', m.id, { id: 'u0' }); m = f.live.start('l', m.id, { id: 'u0' }); const deadline = m.deadlineAt; const recovered = createLiveMockService({ repository: f.repository, simulations: f.simulations }); assert.equal(recovered.get('l', m.id).deadlineAt, deadline); f.live.pause('l', m.id, { id: 'u0' }); await d.workflow.pump(d.guild, 'l', m.id); assert.equal(f.live.get('l', m.id).selections.length, 0); });
+test('outbox reconciliation prevents duplicate reactions after delivery-state loss', async t => { const f = fixture(t), d = discordFixture(f); await d.start(); let m = f.live.all('l')[0]; f.live.invite('l', m.id, { id: 'u0' }, f.repository.loadOwners('l').map(o => o.userId)); f.live.lottery('l', m.id, { id: 'u0' }); f.live.lock('l', m.id, { id: 'u0' }); m = f.live.start('l', m.id, { id: 'u0' }); f.live.commit('l', m.id, { expectedPick: 1, userId: f.live.controller(m).userId, prospectId: m.input.prospects[0].prospectId }); await d.workflow.pump(d.guild, 'l', m.id); const thread = d.channels.get(m.threadId), count = thread._messages.size; f.live.mutate('l', m.id, draft => { draft.delivery = {}; }); await d.workflow.pump(d.guild, 'l', m.id); assert.equal(thread._messages.size, count); });
 test('simulations refuse invalid aggregates and duplicate prospects', () => { const bad = structuredClone(saved); bad.simulations[0][1].prospectId = bad.simulations[0][0].prospectId; assert.throws(() => validateSnapshot(bad), /Invalid simulation/); const badAggregate = structuredClone(saved); badAggregate.prospectAggregates['class:1'].earliest = 30; assert.throws(() => validateSnapshot(badAggregate), /distribution/); });
 test('setup start reads snapshot without regenerating; missing current snapshot blocks start', t => { const f = fixture(t); f.simulations.refresh = () => { throw Error('Must never refresh during start'); }; assert.doesNotThrow(() => f.live.create('l', 'u0', 'guild')); fs.unlinkSync(path.join(f.root, 'active.json')); assert.throws(() => f.live.create('l', 'u1', 'guild'), /not ready/); });
 test('two duplicate confirms and CPU calls cannot complete one slot twice', async t => { const f = fixture(t), m = f.ready('u0', f.repository.loadOwners('l').map(o => o.userId)), active = f.live.start('l', m.id, { id: 'u0' }), args = { expectedPick: 1, userId: f.live.controller(active).userId, prospectId: active.input.prospects[0].prospectId }; const results = await Promise.allSettled([0, 1].map(() => Promise.resolve().then(() => f.live.commit('l', m.id, args)))); assert.equal(results.filter(r => r.status === 'fulfilled').length, 1); assert.equal(f.live.get('l', m.id).currentPick, 2); const allCPU = fixture(t), cpu = allCPU.ready(); allCPU.live.setAvailable('l', cpu.id, 'u0', false); allCPU.live.start('l', cpu.id, { id: 'u0' }); allCPU.live.commit('l', cpu.id, { expectedPick: 1, type: 'CPU' }); assert.throws(() => allCPU.live.commit('l', cpu.id, { expectedPick: 1, type: 'CPU' }), /no longer/); });
 test('grade recognizes quality and fit beyond rank; excessive reaches remain analytical', () => { const input = inputFixture(), slot = { pickNumber: 5, currentOwnerTeamId: 't0' }, p = { ...input.prospects[17], position_1: 'PG', position_2: 'SG', potential: 98, overall: 85, 'draft score': 95, age: 19, pts: 25, ast: 8, strength_1: 'Playmaking' }; const strong = reaction(input, slot, p, [], { avp: 18 }); assert.ok(strong.score < 7); const fair = reaction(input, slot, { ...p, board_number: 5 }, [], { avp: 5 }); assert.ok(fair.score > strong.score); const weaker = reaction(input, slot, { ...p, potential: 70, overall: 60, 'draft score': 60, age: 25, pts: 2, ast: 0, position_1: 'C', position_2: 'PF' }, [], { avp: 18 }); assert.ok(strong.score > weaker.score); assert.ok(!/stupid|terrible|idiot/i.test(weaker.analysis)); });
 test('search pages respect Discord limits and can reach the final remaining prospect', t => { const f = fixture(t), d = discordFixture(f), m = f.ready('u0', f.repository.loadOwners('l').map(o => o.userId)), active = f.live.start('l', m.id, { id: 'u0' }); const found = new Set(); for (let page = 0; page < 7; page++) { const payload = d.workflow.selectionPayload(active, 1, '', page, 'token'); assert.ok(payload.embeds[0].toJSON().description.length <= 4096); const menu = payload.components[0].toJSON().components[0]; assert.ok(menu.options.length <= 10); menu.options.forEach(o => found.add(o.value)); assert.ok(payload.components.every(r => r.components.length <= 5)); } assert.equal(found.size, 70); });
-test('non-coach, wrong-room and stale lottery interactions cannot mutate a live mock', async t => { const f = fixture(t), d = discordFixture(f), stranger = d.interaction('mock:start', 'stranger'); await d.workflow.handle(stranger); assert.equal(f.live.all('l').length, 0); await d.workflow.handle(d.interaction('mock:start')); let m = f.live.all('l')[0]; const wrong = d.interaction(`mock:${m.id}:lottery:0`, 'u0', 'hub'); await d.workflow.handle(wrong); assert.equal(f.live.get('l', m.id).lotteryRuns, 0); await d.workflow.handle(d.interaction(`mock:${m.id}:lottery:0`, 'u0', m.threadId)); await d.workflow.handle(d.interaction(`mock:${m.id}:lottery:0`, 'u0', m.threadId)); assert.equal(f.live.get('l', m.id).lotteryRuns, 1); assert.equal(d.channels.get(m.threadId)._messages.size, 2); });
+test('non-coach, wrong-room and stale lottery interactions cannot mutate a live mock', async t => { const f = fixture(t), d = discordFixture(f), stranger = d.interaction('mock:start', 'stranger'); await d.workflow.handle(stranger); assert.equal(f.live.all('l').length, 0); await d.start(); let m = f.live.all('l')[0]; const wrong = d.interaction(`mock:${m.id}:lottery:0`, 'u0', 'hub'); await d.workflow.handle(wrong); assert.equal(f.live.get('l', m.id).lotteryRuns, 0); await d.workflow.handle(d.interaction(`mock:${m.id}:lottery:0`, 'u0', m.threadId)); await d.workflow.handle(d.interaction(`mock:${m.id}:lottery:0`, 'u0', m.threadId)); assert.equal(f.live.get('l', m.id).lotteryRuns, 1); assert.equal(d.channels.get(m.threadId)._messages.size, 2); });
 test('current owner loss immediately hands control to CPU without mutating league assets', t => { const f = fixture(t), m = f.ready('u0', f.repository.loadOwners('l').map(o => o.userId)), active = f.live.start('l', m.id, { id: 'u0' }); const before = JSON.stringify(f.repository.loadDraftPicks('l')), coach = f.live.controller(active); f.repository.saveOwners('l', f.repository.loadOwners('l').filter(o => o.userId !== coach.userId)); assert.equal(f.live.controller(active), null); const next = f.live.commit('l', m.id, { expectedPick: 1, type: 'CPU' }); assert.equal(next.selections.length, 1); assert.equal(JSON.stringify(f.repository.loadDraftPicks('l')), before); });
 test('missing portraits do not break previews or completed reactions', t => { const f = fixture(t), m = f.ready(); const { reactionPayload } = require('../src/fantasyhq/discord-mock-draft'); const p = { ...m.input.prospects[0], imagePath: '/missing/mock/prospect.png' }, slot = m.lockedDraftOrder[0], r = reaction(m.input, slot, p, [], null); const payload = reactionPayload(m, { ...slot, prospect: p, boardRank: 1, avp: null, grade: r.grade, storyline: r.storyline, analysis: r.analysis }); assert.equal(payload.files, undefined); assert.ok(payload.embeds[0].toJSON().description.includes(p.name) || payload.embeds[0].toJSON().title.includes(p.name)); });
 test('multi-pick haul awards consider every selection and completion cannot be repeated', t => { const f = fixture(t), picks = f.repository.loadDraftPicks('l'); picks.forEach(p => p.currentOwnerTeamId = 't0'); f.repository.saveDraftPicks('l', picks); let m = f.ready(); f.live.setAvailable('l', m.id, 'u0', false); m = f.live.start('l', m.id, { id: 'u0' }); while (m.status === 'ACTIVE') m = f.live.commit('l', m.id, { expectedPick: m.currentPick, type: 'CPU' }); const award = m.recap.awards.find(a => a.category === 'Best multi-pick haul'); assert.equal(award.pickNumbers.length, 30); assert.equal(award.teamId, 't0'); assert.throws(() => f.live.commit('l', m.id, { expectedPick: 30, type: 'CPU' }), /no longer/); assert.equal(m.deadlineAt, null); });
-test('a deleted completed room still delivers persisted recap and safely cleans backend status', async t => { const f = fixture(t), d = discordFixture(f); await d.workflow.handle(d.interaction('mock:start')); let m = f.live.all('l')[0]; f.live.lottery('l', m.id, { id: 'u0' }); f.live.lock('l', m.id, { id: 'u0' }); f.live.setAvailable('l', m.id, 'u0', false); m = f.live.start('l', m.id, { id: 'u0' }); while (m.status === 'ACTIVE') m = f.live.commit('l', m.id, { expectedPick: m.currentPick, type: 'CPU' }); d.channels.delete(m.threadId); await d.workflow.pump(d.guild, 'l', m.id); assert.equal(f.live.get('l', m.id).status, 'CLEANED'); assert.equal(f.live.get('l', m.id).dmDelivery.u0.delivered, true); });
+test('a deleted completed room still delivers persisted recap and safely cleans backend status', async t => { const f = fixture(t), d = discordFixture(f); await d.start(); let m = f.live.all('l')[0]; f.live.lottery('l', m.id, { id: 'u0' }); f.live.lock('l', m.id, { id: 'u0' }); f.live.setAvailable('l', m.id, 'u0', false); m = f.live.start('l', m.id, { id: 'u0' }); while (m.status === 'ACTIVE') m = f.live.commit('l', m.id, { expectedPick: m.currentPick, type: 'CPU' }); d.channels.delete(m.threadId); await d.workflow.pump(d.guild, 'l', m.id); assert.equal(f.live.get('l', m.id).status, 'CLEANED'); assert.equal(f.live.get('l', m.id).dmDelivery.u0.delivered, true); });
 test('lottery eligibility preserves existing conference seeds even when regular-season records tie', () => { const input = inputFixture(); Object.values(input.standings.conferences).flat().forEach(t => { t.PCT = 0.5; }); const field = draftField(input); for (const team of field.lottery) assert.ok(team.seed >= 9 || [8].includes(team.seed)); assert.equal(field.lottery.find(t => t.teamId === 't7').weight, 1); assert.equal(field.lottery.some(t => t.teamId === 't6'), false); });
 test('/mockdraft is identical for repeated calls, different coaches and service restarts', async t => {
     const f = fixture(t), d = discordFixture(f), first = d.interaction('unused', 'u0'), repeat = d.interaction('unused', 'u0'), other = d.interaction('unused', 'u1');
@@ -161,7 +162,7 @@ test('advancing the league week publishes a new weekly projection only after the
 
 test('current order displays all 30 saved picks without rerunning or changing locked ownership', async t => {
     const f = fixture(t), d = discordFixture(f);
-    await d.workflow.handle(d.interaction('mock:start'));
+    await d.start();
     let m = f.live.all('l')[0];
     await d.workflow.handle(d.interaction(`mock:${m.id}:lottery:0`, 'u0', m.threadId));
     m = f.live.get('l', m.id);
@@ -193,7 +194,7 @@ test('best available uses the existing first prospect portrait and identifies it
 
 test('recovery consolidates old lottery pages without drawing again or duplicating messages', async t => {
     const f = fixture(t), d = discordFixture(f);
-    await d.workflow.handle(d.interaction('mock:start'));
+    await d.start();
     let m = f.live.all('l')[0];
     m = f.live.lottery('l', m.id, { id: 'u0' });
     const thread = d.channels.get(m.threadId);
@@ -212,7 +213,7 @@ test('recovery consolidates old lottery pages without drawing again or duplicati
 
 test('room turn prompt appears after the last pick, opens privately for its coach, and sends no turn DM', async t => {
     const f = fixture(t), d = discordFixture(f);
-    await d.workflow.handle(d.interaction('mock:start'));
+    await d.start();
     let m = f.live.all('l')[0];
     f.live.invite('l', m.id, { id: 'u0' }, f.repository.loadOwners('l').map(o => o.userId));
     f.live.lottery('l', m.id, { id: 'u0' }); f.live.lock('l', m.id, { id: 'u0' });
@@ -246,7 +247,7 @@ test('room turn prompt appears after the last pick, opens privately for its coac
 });
 test('final recap is one complete embed with all picks, grades, takeaways and restart-safe delivery', async t => {
     const f = fixture(t), d = discordFixture(f);
-    await d.workflow.handle(d.interaction('mock:start'));
+    await d.start();
     let m = f.live.all('l')[0]; f.live.lottery('l', m.id, { id: 'u0' }); f.live.lock('l', m.id, { id: 'u0' }); f.live.setAvailable('l', m.id, 'u0', false); f.live.start('l', m.id, { id: 'u0' });
     d.failDelete(true); await d.workflow.pump(d.guild, 'l', m.id);
     const dm = d.dmChannels.get('u0'), message = [...dm._messages.values()][0];
@@ -275,7 +276,7 @@ test('final recap is one complete embed with all picks, grades, takeaways and re
 
 test('base order can be previewed before drawing, selected by the host, and locked without a lottery', async t => {
     const f = fixture(t), d = discordFixture(f);
-    await d.workflow.handle(d.interaction('mock:start'));
+    await d.start();
     let m = f.live.all('l')[0];
     assert.ok(d.workflow.panelPayload(m).components[0].components.some(b => b.data.custom_id.endsWith(':base')));
     const before = f.live.get('l', m.id), preview = d.interaction(`mock:${m.id}:base`, 'u0', m.threadId);
@@ -352,7 +353,7 @@ test('live lottery draws vary each run and reject immediate repeated draws witho
 });
 test('base preview Start Draft selects and locks the base order and begins immediately', async t => {
     const f = fixture(t), d = discordFixture(f);
-    await d.workflow.handle(d.interaction('mock:start'));
+    await d.start();
     let m = f.live.all('l')[0];
     f.live.invite('l', m.id, { id: 'u0' }, f.repository.loadOwners('l').map(o => o.userId));
     const preview = d.interaction(`mock:${m.id}:base`, 'u0', m.threadId);
@@ -371,7 +372,7 @@ test('base preview Start Draft selects and locks the base order and begins immed
 });
 test('selected base and lottery orders both offer Start Draft with at most five panel buttons', async t => {
     const f = fixture(t), d = discordFixture(f);
-    await d.workflow.handle(d.interaction('mock:start'));
+    await d.start();
     let m = f.live.all('l')[0];
     f.live.invite('l', m.id, { id: 'u0' }, f.repository.loadOwners('l').map(o => o.userId));
     for (const source of ['BASE', 'LOTTERY']) {
@@ -400,7 +401,7 @@ test('lottery remembers earlier orders across restart and rejects nonconsecutive
 
 test('transient recap errors retry before room cleanup and send exactly one DM', async t => {
     const f = fixture(t), d = discordFixture(f);
-    await d.workflow.handle(d.interaction('mock:start'));
+    await d.start();
     let m = f.live.all('l')[0]; f.live.lottery('l', m.id, { id: 'u0' }); f.live.lock('l', m.id, { id: 'u0' }); f.live.setAvailable('l', m.id, 'u0', false); f.live.start('l', m.id, { id: 'u0' });
     const original = d.client.users.fetch; let attempts = 0;
     d.client.users.fetch = async id => { if (++attempts === 1) throw Object.assign(Error('Unknown Message'), { code: 10008 }); return original(id); };
@@ -416,7 +417,7 @@ test('transient recap errors retry before room cleanup and send exactly one DM',
 });
 test('archived failed recap is recovered on tick without recreating the draft room', async t => {
     const f = fixture(t), d = discordFixture(f);
-    await d.workflow.handle(d.interaction('mock:start'));
+    await d.start();
     let m = f.live.all('l')[0]; f.live.lottery('l', m.id, { id: 'u0' }); f.live.lock('l', m.id, { id: 'u0' }); f.live.setAvailable('l', m.id, 'u0', false); f.live.start('l', m.id, { id: 'u0' });
     await d.workflow.pump(d.guild, 'l', m.id);
     d.dmChannels.get('u0')._messages.clear();
@@ -493,4 +494,130 @@ test('engine upgrades refresh the published regular projection once and preserve
     assert.equal(updated.engineVersion, 3);
     assert.notEqual(updated.selections[0].prospectId, old.selections[0].prospectId);
     assert.deepEqual(f.simulations.weeklyProjection('l'), updated);
+});
+
+test('lottery result embed offers start and rerun controls, refreshes after rerun, and clears controls on start', async t => {
+    const f = fixture(t), d = discordFixture(f);
+    await d.start();
+    let m = f.live.all('l')[0];
+    f.live.invite('l', m.id, { id: 'u0' }, f.repository.loadOwners('l').map(o => o.userId));
+    const lottery = d.interaction(`mock:${m.id}:lottery:0`, 'u0', m.threadId);
+    await d.workflow.handle(lottery);
+    m = f.live.get('l', m.id);
+    const first = d.channels.get(m.threadId)._messages.get(m.lotteryMessageId);
+    const buttons = first.components[0].components.map(c => c.customId);
+    assert.ok(buttons.includes(`mock:${m.id}:startorder:1`));
+    assert.ok(buttons.includes(`mock:${m.id}:lottery:1`));
+    assert.equal(lottery.replies[0].embeds.length, 1);
+    assert.equal(lottery.replies[0].components[0].components.length, 2);
+    await d.workflow.handle(d.interaction(`mock:${m.id}:lottery:1`, 'u0', m.threadId));
+    m = f.live.get('l', m.id);
+    const latest = d.channels.get(m.threadId)._messages.get(m.lotteryMessageId);
+    assert.ok(latest.components[0].components.some(c => c.customId === `mock:${m.id}:startorder:2`));
+    await d.workflow.handle(d.interaction(`mock:${m.id}:startorder:1`, 'u0', m.threadId));
+    assert.equal(f.live.get('l', m.id).status, 'LOTTERY_READY');
+    await d.workflow.handle(d.interaction(`mock:${m.id}:startorder:2`, 'u0', m.threadId));
+    assert.equal(f.live.get('l', m.id).status, 'ACTIVE');
+    assert.equal(latest.components.length, 0);
+});
+
+test('live start prompts for all four classes and chosen class drives lottery, lock and picks', async t => {
+    const f = fixture(t, { alternateClasses: true }), d = discordFixture(f);
+    const prompt = d.interaction('mock:start'); await d.workflow.handle(prompt);
+    assert.equal(f.live.all('l').length, 0);
+    assert.deepEqual(prompt.replies[0].components[0].components[0].toJSON().options.map(o => o.value), ['1', '2', '3', '4']);
+    const choice = d.interaction('mock:startclass'); choice.values = ['2'];
+    await d.workflow.handle(choice);
+    let m = f.live.all('l')[0]; assert.equal(m.classNumber, 2); assert.equal(m.draftClassId, 'class2');
+    f.live.lottery('l', m.id, { id: 'u0' }); m = f.live.lock('l', m.id, { id: 'u0' });
+    assert.ok(m.input.prospects.every(p => p.prospectId.startsWith('class2:')));
+    assert.equal(f.simulations.active('l').draftClassId, 'class');
+    f.live.setAvailable('l', m.id, 'u0', false); m = f.live.start('l', m.id, { id: 'u0' });
+    m = f.live.commit('l', m.id, { expectedPick: 1, type: 'CPU' });
+    assert.match(m.selections[0].prospect.name, /^CUS2/);
+});
+test('all class projections are isolated, weekly stable, and use their own thousand-round snapshots', async t => {
+    const f = fixture(t, { alternateClasses: true });
+    for (const n of [2, 3, 4]) {
+        const result = await f.simulations.classProjection('l', n);
+        assert.equal(result.draftClassId, `class${n}`);
+        assert.equal(result.selections.length, 30);
+        assert.ok(result.input.prospects.every(p => p.name.startsWith(`CUS${n}`)));
+        assert.equal(f.simulations.byId('l', result.simulationSnapshotId).simulationCount, 1000);
+        assert.deepEqual(await f.simulations.classProjection('l', n), result);
+    }
+    assert.equal(f.simulations.active('l').id, f.snapshot.id);
+    await assert.rejects(f.simulations.classProjection('l', 5), /CUS01/);
+    const d = discordFixture(f), command = d.interaction('unused');
+    command.options = { getInteger: () => 3 };
+    await d.workflow.projection(command);
+    assert.match(command.replies[0].embeds[0].data.fields[0].value, /CUS3/);
+});
+
+test('all four installed boards load normalized ranks, including id_number boards', t => {
+    const f = fixture(t);
+    const { createScoutingService } = require('../src/fantasyhq/scouting-service');
+    const scouting = createScoutingService({ repository: f.repository, draftClassDir: path.resolve('draft_class') });
+    for (const n of [1, 2, 3, 4]) {
+        const board = scouting.boardForContext({ league: { seasonNumber: n } });
+        assert.ok(board.prospects.length >= 30);
+        assert.equal(board.prospects[0].board_number, 1);
+        assert.equal(new Set(board.prospects.map(p => p.board_number)).size, board.prospects.length);
+    }
+});
+
+
+test('solo mock controls vacant teams with current staff permission and never takes an online coach pick', t => {
+  const f = fixture(t);
+  f.repository.saveOwners('l', [{ teamId: 't0', userId: 'u0' }]);
+  let m = f.live.create('l', 'u0', 'guild');
+  assert.throws(() => f.live.setSoloControl('l', m.id, { id: 'u0' }, true), /staff/);
+  f.repository.saveSettings('l', { testMode: false });
+  assert.throws(() => f.live.setSoloControl('l', m.id, { id: 'u0', staff: true }, true), /Test Mode/);
+  f.repository.saveSettings('l', { testMode: true });
+  f.live.setSoloControl('l', m.id, { id: 'u0', staff: true }, true);
+  f.live.useBaseOrder('l', m.id, { id: 'u0' }, 0);
+  f.live.lock('l', m.id, { id: 'u0' });
+  m = f.live.start('l', m.id, { id: 'u0' });
+  assert.equal(f.live.controller(m).testControlled, true);
+  const prospectId = f.live.available(m)[0].prospectId;
+  assert.throws(() => f.live.commit('l', m.id, { expectedPick: 1, userId: 'u0', prospectId }), /staff/i);
+  f.repository.saveOwners('l', [{ teamId: 't0', userId: 'u0' }, { teamId: m.lockedDraftOrder[0].currentOwnerTeamId, userId: 'online' }]);
+  assert.equal(f.live.controller(m), null);
+  assert.throws(() => f.live.commit('l', m.id, { expectedPick: 1, userId: 'u0', staff: true, prospectId }));
+  f.repository.saveOwners('l', [{ teamId: 't0', userId: 'u0' }]);
+  f.repository.saveSettings('l', { testMode: false });
+  assert.equal(f.live.controller(m), null);
+  f.repository.saveSettings('l', { testMode: true });
+  m = f.live.commit('l', m.id, { expectedPick: 1, userId: 'u0', staff: true, prospectId });
+  assert.equal(m.selections[0].soloTestControlled, true);
+});
+
+
+test('Discord solo toggle exposes a vacant-team picker and confirms with the host actual identity', async t => {
+    const f = fixture(t), d = discordFixture(f);
+    f.repository.saveOwners('l', [{ teamId: 't0', userId: 'u0' }]);
+    const fetchMember = d.guild.members.fetch;
+    d.guild.members.fetch = async id => ({ ...await fetchMember(id), permissions: { has: () => id === 'u0' } });
+    const staffClick = id => { const i = d.interaction(id, 'u0', f.live.all('l')[0].threadId); i.memberPermissions.has = () => true; return i; };
+    await d.start();
+    let m = f.live.all('l')[0];
+    await d.workflow.handle(staffClick(`mock:${m.id}:solo:on`));
+    assert.equal(f.live.get('l', m.id).soloControl, true);
+    await d.workflow.handle(staffClick(`mock:${m.id}:usebase:0`));
+    await d.workflow.handle(staffClick(`mock:${m.id}:startorder:1`));
+    m = f.live.get('l', m.id);
+    assert.equal(m.status, 'ACTIVE'); assert.equal(f.live.controller(m).testControlled, true);
+    const denied = d.interaction(`mock:${m.id}:available:1`, 'u0', m.threadId);
+    await d.workflow.handle(denied);
+    assert.match(denied.replies.at(-1).content, /Only staff/);
+    const available = staffClick(`mock:${m.id}:available:1`);
+    await d.workflow.handle(available);
+    assert.ok(available.replies.at(-1).components.length);
+    const prospect = f.live.available(m)[0];
+    await d.workflow.handle(staffClick(`mock:${m.id}:confirm:1:${prospect.board_number}`));
+    const updated = f.live.get('l', m.id);
+    assert.equal(updated.selections.length, 1);
+    assert.equal(updated.selections[0].selectedByUserId, 'u0');
+    assert.equal(updated.selections[0].soloTestControlled, true);
 });

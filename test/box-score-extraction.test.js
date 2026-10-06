@@ -280,3 +280,28 @@ test('authorized staff pair retains both teams stats and finalizes via normal va
  const record=f.submissions.load(f.game.gameId);assert.equal(extraction.status,'READY_FOR_REVIEW');assert.equal(record.game.status,'FINAL');assert.equal(record.teamGameStats.length,2);assert.ok(record.playerGameStats.length>0);assert.ok(record.media.every(m=>m.uploadedBy===record.submissions[0].staffAuthorizedBy));
 });
 test('staff screenshot pair supports commissioner corrections and approval',async t=>{const f=await reviewFixture(t);await f.submissions.mutate(f.game.gameId,r=>{r.submissions[0].mode='STAFF_BOTH';r.submissions[0].staffAuthorizedBy=r.submissions[0].submittingUserId;r.media.forEach(m=>{m.uploadedBy=r.submissions[0].submittingUserId;delete m.teamId;});});fixReview(f);const correction=await f.review.correct(f.game.gameId,f.submission.submissionId,f.body);assert.equal(correction.issues.length,0);await f.review.approve(f.game.gameId,f.submission.submissionId,{extractionId:correction.extractionId,operator:'Staff'});assert.equal(f.submissions.load(f.game.gameId).game.status,'FINAL');});
+
+
+test('solo finalization uses real validation and is rejected after disabling test mode or assigning an online owner', async t => {
+  for (const scenario of ['valid', 'disabled', 'online-owner']) {
+    const f = await fixture(t, fakeProvider());
+    f.repository.saveSettings('test', { testMode: scenario !== 'disabled' });
+    if (scenario === 'online-owner') f.repository.saveOwners('test', [{ teamId: 'mil', userId: 'owner' }, { teamId: 'cle', userId: 'online' }]);
+    await f.submissions.mutate(f.game.gameId, r => {
+      Object.assign(r.submissions[0], { mode: 'TEAM_SIDES', soloTestAuthorizedBy: 'owner', participants: { mil: 'owner', cle: 'owner' } });
+      r.media.forEach((m, i) => { m.teamId = i ? 'cle' : 'mil'; m.uploadedBy = 'owner'; });
+    });
+    await f.extractor.extract(f.game.gameId, f.submission.submissionId);
+    const record = f.submissions.load(f.game.gameId);
+    if (scenario === 'valid') {
+      assert.equal(record.game.status, 'FINAL');
+      assert.deepEqual(record.game.result.scores, { mil: 120, cle: 116 });
+      assert.equal(record.playerGameStats.length, 20);
+      assert.equal(record.dnpPlayers.length, 8);
+      assert.deepEqual(record.game.soloTest, { authorizedBy: 'owner' });
+    } else {
+      assert.notEqual(record.game.status, 'FINAL');
+      assert.equal(record.playerGameStats, undefined);
+    }
+  }
+});

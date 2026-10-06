@@ -33,6 +33,7 @@ function createGameSubmissionService(options = {}) {
   // Survives Discord thread cleanup; permanent league deletion removes its matching archives.
   const root = path.join(repository.dataRoot, "game-history");
   const download = options.download || downloadDiscordImage;
+  let finalizationHandler = options.onFinalized || null;
   const locks = sharedLocks;
   function exclusive(id, work) {
     id = `${root}:${id}`;
@@ -113,6 +114,15 @@ function createGameSubmissionService(options = {}) {
     });
   }
   function ownerTeam(record, actor) {
+    const testTeamId = actor.testTeamId || record.submissions.find(s => s.status === 'COLLECTING' && s.mode === 'TEAM_SIDES')?.testActors?.[actor.userId];
+    if (testTeamId) {
+      if (!actor.staff || repository.loadSettings(record.game.leagueId)?.testMode !== true) throw Error('Staff authorization and explicit Test Mode are required for simulated sides.');
+      if (![record.game.team1Id, record.game.team2Id].includes(testTeamId)) throw Error('Choose a team in this matchup.');
+      const owner = repository.loadOwners(record.game.leagueId).find(o => o.teamId === testTeamId);
+      if (owner && owner.userId !== actor.userId) throw Error('Another coach owns this team; they must submit their own box score.');
+      return testTeamId;
+    }
+
     const owners = repository.loadOwners(record.game.leagueId).filter(o => o.userId === actor.userId && [record.game.team1Id, record.game.team2Id].includes(o.teamId));
     if (owners.length !== 1) throw new Error("You must own exactly one team in this game.");
     return owners[0].teamId;
@@ -136,7 +146,15 @@ function createGameSubmissionService(options = {}) {
         save(record);
         if (submission.mode === "STAFF_BOTH") repository.appendAuditLog(record.game.leagueId, { action: "game.staff-submission.started", userId: actor.userId, gameId, submissionId: submission.submissionId, timestamp: submission.createdAt });
       }
-      if (perTeam) { submission.participants[teamId] = actor.userId; save(record); }
+      if (perTeam) {
+        submission.participants[teamId] = actor.userId;
+        if (actor.testTeamId) {
+          submission.testActors ||= {}; submission.testActors[actor.userId] = teamId;
+          submission.soloTestAuthorizedBy = actor.userId;
+          repository.appendAuditLog(record.game.leagueId, { action: 'test.game-side.started', userId: actor.userId, gameId, metadata: { teamId }, timestamp: new Date().toISOString() });
+        }
+        save(record);
+      }
       return { game: record.game, submission, teamId, media: record.media.filter(m => m.submissionId === submission.submissionId) };
     });
   }
@@ -217,8 +235,18 @@ function createGameSubmissionService(options = {}) {
     return fs.readFileSync(path.join(directory(gameId), media.storedFile));
   }
   function mutate(gameId, update) {
-    return exclusive(gameId, () => { const record = load(gameId); const result = update(record); save(record); return result; });
+    return exclusive(gameId, async () => {
+      const record = load(gameId), wasFinalized = Boolean(record.game.finalizedAt || record.game.status === "FINAL");
+      const result = await update(record);
+      save(record);
+      if (!wasFinalized && (record.game.finalizedAt || record.game.status === "FINAL") && finalizationHandler) {
+        try { await finalizationHandler(structuredClone(record)); }
+        catch (error) { console.error("Finalized-game follow-up failed:", error.message); }
+      }
+      return result;
+    });
   }
+  function setFinalizationHandler(handler) { finalizationHandler = typeof handler === "function" ? handler : null; }
   function authorizeExtraction(gameId, actor, staff = false) {
     const record = load(gameId);
     if (!staff) check(record, actor);
@@ -228,6 +256,6 @@ function createGameSubmissionService(options = {}) {
     }
   }
   function staffActor(actor) { if (!actor.staff) throw new Error("Commissioner authorization required for Staff Submit."); return actor; }
-  return { beginStaff: (id, actor) => begin(id, staffActor(actor)), receiveStaff: (id, actor, attachments, messageId) => receive(id, staffActor(actor), attachments, messageId), bind, ensureGame: params => bind(params, true), records, begin, beginSide: (id, actor) => begin(id, actor, true), cancel, receive, receiveSide: (id, actor, attachments, messageId) => receive(id, actor, attachments, messageId, true), load, findThread, setMessage, readOriginal, mutate, authorizeExtraction, repository };
+  return { beginStaff: (id, actor) => begin(id, staffActor(actor)), receiveStaff: (id, actor, attachments, messageId) => receive(id, staffActor(actor), attachments, messageId), bind, ensureGame: params => bind(params, true), records, begin, beginSide: (id, actor) => begin(id, actor, true), cancel, receive, receiveSide: (id, actor, attachments, messageId) => receive(id, actor, attachments, messageId, true), load, findThread, setMessage, readOriginal, mutate, setFinalizationHandler, authorizeExtraction, repository };
 }
 module.exports = { createGameSubmissionService, downloadDiscordImage, imageType };

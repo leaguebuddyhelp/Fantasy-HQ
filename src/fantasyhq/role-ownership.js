@@ -7,8 +7,9 @@ const { createMemberSnapshots } = require("./member-snapshot");
 function createRoleOwnershipService(repository = createFantasyHQRepository(), options = {}) {
   const memberSnapshots = options.memberSnapshots || createMemberSnapshots();
   const queues = new Map();
+  let ownerChangeHandler = options.onOwnersChanged || null;
   function serial(guild, action) {
-    const next = (queues.get(guild.id) || Promise.resolve()).catch(() => {}).then(action);
+    const next = (queues.get(guild.id) || Promise.resolve()).catch(() => { }).then(action);
     queues.set(guild.id, next);
     return next.finally(() => { if (queues.get(guild.id) === next) queues.delete(guild.id); });
   }
@@ -61,11 +62,21 @@ function createRoleOwnershipService(repository = createFantasyHQRepository(), op
         username: member?.user.username || existing?.username || null,
       };
     });
-    const changed = JSON.stringify(previous.map(({teamId,userId}) => ({teamId,userId})).sort((a,b)=>a.teamId.localeCompare(b.teamId))) !== JSON.stringify(owners.sort((a,b)=>a.teamId.localeCompare(b.teamId)));
+    const changed = JSON.stringify(previous.map(({ teamId, userId }) => ({ teamId, userId })).sort((a, b) => a.teamId.localeCompare(b.teamId))) !== JSON.stringify(owners.sort((a, b) => a.teamId.localeCompare(b.teamId)));
     repository.saveOwners(context.league.leagueId, records);
     repository.saveTeams(context.league.leagueId, context.teams.map((team) => ({ ...team, assignedUserId: owners.find((entry) => entry.teamId === team.teamId)?.userId || null })));
     if (changed) repository.appendAuditLog(context.league.leagueId, { action: "owners.roles.synced", userId: "discord-roles", timestamp: now, metadata: { owners, conflicts } });
     const warnings = [];
+    if (ownerChangeHandler) {
+      const upgradeState = repository.loadPlayerUpgradeState(context.league.leagueId);
+      if (changed || !upgradeState?.ownershipInitialized) {
+        try {
+          await ownerChangeHandler({ leagueId: context.league.leagueId, seasonId: context.seasonId, phase: context.league.currentPhase, previousOwners: previous, owners: records });
+        } catch (error) {
+          warnings.push(`Player upgrade coach history needs attention: ${error.message}`);
+        }
+      }
+    }
     const coach = [...roles.values()].find((role) => role.name === "LEAGUEbuddy Coach" && !role.managed);
     if (!coach) warnings.push("Run /league roles to create the Coach role.");
     else {
@@ -83,7 +94,7 @@ function createRoleOwnershipService(repository = createFantasyHQRepository(), op
     const { STAFF_ROLES } = require('./discord-permissions');
     const staffRoleIds = new Set([...roles.values()].filter(role => STAFF_ROLES.has(role.name)).map(role => role.id));
     const staffUserIds = [...members.values()].filter(member => !member.user.bot && [...staffRoleIds].some(id => member.roles.cache.has(id))).map(member => member.id);
-    return { owners: records.length, conflicts, warnings, staffUserIds, teamRoleIds: {...state.roleIds}, teamMemberIds: Object.fromEntries(context.teams.map(team => [team.teamId, [...members.values()].filter(member => !member.user.bot && member.roles.cache.has(state.roleIds[team.teamId])).map(member => member.id)])) };
+    return { owners: records.length, conflicts, warnings, staffUserIds, teamRoleIds: { ...state.roleIds }, teamMemberIds: Object.fromEntries(context.teams.map(team => [team.teamId, [...members.values()].filter(member => !member.user.bot && member.roles.cache.has(state.roleIds[team.teamId])).map(member => member.id)])) };
   }
   function sync(guild) { return serial(guild, () => reconcile(guild)); }
   function setOwner(guild, teamId, userId) {
@@ -116,7 +127,8 @@ function createRoleOwnershipService(repository = createFantasyHQRepository(), op
       return reconcile(guild);
     });
   }
-  return { sync, setOwner, runExclusive: serial, updateMember: memberSnapshots.update, invalidateMembers: memberSnapshots.invalidate };
+  function setOwnerChangeHandler(handler) { ownerChangeHandler = typeof handler === "function" ? handler : null; }
+  return { sync, setOwner, setOwnerChangeHandler, runExclusive: serial, updateMember: memberSnapshots.update, invalidateMembers: memberSnapshots.invalidate };
 }
 const roleOwnership = createRoleOwnershipService();
 module.exports = { createRoleOwnershipService, roleOwnership };

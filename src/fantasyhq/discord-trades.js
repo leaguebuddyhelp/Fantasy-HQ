@@ -121,7 +121,7 @@ function createDiscordTradeWorkflow(options = {}) {
         );
         const secondRow = new ActionRowBuilder().addComponents(
             new ButtonBuilder().setCustomId(`trade:package:${trade.tradeId}:0:0`).setLabel("Review Packages").setStyle(ButtonStyle.Secondary),
-            new ButtonBuilder().setCustomId(`trade:submit:${trade.tradeId}`).setLabel("Submit Proposal").setStyle(ButtonStyle.Success),
+            new ButtonBuilder().setCustomId(`trade:submit:${trade.tradeId}`).setLabel("Submit Proposal").setStyle(ButtonStyle.Success).setDisabled(!preview.valid),
             new ButtonBuilder().setCustomId(`trade:back:${trade.tradeId}`).setLabel("Refresh Review").setStyle(ButtonStyle.Secondary),
         );
         return { embeds: [embed], components: [firstRow, secondRow], allowedMentions: { parse: [] } };
@@ -405,7 +405,7 @@ function createDiscordTradeWorkflow(options = {}) {
         const role = roleByName(guild, "LEAGUEbuddy Trade Committee");
         const members = await guild.members.fetch();
         const voters = role ? [...members.values()].filter(member => !member.user.bot && member.roles.cache.has(role.id)).map(member => member.id) : [];
-        if (settingsFor(trade.leagueId).testMode && voters.length === 0) {
+        if (settingsFor(trade.leagueId).testMode === true && voters.filter(id => !trade.coachUserIds.includes(id)).length === 0) {
             return Array.from({ length: 5 }, (_, index) => `test-committee:${trade.currentVersion.initiatingUserId}:${index + 1}`);
         }
         return voters;
@@ -577,6 +577,8 @@ function createDiscordTradeWorkflow(options = {}) {
         const context = repository.loadLeague(trade.leagueId, trade.seasonId), settings = settingsFor(trade.leagueId);
         const guild = interaction.guild || await interaction.client.guilds.fetch(context.league.guildId);
         const actorTeamId = actorTeamForTrade(trade.leagueId, trade, interaction.user.id, explicitTeamId);
+        const owner = repository.loadOwners(trade.leagueId).find(o => o.teamId === actorTeamId);
+        if (owner?.userId !== interaction.user.id && !(settings.testMode === true && !owner && canManageLeague(interaction))) throw Error('Only that team’s coach can respond; staff can simulate vacant teams only in Test Mode.');
         if (!actorTeamId) throw new Error("This response is not for one of your teams.");
         if (action === "COUNTER") {
             const counter = tradeService.counterTrade({ leagueId: trade.leagueId, tradeId, version, actorUserId: interaction.user.id, actorTeamId });
@@ -773,11 +775,11 @@ function createDiscordTradeWorkflow(options = {}) {
         const settings = settingsFor(trade.leagueId);
         const owner = repository.loadOwners(trade.leagueId).find(entry => entry.userId === message.author.id && trade.participatingTeams.includes(entry.teamId));
         const member = message.member || await message.guild.members.fetch(message.author.id).catch(() => null);
-        const coachRole = roleByName(message.guild, "LEAGUEbuddy Coach"), gmRole = roleByName(message.guild, "LEAGUEbuddy GM");
         const staff = canManageLeague({ guildId: message.guild.id, memberPermissions: member?.permissions, member: { roles: member?.roles } });
         if (!settings.testMode && !owner) { await message.reply("Only an involved coach may submit proof in this trade thread."); return true; }
-        if (settings.testMode && !owner && !(staff || member?.roles?.cache?.has(coachRole?.id) || member?.roles?.cache?.has(gmRole?.id))) { await message.reply("A league Coach, GM, or Staff member must submit proof in Test Mode."); return true; }
-        const actorTeamId = owner?.teamId || trade.participatingTeams.find(teamId => teamId !== trade.initiatingTeamId) || trade.participatingTeams[0];
+        if (settings.testMode && !owner && !staff) { await message.reply("Only an involved coach or league staff using Test Mode may submit proof."); return true; }
+        const actorTeamId = owner?.teamId || trade.participatingTeams.find(teamId => !repository.loadOwners(trade.leagueId).some(entry => entry.teamId === teamId));
+        if (!actorTeamId) { await message.reply("Every involved team has an online owner; one of those coaches must submit proof."); return true; }
         const buffer = await downloadDiscordImage(attachment);
         if (buffer.length > PROOF_IMAGE_LIMIT) throw new Error("Screenshot exceeds the 25 MB limit.");
         const extension = imageType(buffer) === "image/jpeg" ? "jpg" : imageType(buffer).slice(6);

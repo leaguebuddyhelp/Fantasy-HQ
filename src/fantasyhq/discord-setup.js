@@ -46,7 +46,7 @@ function dashboardEmbed(dashboard) {
     });
     if (validator.errors.length) embed.addFields({ name: "Needs attention", value: validator.errors.slice(0, 5).join("\n").slice(0, 1024) });
   }
-  embed.addFields({ name: "Discord channel setup", value: "Create / repair channels sets up 16 lb- channels and league roles, repairs the Submit Trade, Trade Counts and Live Mock Draft pins, and applies coach/GM/staff/committee access. Existing channels keep their names and locations." });
+  embed.addFields({ name: "Discord channel setup", value: "Create / repair channels sets up 17 lb- channels and league roles, repairs the Submit Trade, Trade Counts, Live Mock Draft and Player Upgrades pins, and applies coach/GM/staff/committee access. Existing channels keep their names and locations." });
   return embed;
 }
 
@@ -145,12 +145,14 @@ async function handleLeagueSettings(interaction) {
   const context = setupService.getLeagueContextByBinding({ guildId: interaction.guildId });
   const updates = {};
 
+  const testMode = interaction.options.getBoolean("test_mode");
   const requireAllOwners = interaction.options.getBoolean("require_all_owners");
   const playoffTeams = interaction.options.getInteger("playoff_teams");
   const gameDeadlineHours = interaction.options.getInteger("game_deadline_hours");
   const resultConfirmationRequired = interaction.options.getBoolean("result_confirmation_required");
   const commissionerApprovalRequired = interaction.options.getBoolean("commissioner_approval_required");
 
+  if (testMode != null) { updates.testMode = testMode; if (requireAllOwners == null) updates.requireAllOwners = !testMode; }
   if (requireAllOwners != null) updates.requireAllOwners = requireAllOwners;
   if (playoffTeams != null) updates.playoffTeams = playoffTeams;
   if (gameDeadlineHours != null) updates.gameDeadlineHours = gameDeadlineHours;
@@ -171,6 +173,7 @@ async function handleLeagueSettings(interaction) {
         .setColor(0x2ecc71)
         .setDescription("Your league preferences are saved.")
         .addFields(
+          { name: "Mode", value: settings.testMode === true ? "🧪 Test Mode — staff solo controls enabled" : "Online league — normal permissions", inline: true },
           { name: "Owners", value: settings.requireAllOwners ? "All teams must be claimed" : "Vacant teams allowed", inline: true },
           { name: "Playoffs", value: `${settings.playoffTeams} teams`, inline: true },
           { name: "Game deadline", value: `${settings.gameDeadlineHours} hours`, inline: true },

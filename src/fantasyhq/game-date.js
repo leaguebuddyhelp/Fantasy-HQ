@@ -1,11 +1,26 @@
 const {ModalBuilder,TextInputBuilder,TextInputStyle,ActionRowBuilder}=require('discord.js');
 const {canManageLeague}=require('./discord-permissions');
-function parseGameDate(value){
- const match=String(value).trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
- if(!match)throw Error('Enter the date shown in NBA 2K as MM/DD/YYYY, for example 10/24/2027.');
- const [,m,d,y]=match.map(Number),date=new Date(Date.UTC(y,m-1,d));
- if(y<1900||y>9999||date.getUTCFullYear()!==y||date.getUTCMonth()!==m-1||date.getUTCDate()!==d)throw Error('Enter a valid calendar date, for example 10/24/2027.');
- return `${String(m).padStart(2,'0')}/${String(d).padStart(2,'0')}/${y}`;
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const MONTH_NAMES = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+function parseGameDate(value) {
+ const input = String(value).trim();
+ const named = input.match(/^([a-z]+)\.?\s+(\d{1,2})$/i);
+ const numeric = input.match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{4}))?$/);
+ let month, day, year = 2000;
+ if (named) {
+  const name = named[1].toLowerCase();
+  month = MONTH_NAMES.findIndex((full, index) => name === full || name === MONTHS[index].toLowerCase() || (index === 8 && name === 'sept')) + 1;
+  day = Number(named[2]);
+ } else if (numeric) {
+  month = Number(numeric[1]); day = Number(numeric[2]);
+  if (numeric[3]) year = Number(numeric[3]);
+ } else throw Error('Enter the month and day shown in NBA 2K, for example Nov 18, Dec 19, or Oct 24.');
+ const date = new Date(Date.UTC(year, month - 1, day));
+ if (year < 1900 || year > 9999 || date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) throw Error('Enter a valid calendar date, for example Nov 18.');
+ return `${MONTHS[month - 1]} ${day}`;
+}
+function formatGameDate(value) {
+ try { return parseGameDate(value); } catch { return value; }
 }
 function createGameDateHandler(service){
  return async function handle(i){
@@ -14,8 +29,8 @@ function createGameDateHandler(service){
    const authorize=()=>service.authorizeExtraction(id,{guildId:i.guildId,discordThreadId:i.channelId,privateThread:i.channel?.type===12,userId:i.user.id},canManageLeague(i));
    authorize();
    if(i.isButton()){
-    const field=new TextInputBuilder().setCustomId('date').setLabel('Date shown in NBA 2K (MM/DD/YYYY)').setPlaceholder('Example: 10/24/2027').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(10);
-    const value=service.load(id).game.inGameDate;if(value)field.setValue(value);
+    const field=new TextInputBuilder().setCustomId('date').setLabel('Date shown in NBA 2K (month and day)').setPlaceholder('Example: Nov 18').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(20);
+    const value=service.load(id).game.inGameDate;if(value)field.setValue(formatGameDate(value));
     await i.showModal(new ModalBuilder().setCustomId(`gamedatesave:${id}`).setTitle('Set game date').addComponents(new ActionRowBuilder().addComponents(field)));return;
    }
    await i.deferReply({flags:64});
@@ -32,4 +47,4 @@ function createGameDateHandler(service){
   }catch(error){if(i.deferred||i.replied)await i.editReply(error.message);else await i.reply({content:error.message,flags:64});}
  };
 }
-module.exports={parseGameDate,createGameDateHandler};
+module.exports={parseGameDate,formatGameDate,createGameDateHandler};

@@ -16,9 +16,10 @@ test('long roster lists split at field boundaries without dropping players', () 
 });
 test('command menu removes duplicates but retains browsing and recovery', () => {
     const file = path.resolve('deploy-commands.js'); const c = { require: createRequire(file) }; vm.runInNewContext(fs.readFileSync(file, 'utf8').split('async function main()')[0] + ';globalThis.list=commands;', c);
-    assert.equal(c.list.length, 19); assert.equal(new Set(c.list.map(x => x.name)).size, 19); const options = name => c.list.find(x => x.name === name).options.map(x => x.name);
+    assert.equal(c.list.length, 20); assert.equal(new Set(c.list.map(x => x.name)).size, 20); const options = name => c.list.find(x => x.name === name).options.map(x => x.name);
     assert.deepEqual(Array.from(options('bigboard')), []);
-    assert.deepEqual(Array.from(options('mockdraft')), []);
+    assert.deepEqual(Array.from(options('mockdraft')), ['draft_class']);
+    assert.deepEqual(Array.from(c.list.find(x => x.name === 'mockdraft').options[0].choices.map(choice => choice.value)), [1, 2, 3, 4]);
     assert.deepEqual(Array.from(options('scout')), ['position', 'prospect']);
     assert.deepEqual(Array.from(c.list.find(x => x.name === 'scout').options[0].choices.map(choice => choice.value)), ['PG', 'SG', 'SF', 'PF', 'C']);
     assert.equal(c.list.find(x => x.name === 'scout').options[1].autocomplete, true);
@@ -26,6 +27,7 @@ test('command menu removes duplicates but retains browsing and recovery', () => 
     assert.equal(c.list.find(x => x.name === 'stats').options[0].autocomplete, true);
     assert.deepEqual(Array.from(options('teamstats')), ['team']);
     assert.equal(c.list.find(x => x.name === 'teamstats').options[0].autocomplete, true);
+    assert.deepEqual(Array.from(options('upgrades')), []);
     assert.ok(options('games').includes('create')); assert.ok(options('games').includes('cleanup')); assert.ok(options('standings').includes('conference'));
     for (const name of ['confirm', 'regenerate']) assert.ok(!options('schedule').includes(name));
     assert.ok(!options('league').includes('status')); assert.ok(options('league').includes('setup')); assert.ok(options('roster').includes('import')); assert.deepEqual(Array.from(options('admin')), ['bind']); assert.ok(!c.list.some(x => x.name === 'setup'));

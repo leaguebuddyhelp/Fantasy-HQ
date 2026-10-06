@@ -65,6 +65,7 @@ function buildLeaguePaths(dataRoot, leagueId) {
     rosterMembershipsFile: path.join(leagueRoot, "roster-memberships.json"),
     draftPicksFile: path.join(leagueRoot, "draft-picks.json"),
     tradesFile: path.join(leagueRoot, "trades.json"),
+    playerUpgradesFile: path.join(leagueRoot, "player-upgrades.json"),
     auditLogFile: path.join(leagueRoot, "audit-log.json"),
     pendingScheduleFile: path.join(leagueRoot, "pending-schedule.json"),
     schedulesRoot: path.join(leagueRoot, "schedules"),
@@ -185,6 +186,19 @@ function createFantasyHQRepository(options = {}) {
     enqueueMockRefresh(leagueId, transaction.files.find(entry => entry.name === 'audit-log.json')?.value.at(-1));
     fs.unlinkSync(journal);
   }
+  function recoverPlayerUpgradeTransaction(leagueId) {
+    const paths = buildLeaguePaths(dataRoot, leagueId);
+    const journal = path.join(paths.leagueRoot, "player-upgrade-transaction.json");
+    if (!fs.existsSync(journal)) return;
+    const transaction = JSON.parse(fs.readFileSync(journal, "utf8"));
+    if (transaction.leagueId !== leagueId || !Array.isArray(transaction.files)) throw new Error("Player upgrade transaction journal is invalid; league data was not loaded.");
+    const allowed = new Set(["players.json", "player-upgrades.json", "audit-log.json"]);
+    for (const entry of transaction.files) {
+      if (!allowed.has(entry.name) || !entry.value) throw new Error("Player upgrade transaction journal contains an invalid file entry.");
+    }
+    for (const entry of transaction.files) writeJson(path.join(paths.leagueRoot, entry.name), entry.value);
+    fs.unlinkSync(journal);
+  }
   function enqueueMockRefresh(leagueId, event) {
     if (!event) return;
     let eventId = null;
@@ -195,11 +209,12 @@ function createFantasyHQRepository(options = {}) {
       if (loadListFile(paths.draftPicksFile).some(p => Number(p.round) === 1 && Number(p.draftYear) === year && event.metadata?.affectedPickIds?.includes(p.pickId))) eventId = `trade:${event.metadata.processingId}`;
     }
     if (eventId) try { require('./mock-storage').requestRefresh({ dataRoot, buildLeaguePaths }, leagueId, event.action, eventId); }
-    catch (error) { console.error('Mock refresh enqueue (recoverable from audit):', error.message); }
+      catch (error) { console.error('Mock refresh enqueue (recoverable from audit):', error.message); }
   }
   function recoverLeagueTransactions(leagueId) {
     recoverWeekTransaction(leagueId);
     recoverTradeTransaction(leagueId);
+    recoverPlayerUpgradeTransaction(leagueId);
   }
   function commitTradeTransaction({ leagueId, players, rosterMemberships, draftPicks, trades, auditEntry }) {
     recoverLeagueTransactions(leagueId);
@@ -218,6 +233,22 @@ function createFantasyHQRepository(options = {}) {
     const journal = path.join(paths.leagueRoot, "trade-transaction.json");
     writeJson(journal, transaction);
     recoverTradeTransaction(leagueId);
+    return { committedAt: transaction.committedAt };
+  }
+  function commitPlayerUpgradeTransaction({ leagueId, players, upgradeState, auditEntry }) {
+    recoverLeagueTransactions(leagueId);
+    const paths = buildLeaguePaths(dataRoot, leagueId);
+    const transaction = {
+      leagueId,
+      committedAt: new Date().toISOString(),
+      files: [
+        { name: "players.json", value: players },
+        { name: "player-upgrades.json", value: upgradeState },
+        { name: "audit-log.json", value: [...loadAuditLog(leagueId), auditEntry] },
+      ],
+    };
+    writeJson(path.join(paths.leagueRoot, "player-upgrade-transaction.json"), transaction);
+    recoverPlayerUpgradeTransaction(leagueId);
     return { committedAt: transaction.committedAt };
   }
   function commitWeekTransition({ leagueId, expectedWeek, schedule, league, auditEntry }) {
@@ -441,10 +472,20 @@ function createFantasyHQRepository(options = {}) {
     writeJson(paths.auditLogFile, current);
     return entry;
   }
+  function loadPlayerUpgradeState(leagueId) {
+    recoverLeagueTransactions(leagueId);
+    return readJson(buildLeaguePaths(dataRoot, leagueId).playerUpgradesFile, null);
+  }
+  function savePlayerUpgradeState(leagueId, state) {
+    recoverLeagueTransactions(leagueId);
+    writeJson(buildLeaguePaths(dataRoot, leagueId).playerUpgradesFile, state);
+    return state;
+  }
 
   return {
     commitWeekTransition,
     commitTradeTransaction,
+    commitPlayerUpgradeTransaction,
     appendAuditLog,
     buildLeaguePaths,
     clearPendingSchedule,
@@ -462,6 +503,7 @@ function createFantasyHQRepository(options = {}) {
     loadPlayers,
     loadRosterMemberships,
     loadAuditLog,
+    loadPlayerUpgradeState,
     loadSchedule,
     loadDraftPicks(leagueId) { recoverLeagueTransactions(leagueId); return loadListFile(buildLeaguePaths(dataRoot, leagueId).draftPicksFile); },
     saveDraftPicks(leagueId, picks) { recoverLeagueTransactions(leagueId); writeJson(buildLeaguePaths(dataRoot, leagueId).draftPicksFile, picks); return picks; },
@@ -476,6 +518,7 @@ function createFantasyHQRepository(options = {}) {
     saveOwners,
     savePlayers,
     saveRosterMemberships,
+    savePlayerUpgradeState,
     saveTeams,
     scheduleExists,
   };

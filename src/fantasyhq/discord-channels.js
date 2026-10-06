@@ -5,7 +5,7 @@ const CHANNELS = [
     ['availableTeams', 'available-teams', 'publicRead'], ['schedule', 'schedule', 'read'], ['standings', 'standings', 'read'],
     ['games', 'game-threads', 'games'], ['scouting', 'scouting-hub', 'chat'], ['activity', 'activitycheck', 'chat'],
     ['submitTrade', 'submit-trade', 'trade'], ['tradeBlock', 'trade-block', 'chat'], ['tradeCounts', 'trade-counts', 'read'],
-    ['tradeCommittee', 'trade-committee', 'committee'], ['tradeProof', 'trade-proof', 'chat'],
+    ['tradeCommittee', 'trade-committee', 'committee'], ['tradeProof', 'trade-proof', 'chat'], ['playerUpgrades', 'player-upgrades', 'upgrades'],
     ['approvedTrades', 'approved-trades', 'read'], ['deniedTrades', 'denied-trades', 'read'],
 ];
 const pending = new Map();
@@ -20,11 +20,11 @@ function createChannelSetupService(repository = require('./repository').createFa
         const coach = role('LEAGUEbuddy Coach'), gm = role('LEAGUEbuddy GM'), staff = [role('LEAGUEbuddy Commish'), role('LEAGUEbuddy Assistant Commish')], committee = role('LEAGUEbuddy Trade Committee');
         const write = [P.ViewChannel, P.SendMessages, P.ReadMessageHistory, P.AttachFiles, P.EmbedLinks, P.SendMessagesInThreads];
         function overwrites(access) {
-            const feed = ['read', 'publicRead', 'games'].includes(access);
+            const feed = ['read', 'publicRead', 'games', 'upgrades'].includes(access);
             const noPosting = [P.SendMessages, P.SendMessagesInThreads, P.CreatePublicThreads, P.CreatePrivateThreads];
             return [
                 { id: guild.id, ...(access === 'publicRead' ? { allow: [P.ViewChannel, P.ReadMessageHistory], deny: noPosting } : { deny: [P.ViewChannel, ...(feed ? noPosting : [])] }) },
-                { id: me.id, allow: [...write, P.ManageChannels, P.ManageThreads, P.CreatePrivateThreads, ...(['trade', 'read', 'chat'].includes(access) ? [P.ManageMessages] : []), ...(access === 'games' ? [P.MentionEveryone] : [])] },
+                { id: me.id, allow: [...write, P.ManageChannels, P.ManageThreads, P.CreatePrivateThreads, ...(['trade', 'read', 'chat', 'upgrades'].includes(access) ? [P.ManageMessages] : []), ...(['games', 'upgrades'].includes(access) ? [P.MentionEveryone] : [])] },
                 ...staff.map(id => ({ id, allow: write })),
                 ...(!['staff', 'committee'].includes(access) ? [{
                     id: coach,
@@ -50,6 +50,18 @@ function createChannelSetupService(repository = require('./repository').createFa
                 ids[key] = ch.id; save();
             } catch (error) { result.failed++; result.errors.push(`lb-${suffix}: ${error.message}`); }
         }
+        try {
+            const upgrades = channels.get(ids.playerUpgrades), tradeProof = channels.get(ids.tradeProof);
+            if (upgrades && upgrades.parentId !== category.id && typeof upgrades.setParent === 'function') {
+                await upgrades.setParent(category.id, { lockPermissions: false, reason: 'Keep Player Upgrades with LEAGUEbuddy channels' });
+            }
+            if (upgrades && tradeProof && typeof upgrades.setPosition === 'function' && Number.isInteger(tradeProof.position)) {
+                await upgrades.setPosition(tradeProof.position + 1, { reason: 'Place Player Upgrades beside the game/trade workflow' });
+            }
+        } catch (error) {
+            result.failed++;
+            result.errors.push(`lb-player-upgrades order: ${error.message}`);
+        }
         try { result.draftPicksInitialized = require('./trade-service').createTradeService({ repository }).initializeDraftPicks({ leagueId, seasonId: context.seasonId, actingUserId: actorId }).created; }
         catch (error) { result.failed++; result.errors.push(`draft picks: ${error.message}`); }
         const tradeChannels = [ids.submitTrade, ids.tradeCounts].map(id => channels.get(id)).filter(Boolean);
@@ -59,6 +71,11 @@ function createChannelSetupService(repository = require('./repository').createFa
             const message = await require('./discord-mock-draft').createDiscordMockDraft({ repository }).ensurePin(guild, leagueId);
             result.liveMockMessageId = message.id; result.liveMockChannelId = ids.scouting;
         } catch (error) { result.failed++; result.errors.push(`live mock pin: ${error.message}`); }
+        const upgradesChannel = channels.get(ids.playerUpgrades);
+        if (upgradesChannel && typeof upgradesChannel.messages?.fetchPins === 'function') try {
+            const message = await require('./discord-player-upgrades').createDiscordPlayerUpgrades({ repository }).ensurePin(guild, leagueId);
+            result.playerUpgradesMessageId = message.id; result.playerUpgradesChannelId = ids.playerUpgrades;
+        } catch (error) { result.failed++; result.errors.push(`player upgrades pin: ${error.message}`); }
         // Refresh is queued in the existing league storage; starts never generate simulations.
         try { require('./mock-storage').requestRefresh(repository, leagueId, 'league.channels.setup', `setup:${context.seasonId}`); }
         catch (error) { result.errors.push(`mock simulations: ${error.message}`); }

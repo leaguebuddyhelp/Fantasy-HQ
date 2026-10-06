@@ -59,7 +59,7 @@ function createScoutingService({ repository, draftClassDir = path.join(process.c
         const raw = JSON.parse(fs.readFileSync(path.join(draftClassDir, file), 'utf8'));
         const prospects = Object.values(raw || {}).map(prospect => ({
             ...prospect,
-            board_number: Number(prospect.board_number),
+            board_number: Number(prospect.board_number ?? prospect.id_number),
         })).filter(prospect => Number.isInteger(prospect.board_number) && prospect.board_number > 0)
             .sort((left, right) => left.board_number - right.board_number);
         const classId = classDirectoryId(file), imageRoot = path.join(draftClassDir, 'images', classId);

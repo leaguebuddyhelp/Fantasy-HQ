@@ -83,11 +83,37 @@ test("pinned builder supports third teams, routed assets, value/roster feedback,
     await f.workflow.handleTradeInteraction(chooseBravo);
     const routeBravo = f.interaction(`trade:destination:${tradeId}:PLAYER:bravo:${encodeURIComponent("bravo-player-0")}`, { kind: "select", selected: ["alpha|UNPROTECTED"] });
     await f.workflow.handleTradeInteraction(routeBravo);
+    const submit = routeBravo.payload.components[1].components.find(component => component.data.label === "Submit Proposal");
+    assert.equal(submit.data.disabled, false);
     const packageButton = routeBravo.payload.components[1].components[0].data.custom_id;
     const packageReview = f.interaction(packageButton);
     await f.workflow.handleTradeInteraction(packageReview);
     assert.match(packageReview.payload.embeds[0].data.title, /alpha team Package/);
     assert.match(packageReview.payload.embeds[0].data.description, /Receives from bravo team/);
+});
+
+test("trade builder disables submission while roster or value checks are invalid", async t => {
+    const f = fixture(t), players = f.repository.loadPlayers("league"), memberships = f.repository.loadRosterMemberships("league");
+    for (const [teamId, count] of [["alpha", 4], ["bravo", 3]]) {
+        for (let index = 0; index < count; index += 1) {
+            const playerId = `${teamId}-extra-${index}`;
+            players.push({ playerId, name: `${teamId} extra ${index}`, overall: 80, position1: "SF" });
+            memberships.push({ leagueId: "league", seasonId: "1", teamId, playerId, active: true });
+        }
+    }
+    f.repository.savePlayers("league", players);
+    f.repository.saveRosterMemberships("league", memberships);
+    const draft = f.service.createDraft({ leagueId: "league", seasonId: "1", initiatingUserId: "coach-alpha", initiatingTeamId: "alpha", secondTeamId: "bravo" });
+    f.service.updateDraft({
+        leagueId: "league", tradeId: draft.tradeId, actorUserId: "coach-alpha", transfers: [
+            { assetType: "PLAYER", assetId: "alpha-player-0", fromTeamId: "alpha", toTeamId: "bravo" },
+        ]
+    });
+    const refresh = f.interaction(`trade:back:${draft.tradeId}`);
+    await f.workflow.handleTradeInteraction(refresh);
+    const submit = refresh.payload.components[1].components.find(component => component.data.label === "Submit Proposal");
+    assert.equal(submit.data.disabled, true);
+    assert.match(refresh.payload.embeds[0].data.fields.find(field => field.name === "What needs fixing").value, /finish with exactly 15/);
 });
 
 test("existing Test Mode lets league staff choose a team without weakening production entry", async t => {
@@ -159,4 +185,32 @@ test("player selectors page through all roster assets when a team exceeds Discor
     await f.workflow.handleTradeInteraction(secondPage);
     assert.match(secondPage.payload.content, /Page 2\/2/);
     assert.equal(secondPage.payload.components[0].components[0].toJSON().options.length, 1);
+});
+
+test('solo committee fallback handles an involved tester role while preserving independent online voters', async t => {
+    for (const independent of [false, true]) {
+        const f = fixture(t, true);
+        f.repository.saveOwners('league', [{ teamId: 'alpha', userId: 'coach-alpha' }]);
+        f.repository.saveSettings('league', { testMode: true, discordChannels: { tradeCommittee: 'committee' } });
+        f.guild.roles.cache.push({ id: 'reviewers', name: 'LEAGUEbuddy Trade Committee' });
+        f.guild.roles.fetch = async () => { };
+        const ids = independent ? ['coach-alpha', 'independent'] : ['coach-alpha'];
+        f.guild.members = { fetch: async () => new Map(ids.map(id => [id, { id, user: { bot: false }, roles: { cache: new Set(['reviewers']) } }])) };
+        let posted;
+        f.guild.channels.fetch = async () => ({ id: 'committee', send: async payload => { posted = payload; return { id: 'vote-message' }; } });
+        const draft = f.service.createDraft({ leagueId: 'league', seasonId: '1', initiatingUserId: 'coach-alpha', initiatingTeamId: 'alpha', secondTeamId: 'bravo' });
+        f.service.updateDraft({
+            leagueId: 'league', tradeId: draft.tradeId, actorUserId: 'coach-alpha', transfers: [
+                { assetType: 'PLAYER', assetId: 'alpha-player-0', fromTeamId: 'alpha', toTeamId: 'bravo' },
+                { assetType: 'PLAYER', assetId: 'bravo-player-0', fromTeamId: 'bravo', toTeamId: 'alpha' },
+            ]
+        });
+        const { trade } = f.service.submitTrade({ leagueId: 'league', tradeId: draft.tradeId, actorUserId: 'coach-alpha' });
+        const click = f.interaction(`trade:gm:APPROVE:${trade.tradeId}:1:bravo`, { manageGuild: true });
+        await f.workflow.handleTradeInteraction(click);
+        const updated = f.service.getTrade('league', trade.tradeId);
+        assert.equal(updated.status, 'PENDING_COMMITTEE', JSON.stringify(click.payload));
+        assert.deepEqual(updated.currentVersion.committee.eligibleVoterIds, independent ? ['independent'] : Array.from({ length: 5 }, (_, i) => `test-committee:coach-alpha:${i + 1}`));
+        assert.equal(posted.components.length, independent ? 1 : 5);
+    }
 });

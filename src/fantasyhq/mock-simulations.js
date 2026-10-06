@@ -59,8 +59,10 @@ function createMockSimulationService({ repository, scoutingService, standingsSer
     scoutingService ||= require('./scouting-service').createScoutingService({ repository });
     standingsService ||= require('./standings-service').createStandingsService({ repository });
     rosterService ||= require('./roster-service').createRosterService({ repository });
-    function inputFor(leagueId) {
-        const c = repository.loadLeague(leagueId), board = scoutingService.boardForContext(c), draftClassId = board.file.replace(/\.json$/i, '');
+    function inputFor(leagueId, classNumber = null) {
+        const c = repository.loadLeague(leagueId);
+        if (classNumber != null && (!Number.isInteger(classNumber) || classNumber < 1 || classNumber > 4)) throw Error('Choose draft class CUS01 through CUS04.');
+        const board = scoutingService.boardForContext(classNumber == null ? c : { ...c, league: { ...c.league, seasonNumber: classNumber } }), draftClassId = board.file.replace(/\.json$/i, '');
         if (board.prospects.length < 30) throw Error('The current Big Board needs at least 30 prospects.');
         const entries = rosterService.currentRosterEntries(leagueId, c.seasonId);
         return { leagueId, seasonId: c.seasonId, draftClassId, currentWeek: c.league.currentWeek, draftYear: leagueSeasonStartYear(c.league.seasonNumber) + 1, teams: c.teams, prospects: board.prospects.map(p => ({ ...p, prospectId: `${draftClassId}:${p.board_number}` })), rosters: Object.fromEntries(c.teams.map(t => [t.teamId, entries.filter(e => e.membership.teamId === t.teamId).map(e => ({ ...e.player, position1: e.membership.position1 || e.player?.position1, position2: e.membership.position2 || e.player?.position2 }))])), standings: standingsService.getStandings(leagueId, c.seasonId), picks: repository.loadDraftPicks(leagueId).filter(p => Number(p.round) === 1 && Number(p.draftYear) === leagueSeasonStartYear(c.league.seasonNumber) + 1), settings: { mockDraft: repository.loadSettings(leagueId)?.mockDraft || {} } };
@@ -110,7 +112,8 @@ function createMockSimulationService({ repository, scoutingService, standingsSer
         } finally { locked(root, () => { if (read(generationFile)?.claim === claim) atomicWrite(generationFile, { pid: null }); }); }
     }
     function requireActive(leagueId, input = inputFor(leagueId)) {
-        const saved = active(leagueId);
+        let saved = active(leagueId);
+        if (saved?.draftClassId !== input.draftClassId) { const projection = read(classProjectionFile(leagueId, input.draftClassId)); saved = projection ? byId(leagueId, projection.simulationSnapshotId) : null; }
         if (!saved || saved.draftClassId !== input.draftClassId || saved.seasonId !== input.seasonId) throw Error('The current 1,000-mock snapshot is not ready. Setup or background refresh must finish first.');
         return saved;
     }
@@ -138,6 +141,29 @@ function createMockSimulationService({ repository, scoutingService, standingsSer
             return read(file);
         });
     }
+    function classProjectionFile(leagueId, classId) { return path.join(rootFor(repository, leagueId), `weekly-class-${hash(classId).slice(0, 16)}.json`); }
+    async function classProjection(leagueId, classNumber = null) {
+        if (classNumber == null || classNumber === Number(repository.loadLeague(leagueId).league.seasonNumber)) return weeklyProjection(leagueId);
+        const input = inputFor(leagueId, classNumber), file = classProjectionFile(leagueId, input.draftClassId);
+        const existing = read(file);
+        if (existing?.seasonId === input.seasonId && existing.week === input.currentWeek && existing.engineVersion === ENGINE_VERSION) return existing;
+        const jobKey = `${repository.dataRoot}:${leagueId}:class:${classNumber}`;
+        if (jobs.has(jobKey)) return jobs.get(jobKey);
+        const task = (async () => {
+            const seed = `weekly:${leagueId}:${input.seasonId}:${input.draftClassId}:${input.currentWeek ?? 'preseason'}`;
+            const snapshot = await generator(input, { seed });
+            validateSnapshot(snapshot);
+            const current = repository.loadLeague(leagueId);
+            if (current.seasonId !== input.seasonId || current.league.currentWeek !== input.currentWeek) throw Error('League week changed while preparing this class. Try again.');
+            const generated = generateDraftOrder(input, { lottery: false });
+            const selections = project(input, generated.order, snapshot, seededRandom(seed)).map(s => ({ ...s, avp: snapshot.prospectAggregates[s.prospectId]?.avp ?? null }));
+            const result = { schemaVersion: 1, engineVersion: ENGINE_VERSION, leagueId, seasonId: input.seasonId, draftClassId: input.draftClassId, classNumber, week: input.currentWeek, simulationSnapshotId: snapshot.id, generatedAt: snapshot.generatedAt, input, selections, warnings: generated.warnings };
+            locked(rootFor(repository, leagueId), () => { atomicWrite(path.join(rootFor(repository, leagueId), 'snapshots', `${snapshot.id}.json`), snapshot); atomicWrite(file, result); });
+            return result;
+        })().finally(() => jobs.delete(jobKey));
+        jobs.set(jobKey, task);
+        return task;
+    }
     function reconcileRequests(leagueId) {
         // Recover events even if a process stopped between the league transaction and enqueue.
         const input = inputFor(leagueId), prior = active(leagueId), processed = new Set(prior?.metadata.processedEvents || []);
@@ -146,6 +172,6 @@ function createMockSimulationService({ repository, scoutingService, standingsSer
             if (eventId && String(e.seasonId || e.result?.seasonId || input.seasonId) === input.seasonId && !processed.has(eventId)) requestRefresh(repository, leagueId, e.action, eventId);
         }
     }
-    return { inputFor, active, byId, refresh, requireActive, weeklyProjection, reconcileRequests, repository };
+    return { inputFor, active, byId, refresh, requireActive, weeklyProjection, classProjection, reconcileRequests, repository };
 }
 module.exports = { createMockSimulationService, simulate, validateSnapshot, hash };

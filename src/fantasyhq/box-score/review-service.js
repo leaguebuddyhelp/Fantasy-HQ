@@ -69,7 +69,7 @@ function createReviewService(submissions) {
       const output=validate(record,source,structuredClone(source.correctedInput),[]);
       if(output.issues.length)throw new Error('Resolve all validation warnings before approval.');
       const operator=String(body.operator || '').trim(); if(!operator || operator.length>100)throw new Error('Enter your commissioner name.');
-      finalizeValidatedSubmission(record,source.extractionId);
+      finalizeValidatedSubmission(record,source.extractionId, { testMode: submissions.repository.loadSettings(record.game.leagueId)?.testMode === true, owners: submissions.repository.loadOwners(record.game.leagueId) });
       record.game.approval={extractionId:source.extractionId,at:new Date().toISOString(),principal:'website-commissioner-key',operator};
       return record.game;
     });
