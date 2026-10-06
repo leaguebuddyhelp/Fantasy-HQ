@@ -130,6 +130,13 @@ test('only official games count and corrected source games immediately rebuild s
     assert.equal(f.service.getPlayerGameLog('league-a', '1', 'traded-player')[0].result, 'L');
 });
 
+test('flat player rows written by box score finalization are counted', t => {
+    const f = fixture(t);
+    f.first.playerGameStats = f.first.playerGameStats.map(({ stats, ...row }) => ({ ...row, ...stats }));
+    const stats = f.service.getPlayerSeasonStats('league-a', '1', 'traded-player');
+    assert.equal(stats.GP, 2); assert.equal(stats.PTS, 40);
+});
+
 test('league scoping prevents another league result from contributing', t => {
     const f = fixture(t);
     const foreign = structuredClone(f.first); foreign.game.leagueId = 'league-b'; foreign.playerGameStats[0].stats.PTS = 500;

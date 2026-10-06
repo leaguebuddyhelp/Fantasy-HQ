@@ -74,7 +74,8 @@ function createPlayerStatsService({ repository, submissions, publishedOnly = fal
                 if (!gameTeamIds.includes(teamId)) { gameWarnings.push({ type: 'invalid-game-team', gameId: game.gameId, playerId }); return; }
                 if (!playersById.has(playerId)) { gameWarnings.push({ type: 'unknown-player-id', gameId: game.gameId, playerId }); return; }
                 if (!dnp) {
-                    const raw = source.stats || {};
+                    // Finalized box scores store stats flat on the row; older fixtures nest them under `stats`.
+                    const raw = source.stats || source;
                     const stats = {
                         MIN: numericValue(raw.MIN), PTS: numericValue(raw.PTS, true), REB: numericValue(raw.REB, true),
                         AST: numericValue(raw.AST, true), STL: numericValue(raw.STL, true), BLK: numericValue(raw.BLK, true),
