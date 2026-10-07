@@ -3,6 +3,7 @@ import path from "node:path";
 
 import { load } from "cheerio";
 import { Browser, BrowserContext, chromium, Page, Response } from "playwright";
+import { loadPayroll, matchContract } from './contracts';
 
 import {
   CHECKPOINT_PATH,
@@ -177,7 +178,10 @@ class TwoKRatingsScraper {
       const teams = await this.discoverTeams();
       const filteredTeams = this.filterTeams(teams);
       await runWithConcurrency(filteredTeams, TEAM_CONCURRENCY, async (team) => {
-        if (this.checkpoint.completedTeamSlugs.includes(team.slug) && !this.options.player) return;
+        if (this.checkpoint.completedTeamSlugs.includes(team.slug) && !this.options.player) {
+          await this.enrichTeamPayroll(team);
+          return;
+        }
         await this.scrapeTeam(team);
         if (!this.options.player && !this.checkpoint.completedTeamSlugs.includes(team.slug)) {
           this.checkpoint.completedTeamSlugs.push(team.slug);
@@ -231,6 +235,7 @@ class TwoKRatingsScraper {
       if (!teamPlayers.length) continue;
 
       const rosterPayload: TeamRosterPayload = {
+        ...(this.checkpoint.teamPayrolls?.[team.slug] ? { payroll: this.checkpoint.teamPayrolls[team.slug] } : {}),
         scrapedAt: payload.scrapedAt,
         rosterDate,
         team: {
@@ -347,10 +352,33 @@ class TwoKRatingsScraper {
           this.persistCheckpoint();
         }
       });
+      await this.enrichTeamPayroll(team);
     } catch (error) {
       this.checkpoint.failures.push(makeFailure("team", team.url, error));
       this.persistCheckpoint();
     }
+  }
+
+  private async enrichTeamPayroll(team: TeamLink): Promise<void> {
+    try {
+      const payroll = await loadPayroll(team);
+      if (!payroll) return; // Free agents do not have a team payroll page.
+      const players = this.checkpoint.players.filter(player => this.playerBelongsToTeam(player, team));
+      payroll.unmatchedRosterPlayers = [];
+      for (const player of players) {
+        const contract = matchContract(player.name, payroll);
+        if (contract) player.contract = contract;
+        else payroll.unmatchedRosterPlayers.push(player.name);
+      }
+      this.checkpoint.teamPayrolls ||= {};
+      this.checkpoint.teamPayrolls[team.slug] = payroll;
+      if (payroll.status === 'STALE') this.checkpoint.failures.push(makeFailure('contract', payroll.sourceUrl, new Error(`Using payroll saved ${payroll.fetchedAt}: ${payroll.error}`)));
+      if (payroll.unmatchedRosterPlayers.length) this.checkpoint.failures.push(makeFailure('contract', payroll.sourceUrl,
+        new Error(`No unambiguous contract match for: ${payroll.unmatchedRosterPlayers.join(', ')}`)));
+    } catch (error) {
+      this.checkpoint.failures.push(makeFailure('contract', team.name, error));
+    }
+    this.persistCheckpoint();
   }
 
   private filterPlayers(players: RosterPlayerLink[]): RosterPlayerLink[] {

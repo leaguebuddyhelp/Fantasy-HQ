@@ -84,7 +84,14 @@ function createScoutingService({ repository, draftClassDir = path.join(process.c
         return {
             file,
             seasonNumber: context.league.seasonNumber,
-            prospects: prospects.map(prospect => ({ ...prospect, imagePath: images.get(prospect.board_number)?.path || null })),
+            prospects: prospects.map(prospect => {
+                // The board's image mapping remains authoritative when rankings change.
+                const explicitPath = prospect.image ? path.resolve(draftClassDir, prospect.image) : null;
+                const root = `${path.resolve(draftClassDir)}${path.sep}`;
+                const imagePath = explicitPath?.startsWith(root) && fs.existsSync(explicitPath)
+                    && fs.statSync(explicitPath).isFile() ? explicitPath : images.get(prospect.board_number)?.path || null;
+                return { ...prospect, imagePath };
+            }),
         };
     }
 

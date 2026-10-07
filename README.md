@@ -209,3 +209,15 @@ After pick 30, the bot persists the complete recap and supported awards, attempt
 See [MOCK-DRAFT-TESTING.md](MOCK-DRAFT-TESTING.md) for the exact live test checklist and remaining data assumptions.
 
 Player Trade Value adds an OVR tier premium to the nonlinear base: 85–89 OVR ×1.25, 90–94 ×1.60, and 95–99 ×2.10. These are exclusive tiers, combined with a separate prime-age premium: ages 24–29 ×1.25, ages 23/30 ×1.18, ages 22/31 ×1.10, and age 32 ×1.05. Existing age/development, positional size, wingspan, versatility, and experience factors remain part of the calculation. League age follows the league season rather than the real-world clock. The formula applies to all players without name-based overrides; submitted trade versions retain their frozen valuations.
+
+## Team payroll imports
+
+Team scans automatically fetch Basketball Reference payrolls and attach an unambiguous player contract match to each ratings record. Salary amounts are USD, keyed by the source's actual NBA season labels; player/team options and the published guaranteed total are retained separately. Missing salaries remain unknown rather than zero.
+
+```bash
+npm run scrape -- --team atlanta-hawks
+```
+
+The regular all-team scan (`npm run scrape`) and resumed scans also fetch payrolls. Team roster JSON includes the source payroll snapshot and unmatched roster names. Successful payroll snapshots are cached in `data/2kratings/contracts/<TEAM>.json`. If the source fails, the scan retains its last successful payroll, marks it `STALE`, and records the reason in `data/2kratings/logs/failures.json`; ratings collection continues. Without a prior successful payroll, salaries remain unavailable. Names match after accent/punctuation normalization; ambiguous or absent names are never guessed.
+
+New league roster imports retain player contracts. Existing roster import previews include contract changes, and an unavailable payroll never clears a saved league contract. Source NBA season labels are not shifted to match a custom league season. This adds contract data to scans/imports; it does not introduce salary-cap trade rules or change trade values.

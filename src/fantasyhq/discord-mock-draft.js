@@ -4,8 +4,9 @@ const { randomUUID } = require('crypto');
 const { ActionRowBuilder, AttachmentBuilder, ButtonBuilder, ButtonStyle, ChannelType, EmbedBuilder, MessageFlags, ModalBuilder, StringSelectMenuBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
 const { canManageLeague } = require('./discord-permissions');
 const { teamEmoji } = require('../shared/team-emojis');
+const { teamPositionNeeds } = require('./mock-engine');
 const COLOR = 0xffdc21, queues = new Map();
-function serial(key, work) { const task = (queues.get(key) || Promise.resolve()).catch(() => {}).then(work); queues.set(key, task); return task.finally(() => { if (queues.get(key) === task) queues.delete(key); }); }
+function serial(key, work) { const task = (queues.get(key) || Promise.resolve()).catch(() => { }).then(work); queues.set(key, task); return task.finally(() => { if (queues.get(key) === task) queues.delete(key); }); }
 const button = (id, label, style = ButtonStyle.Secondary) => {
     const control = new ButtonBuilder().setCustomId(id).setLabel(label).setStyle(style);
     const icon = /LOTTERY/.test(label) ? '🎲' : /INVITE/.test(label) ? '👥' : /LOCK/.test(label) ? '🔒' : /START|RESUME/.test(label) ? '▶️' : /PAUSE/.test(label) ? '⏸️' : /SEARCH/.test(label) ? '🔎' : /PICK/.test(label) ? '🏀' : /LEAVE/.test(label) ? '🚪' : null;
@@ -58,7 +59,11 @@ function projectionEmbed(input, selections, snapshot, warnings = []) {
     return card;
 }
 function portrait(payload, p) {
-    if (p.imagePath && fs.existsSync(p.imagePath)) { const name = `prospect-${p.board_number}${path.extname(p.imagePath)}`; payload.files = [new AttachmentBuilder(p.imagePath, { name })]; payload.embeds[0].setThumbnail(`attachment://${name}`); }
+    const draftRoot = path.resolve(__dirname, '../../draft_class');
+    const mappedPath = p.image ? path.resolve(draftRoot, p.image) : null;
+    const imagePath = mappedPath?.startsWith(`${draftRoot}${path.sep}`) && fs.existsSync(mappedPath)
+        && fs.statSync(mappedPath).isFile() ? mappedPath : p.imagePath;
+    if (imagePath && fs.existsSync(imagePath)) { const name = `prospect-${p.board_number}${path.extname(imagePath)}`; payload.files = [new AttachmentBuilder(imagePath, { name })]; payload.embeds[0].setThumbnail(`attachment://${name}`); }
     else if (/^https?:\/\//i.test(p.image || '')) payload.embeds[0].setThumbnail(p.image);
     return payload;
 }
@@ -264,7 +269,7 @@ function createDiscordMockDraft({ repository, simulations, live, client = null }
         return { pool: pool.slice(index * 10, index * 10 + 10), page: index, pages };
     }
     function selectionPayload(m, requestedPick, query = '', page = 0, searchToken = null) {
-                    if (m.status !== 'ACTIVE' || m.currentPick !== Number(requestedPick)) throw Error('That pick is no longer active.');
+        if (m.status !== 'ACTIVE' || m.currentPick !== Number(requestedPick)) throw Error('That pick is no longer active.');
         const saved = simulations.byId(m.leagueId, m.simulationSnapshotId), prefix = `mock:${m.id}`, result = searchToken ? choices(m, query, page) : { pool: live.available(m).slice(0, 10), page: 0, pages: 1 };
         const info = embed(searchToken ? `🔎 Search results · Page ${result.page + 1}/${result.pages}` : '🔎 TOP 10 BEST AVAILABLE', result.pool.map(p => `**${safe(p.name)}** · ${safe(p.position_1)} · ${safe(p.team || p.nationality)}\nBoard #${p.board_number} | AVP ${saved.prospectAggregates[p.prospectId]?.avp?.toFixed(1) || 'Unselected'}`).join('\n\n') || 'No undrafted prospects match this search.');
         const menuPool = searchToken ? result.pool : live.available(m).slice(0, 25);
@@ -275,6 +280,11 @@ function createDiscordMockDraft({ repository, simulations, live, client = null }
         components.push(row(...controls));
         const slot = m.lockedDraftOrder[m.currentPick - 1];
         info.setDescription(`${ownerIcon(m.input, slot)} **Pick #${m.currentPick} · ${ownership(m.input, slot)}**\n\n${info.data.description}`.slice(0, 4096));
+        const needs = teamPositionNeeds(m.input, slot.currentOwnerTeamId, m.selections);
+        const team = m.input.teams.find(team => team.teamId === slot.currentOwnerTeamId);
+        info.addFields({ name: `🎯 ${safe(team.teamName)} · Position needs`, value: needs.rosterAvailable
+            ? `${needs.positions.map(position => `${position.priority === 'High' ? '🔴' : position.priority === 'Moderate' ? '🟡' : '🟢'} **${position.position} · ${position.priority} need** — ${position.primaryCount} primary / ${position.secondaryCount} secondary · Rotation depth ${position.rotationDepth.toFixed(1)}${position.bestOverall == null ? '' : ` · Best ${position.bestOverall} OVR`}`).join('\n')}\n\n**Target:** ${needs.targets.length ? needs.targets.join(' → ') : 'Best player available'}\nBased on rotation quality, starter/backup strength and starter age. Fringe depth is discounted. Updates with your mock picks.`
+            : 'Roster data is unavailable. Import the team roster to see position targets.' });
         if (result.pool.length) info.setFooter({ text: `Portrait: ${safe(result.pool[0].name)}` });
         const payload = { embeds: [info], components, allowedMentions: { parse: [] } };
         return result.pool.length ? portrait(payload, result.pool[0]) : payload;
@@ -283,6 +293,9 @@ function createDiscordMockDraft({ repository, simulations, live, client = null }
         const c = context(interaction), leagueId = c.league.leagueId;
         await validateCoach(interaction.guild, leagueId, interaction.user.id);
         const classNumber = interaction.options?.getInteger?.('draft_class') ?? null;
+        if (classNumber == null || classNumber === Number(c.league.seasonNumber)) {
+            await simulations.refresh(leagueId);
+        }
         const weekly = await simulations.classProjection(leagueId, classNumber);
         await interaction.editReply({ embeds: [projectionEmbed(weekly.input, weekly.selections, weekly, weekly.warnings)], allowedMentions: { parse: [] } });
     }
@@ -316,6 +329,9 @@ function createDiscordMockDraft({ repository, simulations, live, client = null }
                 await validateCoach(guild, leagueId, interaction.user.id);
                 const classNumber = Number(interaction.values?.[0]);
                 if (!Number.isInteger(classNumber) || classNumber < 1 || classNumber > 4) throw Error('Choose draft class CUS01 through CUS04.');
+                if (classNumber === Number(c.league.seasonNumber)) {
+                    await simulations.refresh(leagueId);
+                }
                 await simulations.classProjection(leagueId, classNumber);
                 await serial(key(leagueId, `host:${interaction.user.id}`), async () => { const m = live.create(leagueId, interaction.user.id, guild.id, classNumber); await serial(key(leagueId, m.id), () => pump(guild, leagueId, m.id)); const current = live.get(leagueId, m.id); await interaction.editReply({ content: `Your private Live Mock is ready: <#${current.threadId}>`, embeds: [], components: [] }); });
                 return;

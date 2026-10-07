@@ -213,6 +213,10 @@ function createRosterService(options = {}) {
         teamId,
       };
       const fieldChanges = diffObject(currentSnapshot, importedSnapshot, ROSTER_COMPARISON_FIELDS);
+      // Missing payroll must never erase a previously imported contract.
+      if (importedPlayer.contract && JSON.stringify(currentSnapshot.contract) !== JSON.stringify(importedPlayer.contract)) {
+        fieldChanges.push({ field: 'contract', before: currentSnapshot.contract ?? null, after: structuredClone(importedPlayer.contract) });
+      }
       if (fieldChanges.length) {
         changes.push({
           playerId: match.entry.player.playerId,

@@ -167,6 +167,7 @@ function createSetupService(options = {}) {
             archetype: player.archetype,
             imageUrl: player.imageUrl,
             profileUrl: player.profileUrl,
+            ...(player.contract ? { contract: structuredClone(player.contract) } : {}),
             position1: player.position1 ?? null,
             position2: player.position2 ?? null,
             jerseyNumber: player.jerseyNumber ?? null,

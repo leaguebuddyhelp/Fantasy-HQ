@@ -52,6 +52,7 @@ const client = new Client({
   GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent]
 });
 const tradeRepository = require("./fantasyhq/repository").createFantasyHQRepository();
+const discordLeagueFeeds = require("./fantasyhq/discord-league-feeds").createDiscordLeagueFeeds({ repository: tradeRepository });
 const gameRecordStore = require("./fantasyhq/game-submissions").createGameSubmissionService({ repository: tradeRepository });
 const playerUpgradeService = require("./fantasyhq/player-upgrades-service").createPlayerUpgradeService({ repository: tradeRepository, submissions: gameRecordStore });
 const discordPlayerUpgrades = require("./fantasyhq/discord-player-upgrades").createDiscordPlayerUpgrades({ repository: tradeRepository, service: playerUpgradeService, client });
@@ -78,14 +79,22 @@ client.on(Events.MessageCreate, message => {
   gameActivity.message(message).catch(error => console.error("Game activity:", error.message));
   gameSubmissions.message(message).catch(error => console.error("Game submission:", error.message));
 });
-const gameThreads = require("./fantasyhq/game-threads").createGameThreadService();
 const discordActivityCheck = require("./fantasyhq/discord-activity-check").createDiscordActivityCheck({ repository: tradeRepository });
-const weekAdvancement = require("./fantasyhq/week-advancement").createWeekAdvancementService({ threads: gameThreads });
+const gameThreads = require("./fantasyhq/game-threads").createGameThreadService();
+let mockSimulations;
+const weekAdvancement = require("./fantasyhq/week-advancement").createWeekAdvancementService({
+  threads: gameThreads,
+  onAdvanced: async ({ guild, leagueId }) => {
+    try { await discordLeagueFeeds.ensurePins(guild, leagueId); }
+    catch (error) { console.error("League feeds after week advancement:", error.message); }
+    if (mockSimulations) mockSimulations.refresh(leagueId).catch(error => console.error("Mock simulations:", error.message));
+  },
+});
 const gameCleanup = require("./fantasyhq/game-thread-cleanup").createGameThreadCleanupService();
 require("./web").setGameThreadRuntime({ client, service: gameThreads, repository: gameThreads.repository, weekService: weekAdvancement, cleanupService: gameCleanup });
 const scoutingService = require("./fantasyhq/scouting-service").createScoutingService({ repository: require("./fantasyhq/repository").createFantasyHQRepository() });
 const scoutingCommands = require("./fantasyhq/discord-scouting");
-const mockSimulations = require('./fantasyhq/mock-simulations').createMockSimulationService({ repository: tradeRepository, scoutingService });
+mockSimulations = require('./fantasyhq/mock-simulations').createMockSimulationService({ repository: tradeRepository, scoutingService });
 const liveMocks = require('./fantasyhq/live-mock-service').createLiveMockService({ repository: tradeRepository, simulations: mockSimulations });
 const discordMocks = require('./fantasyhq/discord-mock-draft').createDiscordMockDraft({ repository: tradeRepository, simulations: mockSimulations, live: liveMocks, client });
 
@@ -95,6 +104,7 @@ const discordPlayerStats = require("./fantasyhq/discord-player-stats").createDis
   playerService: require("./fantasyhq/player-service").createPlayerService({ repository: discordStatsRepository }),
   statsService: require("./fantasyhq/player-stats-service").createPlayerStatsService({ repository: discordStatsRepository }),
 });
+const discordTradeBlock = require("./fantasyhq/discord-trade-block").createDiscordTradeBlock({ repository: discordStatsRepository, playerService: require("./fantasyhq/player-service").createPlayerService({ repository: discordStatsRepository }) });
 const discordTeamStatsRepository = require("./fantasyhq/repository").createFantasyHQRepository();
 const discordTeamStats = require("./fantasyhq/discord-team-stats").createDiscordTeamStatsHandlers({
   repository: discordTeamStatsRepository,
@@ -104,7 +114,6 @@ const draftEmojiCache = new Map();
 const DRAFT_CLASS_DIR = path.join(process.cwd(), "draft_class");
 const DRAFT_IMAGE_DIR = path.join(DRAFT_CLASS_DIR, "images");
 
-const discordTradeBlock = require("./fantasyhq/discord-trade-block").createDiscordTradeBlock({ repository: discordStatsRepository, playerService: require("./fantasyhq/player-service").createPlayerService({ repository: discordStatsRepository }) });
 function readJson(filePath, fallback = null) {
   try {
     return JSON.parse(fs.readFileSync(filePath, "utf8"));
@@ -723,6 +732,8 @@ async function handleTransferPortalClassAutocomplete(interaction) {
 const handlers = {
   mockdraft: interaction => discordMocks.projection(interaction),
   bigboard: interaction => scoutingCommands.handleBigBoardCommand(interaction, scoutingService),
+  tradeblock: interaction => discordTradeBlock.handleTradeBlockCommand(interaction),
+  activitycheck: interaction => discordActivityCheck.start(interaction),
   week: interaction => require("./fantasyhq/discord-week").handleWeekCommand(interaction, weekAdvancement),
   standings: interaction => require("./fantasyhq/discord-standings").handleStandings(interaction),
   games: interaction => interaction.options.getSubcommand() === "cleanup" ? require("./fantasyhq/discord-game-cleanup").handleCleanupCommand(interaction, gameCleanup) : require("./fantasyhq/discord-game-threads").handleGameThreads(interaction, gameThreads, gameCleanup),
@@ -732,8 +743,6 @@ const handlers = {
   admin: handleAdminCommand,
   league: handleLeagueCommand,
   player: handlePlayerCommand,
-  tradeblock: interaction => discordTradeBlock.handleTradeBlockCommand(interaction),
-  activitycheck: interaction => discordActivityCheck.start(interaction),
   ratings: handleRatingsCommand,
   recruiting: handleRecruitingCommand,
   roster: handleRosterCommand,
@@ -800,9 +809,12 @@ client.once(Events.ClientReady, async (readyClient) => {
     try { require("./fantasyhq/official-game").initializeStatsPublication(publicationSubmissions.repository, publicationRecords, guild.id); }
     catch (error) { console.error("Stats publication recovery:", error.message); }
   }
-  const leagueFeeds = require("./fantasyhq/discord-league-feeds").createDiscordLeagueFeeds();
-  const feedTick = () => leagueFeeds.tick(readyClient).catch(error => console.error("League feeds:", error.message));
+  const feedTick = () => discordLeagueFeeds.tick(readyClient).catch(error => console.error("League feeds:", error.message));
   feedTick(); setInterval(feedTick, 60000).unref();
+  const tradeBlockTick = () => discordTradeBlock.tick(client).catch(error => console.error("Trade block:", error.message));
+  tradeBlockTick(); setInterval(tradeBlockTick, 60000).unref();
+  const activityCheckTick = () => discordActivityCheck.tick(client).catch(error => console.error("Activity check:", error.message));
+  activityCheckTick(); setInterval(activityCheckTick, 60000).unref();
   const activityTick = () => gameActivity.tick(client).catch(error => console.error("Game activity:", error.message));
   activityTick(); setInterval(activityTick, 60000).unref();
   for (const guild of readyClient.guilds.cache.values()) queueOwnershipSync(guild);
@@ -811,10 +823,6 @@ client.once(Events.ClientReady, async (readyClient) => {
   const upgradeSweep = async () => {
     if (upgradeSweepRunning) return;
     upgradeSweepRunning = true;
-  const tradeBlockTick = () => discordTradeBlock.tick(client).catch(error => console.error("Trade block:", error.message));
-  tradeBlockTick(); setInterval(tradeBlockTick, 60000).unref();
-  const activityCheckTick = () => discordActivityCheck.tick(client).catch(error => console.error("Activity check:", error.message));
-  activityCheckTick(); setInterval(activityCheckTick, 60000).unref();
     try { await discordPlayerUpgrades.restore(readyClient); }
     catch (error) { console.error("Player upgrade recovery:", error.message); }
     finally { upgradeSweepRunning = false; }
@@ -936,10 +944,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     await interaction.deferReply({ flags: privateReply ? MessageFlags.Ephemeral : 0 });
     await handler(interaction);
   } catch (error) {
-    console.error(error);
-    const message = `Error: ${error.message}`;
-    if (interaction.deferred || interaction.replied) await interaction.editReply(message);
-    else await interaction.reply({ content: message, flags: MessageFlags.Ephemeral });
+    await require("./shared/discord-interaction-error").replyInteractionError(interaction, error);
   }
 });
 

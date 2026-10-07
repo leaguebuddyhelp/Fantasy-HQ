@@ -46,6 +46,17 @@ test('season number selects matching board and prospect autocomplete narrows by 
     assert.equal(f.service.inspect('guild', 'coach-a', 1).prospect.overall, 20);
 });
 
+test('CUS04 portraits follow the explicit player image mapping rather than board rank', t => {
+    const f = fixture(t);
+    const service = createScoutingService({ repository: f.repository, draftClassDir: path.join(__dirname, '..', 'draft_class') });
+    const board = service.boardForContext({ league: { seasonNumber: 4 } });
+    for (const name of ['Marteese Jefferson', 'Eliott Tissot']) {
+        const prospect = board.prospects.find(player => player.name === name);
+        assert.equal(prospect.imagePath, path.resolve(__dirname, '..', 'draft_class', prospect.image));
+        assert.ok(fs.existsSync(prospect.imagePath));
+    }
+});
+
 test('each coach gets 60 weekly points and each prospect reveals draft grade, OVR, potential for 10 points each', t => {
     const f = fixture(t);
     assert.equal(f.service.inspect('guild', 'coach-a', 1).remaining, 60);

@@ -41,9 +41,11 @@ function discordFixture(f) {
     const client = { user: { id: botId }, guilds: { cache: new Collection() }, users: { fetch: async id => ({ createDM: async () => { if (failDM.has(id)) throw Object.assign(Error('DM closed'), { code: 50007 }); if (!dmChannels.has(id)) dmChannels.set(id, channel(`dm-${id}`, false)); return dmChannels.get(id); } }) } };
     function channel(id, thread = false) {
         const messages = new Collection(), members = new Set();
-        const ch = { id, client, type: thread ? ChannelType.PrivateThread : ChannelType.GuildText, messages: { fetch: async arg => { if (typeof arg === 'string') { if (!messages.has(arg)) throw Object.assign(Error('Unknown message'), { code: 10008 }); return messages.get(arg); } return messages; }, fetchPins: async () => new Collection([...messages].filter(([, m]) => m.pinned)) }, send: async payload => {
-            const msg = { id: `msg${++seq}`, nonce: payload.nonce, author: { id: botId }, pinned: false, embeds: [], components: [], edit: async p => { msg.embeds = (p.embeds || []).map(e => e.toJSON ? e.toJSON() : e); msg.components = (p.components || []).map(r => ({ components: r.components.map(c => ({ customId: c.data.custom_id })) })); return msg; }, delete: async () => { messages.delete(msg.id); }, pin: async () => { msg.pinned = true; } }; await msg.edit(payload); messages.set(msg.id, msg); return msg;
-        }, members: { add: async userId => { members.add(userId); }, fetch: async userId => { if (!members.has(userId)) throw Object.assign(Error('Unknown member'), { code: 10007 }); return { id: userId }; } }, delete: async () => { if (failDelete) throw Error('Delete failed'); channels.delete(id); deleted = true; }, setArchived: async () => { ch.archived = false; } };
+        const ch = {
+            id, client, type: thread ? ChannelType.PrivateThread : ChannelType.GuildText, messages: { fetch: async arg => { if (typeof arg === 'string') { if (!messages.has(arg)) throw Object.assign(Error('Unknown message'), { code: 10008 }); return messages.get(arg); } return messages; }, fetchPins: async () => new Collection([...messages].filter(([, m]) => m.pinned)) }, send: async payload => {
+                const msg = { id: `msg${++seq}`, nonce: payload.nonce, author: { id: botId }, pinned: false, embeds: [], components: [], edit: async p => { msg.embeds = (p.embeds || []).map(e => e.toJSON ? e.toJSON() : e); msg.components = (p.components || []).map(r => ({ components: r.components.map(c => ({ customId: c.data.custom_id })) })); return msg; }, delete: async () => { messages.delete(msg.id); }, pin: async () => { msg.pinned = true; } }; await msg.edit(payload); messages.set(msg.id, msg); return msg;
+            }, members: { add: async userId => { members.add(userId); }, fetch: async userId => { if (!members.has(userId)) throw Object.assign(Error('Unknown member'), { code: 10007 }); return { id: userId }; } }, delete: async () => { if (failDelete) throw Error('Delete failed'); channels.delete(id); deleted = true; }, setArchived: async () => { ch.archived = false; }
+        };
         ch.threads = { fetchActive: async () => ({ threads: new Collection([...channels].filter(([, t]) => t.type === ChannelType.PrivateThread)) }), fetchArchived: async () => ({ threads: new Collection() }), create: async options => { assert.equal(options.type, ChannelType.PrivateThread); assert.equal(options.invitable, false); const thread = channel(`thread${++seq}`, true); thread.name = options.name; thread.ownerId = botId; channels.set(thread.id, thread); return thread; } };
         ch._messages = messages; ch._members = members; return ch;
     }
@@ -51,7 +53,7 @@ function discordFixture(f) {
     const guild = { id: 'guild', client, members: { me: { id: botId }, fetch: async id => { const match = id.match(/^u(\d+)$/); if (!match) throw Object.assign(Error('Unknown member'), { code: 10007 }); return { id, user: { bot: false }, roles: { cache: new Collection([[`r${match[1]}`, { id: `r${match[1]}` }]]) } }; } }, channels: { fetch: async id => { if (!channels.has(id)) throw Object.assign(Error('Unknown channel'), { code: 10003 }); return channels.get(id); } } };
     client.guilds.cache.set('guild', guild);
     const workflow = createDiscordMockDraft({ repository: f.repository, simulations: f.simulations, live: f.live, client });
-    function interaction(customId, userId = 'u0', channelId = 'hub') { return { customId, guildId: 'guild', guild, channelId, user: { id: userId }, replies: [], deferReply: async function(p) { this.deferred = true; this.deferPayload = p; }, editReply: async function(p) { this.replies.push(p); }, followUp: async function(p) { this.replies.push(p); }, reply: async function(p) { this.replied = true; this.replies.push(p); }, showModal: async function(m) { this.modal = m; }, memberPermissions: { has: () => false } }; }
+    function interaction(customId, userId = 'u0', channelId = 'hub') { return { customId, guildId: 'guild', guild, channelId, user: { id: userId }, replies: [], deferReply: async function (p) { this.deferred = true; this.deferPayload = p; }, editReply: async function (p) { this.replies.push(p); }, followUp: async function (p) { this.replies.push(p); }, reply: async function (p) { this.replied = true; this.replies.push(p); }, showModal: async function (m) { this.modal = m; }, memberPermissions: { has: () => false } }; }
     const start = async () => { const i = interaction('mock:startclass'); i.values = ['1']; await workflow.handle(i); return i; };
     return { start, workflow, interaction, guild, channels, client, dmChannels, failDM, deleted: () => deleted, failDelete: value => { failDelete = value; } };
 }
@@ -91,7 +93,8 @@ test('refresh events are idempotent and unsuccessful week commits do not enqueue
 });
 test('only completed current first-round ownership transactions request trade refresh', t => {
     for (const status of ['PROPOSED', 'DENIED', 'AWAITING_PROOF']) { const f = fixture(t); f.repository.saveTrades('l', [{ status }]); assert.equal(fs.existsSync(path.join(f.root, 'refresh.json')), false); }
-    for (const relevant of [true, false]) { const f = fixture(t), picks = f.repository.loadDraftPicks('l'); if (!relevant) picks[0].round = 2;
+    for (const relevant of [true, false]) {
+        const f = fixture(t), picks = f.repository.loadDraftPicks('l'); if (!relevant) picks[0].round = 2;
         f.repository.commitTradeTransaction({ leagueId: 'l', players: [], rosterMemberships: [], draftPicks: picks, trades: [{ status: 'COMPLETED' }], auditEntry: { action: 'trade.completed', metadata: { processingId: 'tx', affectedPickIds: ['pick_t0'] } } });
         assert.equal(fs.existsSync(path.join(f.root, 'refresh.json')), relevant);
     }
@@ -99,7 +102,8 @@ test('only completed current first-round ownership transactions request trade re
 test('valid coach start is idempotent; non-coach rejected; ownership freezes at lock', t => { const f = fixture(t); assert.throws(() => f.live.create('l', 'stranger', 'guild'), /coach/); const m = f.live.create('l', 'u0', 'guild'); assert.equal(f.live.create('l', 'u0', 'guild').id, m.id); f.live.lottery('l', m.id, { id: 'u0' }); f.live.lottery('l', m.id, { id: 'u0' }); const picks = f.repository.loadDraftPicks('l'); picks[14].currentOwnerTeamId = 't0'; f.repository.saveDraftPicks('l', picks); const locked = f.live.lock('l', m.id, { id: 'u0' }); assert.equal(locked.lockedDraftOrder.find(s => s.originalTeamId === 't14').currentOwnerTeamId, 't0'); picks[14].currentOwnerTeamId = 't1'; f.repository.saveDraftPicks('l', picks); assert.equal(f.live.get('l', m.id).lockedDraftOrder.find(s => s.originalTeamId === 't14').currentOwnerTeamId, 't0'); assert.throws(() => f.live.lottery('l', m.id, { id: 'u0' }), /locked/); assert.throws(() => f.live.invite('l', m.id, { id: 'u0' }, ['u1']), /close/); });
 test('invited coaches control their real teams; all other teams are CPU', t => { const f = fixture(t), m = f.ready('u0', ['u14']); const active = f.live.start('l', m.id, { id: 'u0' }); const ctrl = f.live.controller(active); assert.equal(ctrl?.teamId ?? null, active.lockedDraftOrder[0].currentOwnerTeamId === 't14' || active.lockedDraftOrder[0].currentOwnerTeamId === 't0' ? active.lockedDraftOrder[0].currentOwnerTeamId : null); assert.deepEqual(m.participants.map(p => p.teamId), ['t0', 't14']); });
 test('all three owned picks get human windows and earlier picks adjust needs', t => { const f = fixture(t), picks = f.repository.loadDraftPicks('l'); picks.forEach((p, i) => { if ([12, 13, 14].includes(i)) p.currentOwnerTeamId = 't0'; }); f.repository.saveDraftPicks('l', picks); let m = f.ready(); m = f.live.start('l', m.id, { id: 'u0' }); let human = 0; while (m.status === 'ACTIVE') { const ctrl = f.live.controller(m); if (ctrl) { human++; assert.equal(m.deadlineAt - f.now(), CLOCK_MS); const p = f.live.available(m)[0]; m = f.live.commit('l', m.id, { expectedPick: m.currentPick, userId: ctrl.userId, prospectId: p.prospectId }); } else m = f.live.commit('l', m.id, { expectedPick: m.currentPick, type: 'CPU' }); } assert.equal(human, 4); assert.equal(m.selections.filter(s => s.currentOwnerTeamId === 't0').length, 4); assert.equal(m.selections.at(-1).metrics.prior >= 0, true); });
-test('confirm and timeout races yield one final selection, no duplicates or repick', async t => { const f = fixture(t), m = f.ready('u0', f.repository.loadOwners('l').map(o => o.userId)); const active = f.live.start('l', m.id, { id: 'u0' }), p = f.live.available(active)[0], owner = f.live.controller(active).userId;
+test('confirm and timeout races yield one final selection, no duplicates or repick', async t => {
+    const f = fixture(t), m = f.ready('u0', f.repository.loadOwners('l').map(o => o.userId)); const active = f.live.start('l', m.id, { id: 'u0' }), p = f.live.available(active)[0], owner = f.live.controller(active).userId;
     f.time(active.deadlineAt); const results = await Promise.allSettled([Promise.resolve().then(() => f.live.commit('l', m.id, { expectedPick: 1, userId: owner, prospectId: p.prospectId })), Promise.resolve().then(() => f.live.commit('l', m.id, { expectedPick: 1, type: 'TIMEOUT_CPU' })), Promise.resolve().then(() => f.live.commit('l', m.id, { expectedPick: 1, type: 'TIMEOUT_CPU' }))]);
     assert.equal(results.filter(r => r.status === 'fulfilled').length, 1); const next = f.live.get('l', m.id); assert.equal(next.selections.length, 1); assert.equal(next.selections[0].selectedByType, 'TIMEOUT_CPU'); assert.equal(f.live.available(next).some(p => p.prospectId === next.selections[0].prospectId), false);
 });
@@ -109,7 +113,8 @@ test('every reaction has a valid grade, four sentences and a distinct opening; o
 test('pinned Hub entry is reused; start creates one private thread and no public picks', async t => { const f = fixture(t), d = discordFixture(f); await d.workflow.ensurePin(d.guild, 'l'); await d.workflow.ensurePin(d.guild, 'l'); assert.equal(d.channels.get('hub')._messages.size, 1); const a = d.interaction('mock:startclass'), b = d.interaction('mock:startclass'); a.values = ['1']; b.values = ['1']; await Promise.all([d.workflow.handle(a), d.workflow.handle(b)]); assert.equal(d.channels.size, 2); assert.equal(f.live.all('l').length, 1); assert.equal(a.deferPayload.flags, MessageFlags.Ephemeral); const m = f.live.all('l')[0]; assert.ok(d.channels.get(m.threadId)._members.has('u0')); });
 test('/mockdraft stays ephemeral, contains all 30 current-owner picks and uses saved snapshot', async t => { const f = fixture(t), d = discordFixture(f), picks = f.repository.loadDraftPicks('l'); picks[14].currentOwnerTeamId = 't0'; f.repository.saveDraftPicks('l', picks); const interaction = d.interaction('unused'); interaction.deferred = true; await d.workflow.projection(interaction); assert.equal(interaction.replies.length, 1); assert.equal(interaction.replies[0].embeds.length, 1); const card = interaction.replies[0].embeds[0].toJSON(); const text = card.fields.map(f => f.value).join('\n'); assert.equal(text.match(/\*\*#\d+\*\*/g).length, 30); assert.match(card.title, /🏀/); assert.match(text, /🏀/); assert.ok(interaction.replies[0].embeds[0].length <= 6000); assert.ok(card.fields.every(f => f.value.length <= 1024)); assert.match(text, /T14 → T0/); assert.match(interaction.replies[0].embeds[0].toJSON().footer.text, /1,000/); assert.equal(d.channels.size, 1); const source = fs.readFileSync('src/index.js', 'utf8'); assert.match(source, /const privateReply = interaction.commandName === "mockdraft"/); });
 test('invite menu contains only configured coaches and supports all 30 via pages', async t => { const f = fixture(t), d = discordFixture(f); await d.start(); const m = f.live.all('l')[0]; for (const page of [0, 1]) { const i = d.interaction(`mock:${m.id}:invite:${page}`, 'u0', m.threadId); await d.workflow.handle(i); const select = i.replies[0].components[0].toJSON().components[0]; assert.ok(select.options.length <= 15); assert.ok(select.options.every(o => f.repository.loadOwners('l').some(c => c.userId === o.value))); assert.equal(select.type, 3); } });
-test('human UI top ten, modal search, preview and irrevocable confirmation', async t => { const f = fixture(t), d = discordFixture(f); await d.start(); const base = f.live.all('l')[0]; f.live.invite('l', base.id, { id: 'u0' }, f.repository.loadOwners('l').map(o => o.userId)); f.live.lottery('l', base.id, { id: 'u0' }); f.live.lock('l', base.id, { id: 'u0' }); let m = f.live.start('l', base.id, { id: 'u0' }); await d.workflow.pump(d.guild, 'l', m.id); m = f.live.get('l', m.id); const userId = f.live.controller(m).userId;
+test('human UI top ten, modal search, preview and irrevocable confirmation', async t => {
+    const f = fixture(t), d = discordFixture(f); await d.start(); const base = f.live.all('l')[0]; f.live.invite('l', base.id, { id: 'u0' }, f.repository.loadOwners('l').map(o => o.userId)); f.live.lottery('l', base.id, { id: 'u0' }); f.live.lock('l', base.id, { id: 'u0' }); let m = f.live.start('l', base.id, { id: 'u0' }); await d.workflow.pump(d.guild, 'l', m.id); m = f.live.get('l', m.id); const userId = f.live.controller(m).userId;
     const available = d.interaction(`mock:${m.id}:available:1`, userId, m.threadId); await d.workflow.handle(available); assert.equal(available.replies[0].components[0].toJSON().components[0].options.length, 25); assert.equal(available.replies[0].embeds[0].data.description.match(/Board #/g).length, 10);
     const search = d.interaction(`mock:${m.id}:search:1`, userId, m.threadId); await d.workflow.handle(search); assert.ok(search.modal);
     const submit = d.interaction(`mock:${m.id}:searchsubmit:1`, userId, m.threadId); submit.fields = { getTextInputValue: () => 'Prospect 70' }; await d.workflow.handle(submit); assert.equal(submit.replies[0].components[0].toJSON().components[0].options[0].value, '70');
@@ -158,6 +163,25 @@ test('advancing the league week publishes a new weekly projection only after the
     assert.equal(next.week, 3); assert.equal(next.simulationSnapshotId, snapshot.id);
     assert.notDeepEqual(next.selections.map(s => s.prospectId), first.selections.map(s => s.prospectId));
     assert.deepEqual(f.simulations.weeklyProjection('l'), next);
+});
+
+test('mock command and new current-class live mock refresh from current-week standings', async t => {
+    const f = fixture(t), d = discordFixture(f), previous = f.simulations.active('l');
+    f.repository.saveLeague('l', { currentWeek: 3 });
+    f.input.standings.conferences.East[0].PCT = 0.99;
+    const originalRefresh = f.simulations.refresh.bind(f.simulations); let refreshCalls = 0;
+    f.simulations.refresh = (...args) => { refreshCalls += 1; return originalRefresh(...args); };
+    const command = d.interaction('unused', 'u0');
+    await d.workflow.projection(command);
+    const published = f.simulations.weeklyProjection('l'), current = f.simulations.active('l');
+    assert.equal(published.week, 3);
+    assert.notEqual(current.id, previous.id);
+    assert.notEqual(current.metadata.standingsHash, previous.metadata.standingsHash);
+    const start = d.interaction('mock:startclass', 'u0', 'hub'); start.values = ['1'];
+    await d.workflow.handle(start);
+    assert.ok(refreshCalls >= 2);
+    const live = f.live.all('l')[0];
+    assert.equal(f.simulations.byId('l', live.simulationSnapshotId).currentWeek, 3);
 });
 
 test('current order displays all 30 saved picks without rerunning or changing locked ownership', async t => {
@@ -491,7 +515,7 @@ test('engine upgrades refresh the published regular projection once and preserve
     old.selections[0].prospectId = f.input.prospects.at(-1).prospectId;
     atomicWrite(path.join(f.root, 'weekly-projection.json'), old);
     const updated = f.simulations.weeklyProjection('l');
-    assert.equal(updated.engineVersion, 3);
+    assert.equal(updated.engineVersion, require('../src/fantasyhq/mock-engine').ENGINE_VERSION);
     assert.notEqual(updated.selections[0].prospectId, old.selections[0].prospectId);
     assert.deepEqual(f.simulations.weeklyProjection('l'), updated);
 });
@@ -568,29 +592,29 @@ test('all four installed boards load normalized ranks, including id_number board
 
 
 test('solo mock controls vacant teams with current staff permission and never takes an online coach pick', t => {
-  const f = fixture(t);
-  f.repository.saveOwners('l', [{ teamId: 't0', userId: 'u0' }]);
-  let m = f.live.create('l', 'u0', 'guild');
-  assert.throws(() => f.live.setSoloControl('l', m.id, { id: 'u0' }, true), /staff/);
-  f.repository.saveSettings('l', { testMode: false });
-  assert.throws(() => f.live.setSoloControl('l', m.id, { id: 'u0', staff: true }, true), /Test Mode/);
-  f.repository.saveSettings('l', { testMode: true });
-  f.live.setSoloControl('l', m.id, { id: 'u0', staff: true }, true);
-  f.live.useBaseOrder('l', m.id, { id: 'u0' }, 0);
-  f.live.lock('l', m.id, { id: 'u0' });
-  m = f.live.start('l', m.id, { id: 'u0' });
-  assert.equal(f.live.controller(m).testControlled, true);
-  const prospectId = f.live.available(m)[0].prospectId;
-  assert.throws(() => f.live.commit('l', m.id, { expectedPick: 1, userId: 'u0', prospectId }), /staff/i);
-  f.repository.saveOwners('l', [{ teamId: 't0', userId: 'u0' }, { teamId: m.lockedDraftOrder[0].currentOwnerTeamId, userId: 'online' }]);
-  assert.equal(f.live.controller(m), null);
-  assert.throws(() => f.live.commit('l', m.id, { expectedPick: 1, userId: 'u0', staff: true, prospectId }));
-  f.repository.saveOwners('l', [{ teamId: 't0', userId: 'u0' }]);
-  f.repository.saveSettings('l', { testMode: false });
-  assert.equal(f.live.controller(m), null);
-  f.repository.saveSettings('l', { testMode: true });
-  m = f.live.commit('l', m.id, { expectedPick: 1, userId: 'u0', staff: true, prospectId });
-  assert.equal(m.selections[0].soloTestControlled, true);
+    const f = fixture(t);
+    f.repository.saveOwners('l', [{ teamId: 't0', userId: 'u0' }]);
+    let m = f.live.create('l', 'u0', 'guild');
+    assert.throws(() => f.live.setSoloControl('l', m.id, { id: 'u0' }, true), /staff/);
+    f.repository.saveSettings('l', { testMode: false });
+    assert.throws(() => f.live.setSoloControl('l', m.id, { id: 'u0', staff: true }, true), /Test Mode/);
+    f.repository.saveSettings('l', { testMode: true });
+    f.live.setSoloControl('l', m.id, { id: 'u0', staff: true }, true);
+    f.live.useBaseOrder('l', m.id, { id: 'u0' }, 0);
+    f.live.lock('l', m.id, { id: 'u0' });
+    m = f.live.start('l', m.id, { id: 'u0' });
+    assert.equal(f.live.controller(m).testControlled, true);
+    const prospectId = f.live.available(m)[0].prospectId;
+    assert.throws(() => f.live.commit('l', m.id, { expectedPick: 1, userId: 'u0', prospectId }), /staff/i);
+    f.repository.saveOwners('l', [{ teamId: 't0', userId: 'u0' }, { teamId: m.lockedDraftOrder[0].currentOwnerTeamId, userId: 'online' }]);
+    assert.equal(f.live.controller(m), null);
+    assert.throws(() => f.live.commit('l', m.id, { expectedPick: 1, userId: 'u0', staff: true, prospectId }));
+    f.repository.saveOwners('l', [{ teamId: 't0', userId: 'u0' }]);
+    f.repository.saveSettings('l', { testMode: false });
+    assert.equal(f.live.controller(m), null);
+    f.repository.saveSettings('l', { testMode: true });
+    m = f.live.commit('l', m.id, { expectedPick: 1, userId: 'u0', staff: true, prospectId });
+    assert.equal(m.selections[0].soloTestControlled, true);
 });
 
 
@@ -620,4 +644,90 @@ test('Discord solo toggle exposes a vacant-team picker and confirms with the hos
     assert.equal(updated.selections.length, 1);
     assert.equal(updated.selections[0].selectedByUserId, 'u0');
     assert.equal(updated.selections[0].soloTestControlled, true);
+});
+
+
+test('saved live picks prefer the board image mapping over stale rank-based portraits', t => {
+    const f = fixture(t), m = f.ready();
+    const { reactionPayload } = require('../src/fantasyhq/discord-mock-draft');
+    const board = require('../draft_class/2k27_CUS04 - Big Board.json');
+    for (const rank of [9, 10]) {
+        const prospect = { ...m.input.prospects[0], ...board[rank], imagePath: path.resolve('draft_class', board[rank === 9 ? 10 : 9].image) };
+        const slot = m.lockedDraftOrder[0], r = reaction(m.input, slot, prospect, [], null);
+        const payload = reactionPayload(m, { ...slot, prospect, boardRank: rank, avp: null, grade: r.grade, storyline: r.storyline, analysis: r.analysis });
+        assert.equal(payload.files[0].attachment, path.resolve('draft_class', prospect.image));
+    }
+});
+
+
+test('live best-available panel shows needs for the pick owner and includes earlier mock selections', t => {
+    const f = fixture(t), d = discordFixture(f), m = f.ready('u0', f.repository.loadOwners('l').map(o => o.userId));
+    const active = f.live.start('l', m.id, { id: 'u0' });
+    const teamId = active.lockedDraftOrder[0].currentOwnerTeamId;
+    active.input.rosters[teamId] = [95, 85, 80].map(overall => ({ overall, age: 25, position1: 'PG' }));
+    const first = d.workflow.selectionPayload(active, 1).embeds[0].toJSON();
+    assert.equal(first.fields.length, 1);
+    assert.match(first.fields[0].value, /PG · Low need/);
+    assert.match(first.fields[0].value, /C · High need/);
+    assert.match(first.fields[0].value, /3 primary \/ 0 secondary/);
+    assert.match(first.fields[0].name, new RegExp(active.input.teams.find(team => team.teamId === teamId).teamName));
+    active.selections.push({ currentOwnerTeamId: teamId, prospect: { position_1: 'C', overall: 85, age: 19 } });
+    const after = d.workflow.selectionPayload(active, 1).embeds[0].toJSON().fields[0].value;
+    assert.match(after, /C · Moderate need/);
+    assert.match(after, /1 primary \/ 0 secondary · Rotation depth 1.0 · Best 85 OVR/);
+    active.selections = [];
+    active.input.rosters[teamId] = [];
+    assert.match(d.workflow.selectionPayload(active, 1).embeds[0].toJSON().fields[0].value, /Roster data is unavailable/);
+});
+
+test('rotation-quality needs ignore fringe stockpiles and distinguish starter, backup and age gaps', () => {
+    const { teamPositionNeeds } = require('../src/fantasyhq/mock-engine');
+    const input = inputFixture(), prospect = { position_1: 'PG' };
+    input.rosters.t0 = [{ position1: 'PG', overall: 72, age: 24 }];
+    const weak = needFor(input, 't0', prospect);
+    input.rosters.t0.push(...Array.from({ length: 12 }, () => ({ position1: 'PG', overall: 64, age: 24 })));
+    assert.equal(needFor(input, 't0', prospect), weak);
+    assert.equal(teamPositionNeeds(input, 't0').positions[0].priority, 'High');
+    input.rosters.t0 = [{ position1: 'PG', overall: 90, age: 25 }];
+    const noBackup = needFor(input, 't0', prospect);
+    input.rosters.t0.push({ position1: 'PG', overall: 80, age: 24 });
+    const covered = needFor(input, 't0', prospect);
+    assert.ok(covered < noBackup);
+    input.rosters.t0.push(...Array.from({ length: 20 }, () => ({ position1: 'PG', overall: 60 })));
+    assert.equal(needFor(input, 't0', prospect), covered);
+    input.rosters.t0[0].age = 36;
+    assert.ok(needFor(input, 't0', prospect) > covered);
+    input.rosters.t0 = [{ position1: 'SG', position2: 'PG', overall: 90, age: 25 }, { position1: 'SG', position2: 'PG', overall: 80 }];
+    assert.ok(needFor(input, 't0', prospect) > covered);
+    const afterPick = needFor(input, 't0', prospect, [{ currentOwnerTeamId: 't0', prospect: { position_1: 'PG', overall: 82, age: 19 } }]);
+    assert.ok(afterPick < needFor(input, 't0', prospect));
+});
+
+test('CPU preserves clear elite talent tiers even when a team is crowded at their position', () => {
+    const input = inputFixture();
+    input.prospects[0] = { ...input.prospects[0], position_1: 'PG', 'draft score': 96, potential: 99 };
+    input.rosters.t0 = [98, 96, 90].map(overall => ({ position1: 'PG', overall, age: 24 }));
+    for (const draw of [0, 0.5, 0.999999]) {
+        assert.equal(chooseProspect(input, { pickNumber: 1, currentOwnerTeamId: 't0' }, [], saved, () => draw).board_number, 1);
+    }
+});
+
+test('all four real draft classes keep top talent within bounded slides across repeated complete rounds', async () => {
+    const { createScoutingService } = require('../src/fantasyhq/scouting-service');
+    const scouting = createScoutingService({ repository: {} });
+    for (let classNumber = 1; classNumber <= 4; classNumber++) {
+        const input = inputFixture();
+        input.prospects = scouting.boardForContext({ league: { seasonNumber: classNumber } }).prospects
+            .map(p => ({ ...p, prospectId: `cus${classNumber}:${p.board_number}` }));
+        const snapshot = await simulate(input, { seed: `elite-regression-${classNumber}` });
+        const rounds = [...snapshot.simulations, project(input, snapshot.simulations[0], snapshot, () => 0.999999)];
+        for (const round of rounds) {
+            for (const rank of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) {
+                const pick = round.find(s => s.prospectId === `cus${classNumber}:${rank}`).pickNumber;
+                assert.ok(pick <= rank + (rank <= 3 ? 1 : rank <= 5 ? 2 : 3), `CUS${classNumber} rank ${rank} fell to ${pick}`);
+            }
+            if ([1, 4].includes(classNumber)) assert.equal(round[0].prospectId, `cus${classNumber}:1`);
+            if (classNumber === 4) assert.equal(round[1].prospectId, 'cus4:2');
+        }
+    }
 });

@@ -1,5 +1,30 @@
 export type Nullable<T> = T | null;
 
+export interface ContractSeason {
+  season: string;
+  salary: Nullable<number>;
+  option: 'PLAYER' | 'TEAM' | null;
+}
+export interface PlayerContract {
+  source: 'basketball-reference';
+  sourceUrl: string;
+  playerUrl: string;
+  fetchedAt: string;
+  currency: 'USD';
+  seasons: ContractSeason[];
+  guaranteedTotal: Nullable<number>;
+}
+export interface PayrollSnapshot {
+  sourceUrl: string;
+  fetchedAt: string;
+  seasons: string[];
+  players: { name: string; contract: PlayerContract }[];
+  teamTotals: ContractSeason[];
+  status: 'CURRENT' | 'STALE';
+  error?: string;
+  unmatchedRosterPlayers?: string[];
+}
+
 export interface PlayerRecord {
   name: string;
   overall: Nullable<number>;
@@ -18,6 +43,7 @@ export interface PlayerRecord {
   priorToNBA: Nullable<string>;
   profileUrl: string;
   imageUrl: Nullable<string>;
+  contract?: PlayerContract;
 }
 
 export interface TeamLink {
@@ -40,10 +66,11 @@ export interface CheckpointData {
   completedPlayerUrls: string[];
   players: PlayerRecord[];
   failures: ScrapeFailure[];
+  teamPayrolls?: Record<string, PayrollSnapshot>;
 }
 
 export interface ScrapeFailure {
-  scope: "team" | "player" | "image" | "setup";
+  scope: "team" | "player" | "image" | "setup" | "contract";
   target: string;
   message: string;
   at: string;
@@ -62,6 +89,7 @@ export interface ScrapePayload {
 }
 
 export interface TeamRosterPayload extends ScrapePayload {
+  payroll?: PayrollSnapshot;
   rosterDate: string;
   team: {
     name: string;

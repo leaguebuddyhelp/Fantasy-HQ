@@ -4,7 +4,7 @@ function seededRandom(seed) {
     let state = createHash('sha256').update(String(seed)).digest().readUInt32LE(0);
     return () => { state += 0x6D2B79F5; let t = state; t = Math.imul(t ^ t >>> 15, t | 1); t ^= t + Math.imul(t ^ t >>> 7, t | 61); return ((t ^ t >>> 14) >>> 0) / 4294967296; };
 }
-const ENGINE_VERSION = 3;
+const ENGINE_VERSION = 4;
 const clamp = (value, low = 0, high = 1) => Math.max(low, Math.min(high, value));
 function numeric(value) { if (value == null || value === '' || typeof value === 'boolean') return null; const n = Number(value); return Number.isFinite(n) ? n : null; }
 function traitsFor(p) { return [p.archetype, p.build, p.strength_1, p.strength_2, p.strength_3].filter(Boolean).join(' ').toLowerCase(); }
@@ -29,20 +29,42 @@ function teamProfile(input, teamId, selections = []) {
     const spacing = rotation.length ? rotation.reduce((n, p) => n + shootingFor(p), 0) / rotation.length : 0;
     return { roster, contender: clamp((average - 77) / 10), shootingNeed: clamp(0.65 - spacing), traits: rotation.map(traitsFor).join(' ') };
 }
+function positionAssessment(input, position, profile) {
+    const matches = profile.roster.filter(player => player.position1 === position || player.position2 === position)
+        .map(player => ({ player, effectiveOverall: (numeric(player.overall) ?? 70) - (player.position1 === position ? 0 : 4) }))
+        .sort((a, b) => b.effectiveOverall - a.effectiveOverall);
+    // Only the best three options supply depth, and fringe players supply little or none.
+    const rotationDepth = matches.slice(0, 3).reduce((sum, entry) => sum
+        + clamp((entry.effectiveOverall - 68) / 12) * (entry.player.position1 === position ? 1 : 0.5), 0);
+    const starterStrength = matches[0]?.effectiveOverall ?? 60;
+    const backupStrength = matches[1]?.effectiveOverall ?? 60;
+    const age = matches[0] && playerAge(matches[0].player, input.draftYear);
+    const succession = age != null ? clamp((age - 29) / 10) * 0.2 : 0;
+    const score = clamp(0.5 * clamp((86 - starterStrength) / 16)
+        + 0.25 * clamp((78 - backupStrength) / 14)
+        + 0.25 * clamp((2.2 - rotationDepth) / 2.2) + succession);
+    return { score, rotationDepth, starterStrength, backupStrength };
+}
 function positionalNeed(input, prospect, profile) {
     const positions = [...new Set([prospect.position_1, prospect.position_2].filter(p => POSITIONS.includes(p)))];
-    if (!positions.length) return 0.5;
-    return Math.max(...positions.map(pos => {
-        const matches = profile.roster.filter(p => p.position1 === pos || p.position2 === pos);
-        const depth = matches.reduce((sum, p) => sum + (p.position1 === pos ? 1 : 0.5), 0);
-        const starter = matches.slice().sort((a, b) => (numeric(b.overall) ?? 70) - (numeric(a.overall) ?? 70))[0];
-        const strength = starter ? (numeric(starter.overall) ?? 70) - (starter.position1 === pos ? 0 : 4) : 60;
-        const age = starter && playerAge(starter, input.draftYear);
-        const succession = age != null ? clamp((age - 29) / 10) * 0.2 : 0;
-        return clamp(0.55 * clamp((2.5 - depth) / 2.5) + 0.45 * clamp((86 - strength) / 26) + succession);
-    }));
+    return positions.length ? Math.max(...positions.map(position => positionAssessment(input, position, profile).score)) : 0.5;
 }
 function needFor(input, teamId, prospect, selections = []) { return positionalNeed(input, prospect, teamProfile(input, teamId, selections)); }
+function teamPositionNeeds(input, teamId, selections = []) {
+    const profile = teamProfile(input, teamId, selections);
+    const positions = POSITIONS.map(position => {
+        const matches = profile.roster.filter(player => player.position1 === position || player.position2 === position);
+        const assessment = positionAssessment(input, position, profile);
+        const score = assessment.score;
+        const ratings = matches.map(player => numeric(player.overall)).filter(rating => rating != null);
+        return { position, ...assessment, priority: score >= 0.65 ? 'High' : score >= 0.35 ? 'Moderate' : 'Low',
+            primaryCount: matches.filter(player => player.position1 === position).length,
+            secondaryCount: matches.filter(player => player.position1 !== position).length,
+            bestOverall: ratings.length ? Math.max(...ratings) : null };
+    });
+    return { rosterAvailable: profile.roster.length > 0, positions, targets: positions.filter(position => position.priority !== 'Low')
+        .sort((a, b) => b.score - a.score).slice(0, 2).map(position => position.position) };
+}
 function fitWith(prospect, profile) {
     const traits = traitsFor(prospect);
     return ['shoot|stretch|shot hunter', 'playmak|point|pass', 'defen|2-way|two-way', 'rim|paint|shot.block'].reduce((score, trait) => score + (new RegExp(trait).test(traits) && !new RegExp(trait).test(profile.traits) ? 0.2 : 0), 0);
@@ -67,7 +89,17 @@ function chooseProspect(input, slot, selections = [], snapshot = null, rng = Mat
     const best = Math.min(...remaining.map(p => p.board_number)), profile = teamProfile(input, slot.currentOwnerTeamId, selections);
     const margin = slot.pickNumber <= 5 ? 2 : slot.pickNumber <= 14 ? 3 : 5;
     const ceiling = Math.max(best, Math.min(best + margin, slot.pickNumber + margin));
-    const eligible = remaining.filter(p => p.board_number <= ceiling);
+    const ordered = remaining.slice().sort((a, b) => a.board_number - b.board_number);
+    // A bounded slide prevents fit and repeated random draws from bypassing top talent.
+    const deadline = prospect => prospect.board_number + (prospect.board_number <= 3 ? 1 : prospect.board_number <= 5 ? 2 : prospect.board_number <= 10 ? 3 : 5);
+    const overdue = ordered.find(prospect => slot.pickNumber >= deadline(prospect));
+    if (overdue) return overdue;
+    const top = ordered[0], topScore = numeric(top['draft score']);
+    const nextScore = numeric(ordered[1]?.['draft score']);
+    // Clear top-five talent tiers take precedence over a positional preference.
+    if (top.board_number <= 5 && topScore != null && nextScore != null && topScore - nextScore >= 2.5) return top;
+    const eligible = remaining.filter(p => p.board_number <= ceiling
+        && !(top.board_number <= 5 && topScore != null && numeric(p['draft score']) != null && topScore - numeric(p['draft score']) >= 2.5));
     const choices = eligible.map(p => ({ prospect: p, weight: candidateWeight(input, slot, p, best, selections, snapshot, profile) }));
     let draw = rng() * choices.reduce((sum, p) => sum + p.weight, 0);
     return (choices.find(p => (draw -= p.weight) < 0) || choices.at(-1)).prospect;
@@ -123,4 +155,4 @@ function reaction(input, slot, p, selections, market) {
     const endings = [`Improvement in ${risk} will determine how far this pick can outperform its slot`, `The next step is turning that promise into reliable minutes while addressing ${risk}`, `His ceiling stays compelling, but ${risk} remains the development priority`, `A patient plan for ${risk} gives this bet its best chance to pay off`, `The payoff depends on whether ${risk} becomes a manageable concern rather than a limiting factor`];
     return { ...metrics, analysis: [openings[(pick - 1) % openings.length], value[pick % value.length], fit, endings[(pick + p.board_number) % endings.length]].map(s => `${s}.`).join(' ') };
 }
-module.exports = { ENGINE_VERSION, candidateWeight, selectionFactors, shootingFor, playerAge, seededRandom, needFor, fitFor, chooseProspect, project, evaluate, reaction, GRADES };
+module.exports = { ENGINE_VERSION, candidateWeight, selectionFactors, shootingFor, playerAge, seededRandom, needFor, teamPositionNeeds, fitFor, chooseProspect, project, evaluate, reaction, GRADES };

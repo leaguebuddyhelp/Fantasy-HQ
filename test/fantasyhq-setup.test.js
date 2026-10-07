@@ -80,6 +80,8 @@ test("setup workflow completes and activates the league", () => {
   const repository = createFantasyHQRepository({ dataRoot: tempRoot });
   const teams = buildFixtureTeams();
   const rosters = new Map(teams.map((team) => [team.teamName, buildRosterForTeam(team)]));
+  const contract = { source: 'basketball-reference', seasons: [{ season: '2026-27', salary: 30000000, option: null }], guaranteedTotal: 60000000 };
+  rosters.get(teams[0].teamName).players[0].contract = contract;
   const service = createSetupService({
     repository,
     sourceTeamsLoader: () => teams,
@@ -105,6 +107,7 @@ test("setup workflow completes and activates the league", () => {
 
   assert.equal(importResult.teamsImported, 30);
   assert.equal(importResult.playersImported, 60);
+  assert.deepEqual(repository.loadPlayers('league-setup').find(player => player.name === `${teams[0].teamName} Guard`).contract, contract);
 
   for (const team of teams) {
     service.assignOwner({
