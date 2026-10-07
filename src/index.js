@@ -79,6 +79,7 @@ client.on(Events.MessageCreate, message => {
   gameSubmissions.message(message).catch(error => console.error("Game submission:", error.message));
 });
 const gameThreads = require("./fantasyhq/game-threads").createGameThreadService();
+const discordActivityCheck = require("./fantasyhq/discord-activity-check").createDiscordActivityCheck({ repository: tradeRepository });
 const weekAdvancement = require("./fantasyhq/week-advancement").createWeekAdvancementService({ threads: gameThreads });
 const gameCleanup = require("./fantasyhq/game-thread-cleanup").createGameThreadCleanupService();
 require("./web").setGameThreadRuntime({ client, service: gameThreads, repository: gameThreads.repository, weekService: weekAdvancement, cleanupService: gameCleanup });
@@ -103,6 +104,7 @@ const draftEmojiCache = new Map();
 const DRAFT_CLASS_DIR = path.join(process.cwd(), "draft_class");
 const DRAFT_IMAGE_DIR = path.join(DRAFT_CLASS_DIR, "images");
 
+const discordTradeBlock = require("./fantasyhq/discord-trade-block").createDiscordTradeBlock({ repository: discordStatsRepository, playerService: require("./fantasyhq/player-service").createPlayerService({ repository: discordStatsRepository }) });
 function readJson(filePath, fallback = null) {
   try {
     return JSON.parse(fs.readFileSync(filePath, "utf8"));
@@ -730,6 +732,8 @@ const handlers = {
   admin: handleAdminCommand,
   league: handleLeagueCommand,
   player: handlePlayerCommand,
+  tradeblock: interaction => discordTradeBlock.handleTradeBlockCommand(interaction),
+  activitycheck: interaction => discordActivityCheck.start(interaction),
   ratings: handleRatingsCommand,
   recruiting: handleRecruitingCommand,
   roster: handleRosterCommand,
@@ -807,6 +811,10 @@ client.once(Events.ClientReady, async (readyClient) => {
   const upgradeSweep = async () => {
     if (upgradeSweepRunning) return;
     upgradeSweepRunning = true;
+  const tradeBlockTick = () => discordTradeBlock.tick(client).catch(error => console.error("Trade block:", error.message));
+  tradeBlockTick(); setInterval(tradeBlockTick, 60000).unref();
+  const activityCheckTick = () => discordActivityCheck.tick(client).catch(error => console.error("Activity check:", error.message));
+  activityCheckTick(); setInterval(activityCheckTick, 60000).unref();
     try { await discordPlayerUpgrades.restore(readyClient); }
     catch (error) { console.error("Player upgrade recovery:", error.message); }
     finally { upgradeSweepRunning = false; }
@@ -903,7 +911,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
   }
 
   if (interaction.isAutocomplete()) {
-    if (interaction.commandName === "scout") await scoutingCommands.handleScoutingAutocomplete(interaction, scoutingService);
+    if (interaction.commandName === "tradeblock") await discordTradeBlock.handleTradeBlockAutocomplete(interaction);
+    else if (interaction.commandName === "scout") await scoutingCommands.handleScoutingAutocomplete(interaction, scoutingService);
     else if (interaction.commandName === "stats") await discordPlayerStats.handleStatsAutocomplete(interaction);
     else if (interaction.commandName === "teamstats") await discordTeamStats.handleTeamStatsAutocomplete(interaction);
     else if (interaction.commandName === "toptenpreview") await handleDraftClassAutocomplete(interaction);

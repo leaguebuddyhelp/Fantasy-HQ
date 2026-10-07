@@ -8,6 +8,11 @@ const commands = [
     .addIntegerOption(option => option.setName("draft_class").setDescription("Choose a draft class; defaults to the current league class.").addChoices(...[1, 2, 3, 4].map(value => ({ name: `2K27 CUS${String(value).padStart(2, '0')}`, value })))),
   new SlashCommandBuilder().setName("week").setDescription("Manage regular-season week advancement.")
     .addSubcommand(sub => sub.setName("advance").setDescription("Review and confirm completion of the active week.").addBooleanOption(option => option.setName("force").setDescription("Request confirmation to close the week with unresolved games."))),
+  new SlashCommandBuilder().setName("activitycheck").setDescription("Post a 24-hour activity check in the activity check channel."),
+  new SlashCommandBuilder().setName("tradeblock").setDescription("Manage your team's trade block.")
+    .addSubcommand(sub => sub.setName("add").setDescription("Add a player from your roster to your trade block.").addStringOption(option => option.setName("player").setDescription("Player on your roster.").setRequired(true).setAutocomplete(true)))
+    .addSubcommand(sub => sub.setName("remove").setDescription("Remove a player from your trade block.").addStringOption(option => option.setName("player").setDescription("Player on your trade block.").setRequired(true).setAutocomplete(true)))
+    .addSubcommand(sub => sub.setName("setup").setDescription("Staff: create the trade block thread for every team.")),
   new SlashCommandBuilder().setName("standings").setDescription("Regular-season standings from official game results.")
     .addStringOption(option => option.setName("conference").setDescription("Show one conference, or omit for both.").addChoices({ name: "East", value: "East" }, { name: "West", value: "West" })),
   new SlashCommandBuilder().setName("stats").setDescription("View a player's official regular-season statistics.")

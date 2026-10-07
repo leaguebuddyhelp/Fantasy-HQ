@@ -3,8 +3,8 @@ const { ensureLeagueRoles } = require('./discord-roles');
 const CHANNELS = [
     ['staff', 'league-staff', 'staff'], ['announcements', 'announcements', 'publicRead'], ['chat', 'chat', 'chat'],
     ['availableTeams', 'available-teams', 'publicRead'], ['stats', 'stats', 'read'], ['standings', 'standings', 'read'],
-    ['games', 'game-threads', 'games'], ['scouting', 'scouting-hub', 'chat'], ['activity', 'activitycheck', 'chat'],
-    ['submitTrade', 'submit-trade', 'trade'], ['tradeBlock', 'trade-block', 'chat'], ['tradeCounts', 'trade-counts', 'read'],
+    ['games', 'game-threads', 'games'], ['scouting', 'scouting-hub', 'chat'], ['activity', 'activitycheck', 'activity'],
+    ['submitTrade', 'submit-trade', 'trade'], ['tradeBlock', 'trade-block', 'block'], ['tradeCounts', 'trade-counts', 'read'],
     ['tradeCommittee', 'trade-committee', 'committee'], ['tradeProof', 'trade-proof', 'chat'], ['playerUpgrades', 'player-upgrades', 'upgrades'],
     ['approvedTrades', 'approved-trades', 'read'], ['deniedTrades', 'denied-trades', 'read'],
 ];
@@ -20,15 +20,15 @@ function createChannelSetupService(repository = require('./repository').createFa
         const coach = role('LEAGUEbuddy Coach'), gm = role('LEAGUEbuddy GM'), staff = [role('LEAGUEbuddy Commish'), role('LEAGUEbuddy Assistant Commish')], committee = role('LEAGUEbuddy Trade Committee');
         const write = [P.ViewChannel, P.SendMessages, P.ReadMessageHistory, P.AttachFiles, P.EmbedLinks, P.SendMessagesInThreads];
         function overwrites(access) {
-            const feed = ['read', 'publicRead', 'games', 'upgrades'].includes(access);
+            const feed = ['read', 'publicRead', 'games', 'upgrades', 'activity', 'block'].includes(access);
             const noPosting = [P.SendMessages, P.SendMessagesInThreads, P.CreatePublicThreads, P.CreatePrivateThreads];
             return [
                 { id: guild.id, ...(access === 'publicRead' ? { allow: [P.ViewChannel, P.ReadMessageHistory], deny: noPosting } : { deny: [P.ViewChannel, ...(feed ? noPosting : [])] }) },
-                { id: me.id, allow: [...write, P.ManageChannels, P.ManageThreads, P.CreatePrivateThreads, ...(['trade', 'read', 'chat', 'upgrades'].includes(access) ? [P.ManageMessages] : []), ...(['games', 'upgrades'].includes(access) ? [P.MentionEveryone] : [])] },
+                { id: me.id, allow: [...write, P.ManageChannels, P.ManageThreads, P.CreatePrivateThreads, ...(['trade', 'read', 'chat', 'upgrades', 'activity', 'block'].includes(access) ? [P.ManageMessages] : []), ...(['games', 'upgrades', 'activity', 'block'].includes(access) ? [P.MentionEveryone] : []), ...(access === 'block' ? [P.CreatePublicThreads] : []), ...(access === 'activity' ? [P.AddReactions] : [])] },
                 ...staff.map(id => ({ id, allow: write })),
                 ...(!['staff', 'committee'].includes(access) ? [{
                     id: coach,
-                    allow: ['chat', 'trade'].includes(access) ? write : access === 'games' ? [P.ViewChannel, P.ReadMessageHistory, P.SendMessagesInThreads, P.AttachFiles, P.EmbedLinks] : [P.ViewChannel, P.ReadMessageHistory],
+                    allow: ['chat', 'trade'].includes(access) ? write : access === 'games' ? [P.ViewChannel, P.ReadMessageHistory, P.SendMessagesInThreads, P.AttachFiles, P.EmbedLinks] : access === 'activity' ? [P.ViewChannel, P.ReadMessageHistory, P.AddReactions] : [P.ViewChannel, P.ReadMessageHistory],
                     ...(feed ? { deny: noPosting.filter(p => access !== 'games' || p !== P.SendMessagesInThreads) } : {}),
                 }] : []),
                 ...(access === 'trade' ? [{ id: gm, allow: write }] : []),

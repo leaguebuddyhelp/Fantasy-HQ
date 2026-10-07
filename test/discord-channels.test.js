@@ -50,7 +50,7 @@ test('upgrade ledger is private to coaches and staff; public feeds stay public a
     assert.equal(has('playerUpgrades', [], P.ViewChannel), false);
     assert.equal(has('games', [coach], P.SendMessages), false); assert.equal(has('games', [coach], P.SendMessagesInThreads), true); assert.equal(has('games', [coach], P.AttachFiles), true);
     const committee = role('LEAGUEbuddy Trade Committee'); assert.equal(has('tradeCommittee', [coach, committee], P.ViewChannel), true); assert.equal(has('staff', [coach, committee], P.ViewChannel), false); assert.equal(has('submitTrade', [committee], P.ViewChannel), false); assert.equal(has('submitTrade', [coach, committee], P.ViewChannel), true);
-    assert.equal(has('activity', [coach], P.SendMessages), true);
+    assert.equal(has('tradeBlock', [coach], P.SendMessages), false); assert.equal(has('tradeBlock', [coach], P.SendMessagesInThreads), false); assert.equal(has('tradeBlock', [coach], P.ViewChannel), true); assert.equal(has('activity', [coach], P.SendMessages), false); assert.equal(has('activity', [coach], P.AddReactions), true); assert.equal(has('activity', [coach], P.ViewChannel), true);
     assert.equal(has('submitTrade', [role('LEAGUEbuddy GM')], P.SendMessages), true);
     assert.ok(f.channels.get(ids.submitTrade).overwrites.find(p => p.id === 'bot').allow.includes(P.ManageMessages));
     assert.ok(f.channels.get(ids.tradeCounts).overwrites.find(p => p.id === 'bot').allow.includes(P.ManageMessages));

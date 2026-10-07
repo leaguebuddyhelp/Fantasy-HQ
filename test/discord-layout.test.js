@@ -16,7 +16,7 @@ test('long roster lists split at field boundaries without dropping players', () 
 });
 test('command menu removes duplicates but retains browsing and recovery', () => {
     const file = path.resolve('deploy-commands.js'); const c = { require: createRequire(file) }; vm.runInNewContext(fs.readFileSync(file, 'utf8').split('async function main()')[0] + ';globalThis.list=commands;', c);
-    assert.equal(c.list.length, 20); assert.equal(new Set(c.list.map(x => x.name)).size, 20); const options = name => c.list.find(x => x.name === name).options.map(x => x.name);
+    assert.equal(c.list.length, 22); assert.equal(new Set(c.list.map(x => x.name)).size, 22); const options = name => c.list.find(x => x.name === name).options.map(x => x.name);
     assert.deepEqual(Array.from(options('bigboard')), []);
     assert.deepEqual(Array.from(options('mockdraft')), ['draft_class']);
     assert.deepEqual(Array.from(c.list.find(x => x.name === 'mockdraft').options[0].choices.map(choice => choice.value)), [1, 2, 3, 4]);
