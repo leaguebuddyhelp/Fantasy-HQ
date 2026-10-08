@@ -10,3 +10,11 @@ test('interrupted checkpoint restoration completes from its journal with the old
  try{assert.throws(()=>storage.restore(sim.id,actor,start.id,true),/interruption/);}finally{fs.renameSync=rename;}
  assert.equal(storage.load(sim.id,actor).repository.loadPlayers('league')[0].overall,80);assert.equal(fs.existsSync(path.join(sim.dir,'restore.json')),false);const backups=fs.readdirSync(path.join(sim.dir,'safety'));assert.equal(backups.length,1);assert.equal(JSON.parse(fs.readFileSync(path.join(sim.dir,'safety',backups[0],'leagues','league','players.json')))[0].overall,99);
 });
+
+test('restart recovers a running simulation even when container PID is reused',t=>{
+ const f=fixture(t);f.repository.saveLeague('league',{commissionerUserId:'c'});const storage=createSimulationStorage({repository:f.repository}),actor={id:'c',authorized:true},sim=storage.create('league',actor);
+ const file=path.join(sim.workspace,'simulation-runtime.json'),runtime=storage.runtime(sim.id,actor);
+ fs.writeFileSync(file,JSON.stringify({...runtime,status:'RUNNING',processId:process.pid,processToken:'previous-container',plan:{weeks:3},pauseRequested:true}));
+ const recovered=storage.runtime(sim.id,actor);assert.equal(recovered.status,'PAUSED');assert.match(recovered.errors[0].error,/Previous simulation process stopped/);
+ storage.saveRuntime(sim.id,actor,{...recovered,status:'RUNNING'});assert.equal(storage.runtime(sim.id,actor).status,'RUNNING');
+});

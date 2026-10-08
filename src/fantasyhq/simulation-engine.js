@@ -1,6 +1,6 @@
 const {randomUUID}=require('crypto');
 const path=require('path');
-const {simulateBoxScore}=require('./simulation-box-score');
+const {simulateBoxScore,validateSimulationRoster}=require('./simulation-box-score');
 const {createGameSubmissionService}=require('./game-submissions');
 const {activeMemberships}=require('./service-helpers');
 const running=new Map();
@@ -79,7 +79,7 @@ function createSimulationEngine({storage,rng=Math.random,onOutput=async()=>{}}){
   }
   async function runWeeks(sim,actor,runtime,count){
     const repository=sim.repository,leagueId=sim.leagueId;
-    let c=repository.loadLeague(leagueId);if(['SETUP','PRESEASON'].includes(c.league.currentPhase)){for(const t of c.teams)if(roster(sim,t.teamId).length!==15)throw Error('Import fifteen-player rosters before simulating.');repository.saveLeague(leagueId,{currentPhase:'PRESEASON'});require('./league-service').createLeagueService({repository}).startRegularSeason({leagueId,seasonId:sim.seasonId,validator:()=>({ready:true})});c=repository.loadLeague(leagueId);}
+    let c=repository.loadLeague(leagueId);if(['SETUP','PRESEASON'].includes(c.league.currentPhase)){repository.saveLeague(leagueId,{currentPhase:'PRESEASON'});require('./league-service').createLeagueService({repository}).startRegularSeason({leagueId,seasonId:sim.seasonId,validator:()=>({ready:true})});c=repository.loadLeague(leagueId);}
     if(c.league.currentPhase!=='REGULAR_SEASON'||c.league.regularSeasonStatus==='COMPLETED')throw Error('Regular-season simulation requires an unfinished regular season.');
     const owners=repository.loadOwners(leagueId);for(const t of c.teams)if(!owners.some(o=>o.teamId===t.teamId))owners.push({teamId:t.teamId,userId:`simulation:${sim.id}:${t.teamId}`,assignedAt:new Date(0).toISOString()});repository.saveOwners(leagueId,owners);
     const submissions=createGameSubmissionService({repository}),upgrades=require('./player-upgrades-service').createPlayerUpgradeService({repository,submissions});upgrades.syncOwnerSnapshot({leagueId,seasonId:sim.seasonId,owners,phase:'REGULAR_SEASON'});upgrades.handlePhase({leagueId,seasonId:sim.seasonId,owners,phase:'REGULAR_SEASON'});
@@ -121,7 +121,8 @@ function createSimulationEngine({storage,rng=Math.random,onOutput=async()=>{}}){
     if(![1,3,5,15].includes(weeks)||!['QUIET','FULL'].includes(outputMode))throw Error('Choose 1, 3, 5 or 15 weeks and QUIET or FULL output.');
     const sim=storage.load(id,actor),key=path.dirname(sim.dir)+':'+sim.leagueId;if(running.has(key))throw Error('A simulation for this league is already running.');
     const runtime=storage.runtime(id,actor);if(runtime.status==='PAUSED'&&!resume)throw Error('Resume or reset the paused simulation first.');
-    const context=sim.repository.loadLeague(sim.leagueId),targetWeek=resume?runtime.plan?.targetWeek:Math.min(15,(context.league.currentWeek||1)+weeks-1);
+    const context=sim.repository.loadLeague(sim.leagueId);for(const team of context.teams){try{validateSimulationRoster(roster(sim,team.teamId));}catch(error){throw Error(`${team.teamName||team.teamId}: ${error.message}`);}}
+    const targetWeek=resume?runtime.plan?.targetWeek:Math.min(15,(context.league.currentWeek||1)+weeks-1);
     if(resume&&(!runtime.plan||runtime.status!=='PAUSED'))throw Error('No paused simulation to resume.');
     const count=resume?targetWeek-(context.league.currentWeek||1)+1:weeks;
     const before={games:runtime.history.filter(e=>e.type==='GAME').length,transactions:runtime.transactions.length,checkpoints:storage.checkpoints(id,actor).length,errors:runtime.errors.length};

@@ -864,17 +864,12 @@ client.once(Events.ClientReady, async (readyClient) => {
   console.log(`Logged in as ${readyClient.user.tag}`);
 });
 
-client.on(Events.InteractionCreate, async (interaction) => {
-  // Gateway role events can arrive after a button click. Reconcile that actor
-  // before any team workflow reads owners; unchanged assignments do no API work.
-  if (interaction.guild && !interaction.isAutocomplete()) {
-    try { await roleOwnership.refreshActor(interaction.guild, interaction.member); }
-    catch (error) {
-      await interaction.reply({ content: `Could not verify your current team roles. ${error.message}`, flags: MessageFlags.Ephemeral }).catch(() => {});
-      return;
-    }
-  }
-
+const { runDiscordInteraction, logDiscordClientError } = require('./shared/discord-interaction-error');
+client.on(Events.Error, logDiscordClientError);
+client.on(Events.InteractionCreate, interaction => runDiscordInteraction(interaction, handleInteraction, {
+  refreshActor: (guild, member) => roleOwnership.refreshActor(guild, member),
+}));
+async function handleInteraction(interaction) {
   if (interaction.isButton() && interaction.customId.startsWith('freeagents:page:')) {
     try { await require('./fantasyhq/discord-preseason').handleFreeAgentsButton(interaction); }
     catch (error) { await interaction.followUp({ content: error.message, flags: MessageFlags.Ephemeral }).catch(() => {}); }
@@ -1004,7 +999,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
   } catch (error) {
     await require("./shared/discord-interaction-error").replyInteractionError(interaction, error);
   }
-});
+}
 
 startWebsite();
 client.login(config.discordToken);

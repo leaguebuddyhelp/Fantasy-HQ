@@ -40,3 +40,25 @@ test('simulated box-score corrections change underlying wins and published stats
  const playerStats=require('../src/fantasyhq/player-stats-service').createPlayerStatsService({repository:sim.repository,submissions}).getPlayerSeasonStats('league','1',row.playerId);assert.equal(playerStats.PTS,stats.PTS);
  const before=f.storage.checkpoints(f.sim.id,f.actor).find(cp=>cp.name.startsWith('Before correction'));const restored=f.storage.restore(f.sim.id,f.actor,before.id,true),records=require('../src/fantasyhq/game-submissions').createGameSubmissionService({repository:restored.repository});assert.deepEqual(records.load(record.game.gameId).game.result,record.game.result);assert.equal(f.storage.runtime(f.sim.id,f.actor).status,'IDLE');assert.equal(f.repository.loadLeague('league').league.currentPhase,'PRESEASON');
 });
+
+test('simulation supports real rosters of different sizes without adding players',()=>{
+ for(const count of [5,8,10,13,14,15,17]){
+  const players=Array.from({length:count},(_,i)=>({...roster(80)[i%15],playerId:'actual-'+i}));
+  const [side]=simulateBoxScore(players,players,seededRandom(count));
+  assert.equal(side.totals.MIN,240);assert.ok(side.players.every(p=>p.MIN<=48));
+  assert.equal(side.players.length+side.dnp.length,count);assert.ok(side.players.every(p=>players.some(real=>real.playerId===p.playerId)));
+ }
+ assert.throws(()=>simulateBoxScore(roster(80).slice(0,4),roster(80)),/at least 5/);
+ assert.throws(()=>simulateBoxScore([...roster(80),roster(80)[0]],roster(80)),/different stored/);
+});
+
+test('mixed roster sizes run a week; invalid rosters fail before changing simulated results',async t=>{
+ const f=setup(t),sim=f.storage.load(f.sim.id,f.actor);
+ let members=sim.repository.loadRosterMemberships('league');
+ members=members.filter(m=>!m.playerId.startsWith('East0-')||Number(m.playerId.split('-')[1])<13);sim.repository.saveRosterMemberships('league',members);
+ const result=await f.engine.run(f.sim.id,f.actor,{weeks:1});assert.equal(result.gamesSimulated,14);
+ const phase=sim.repository.loadLeague('league').league;
+ members=members.filter(m=>!m.playerId.startsWith('West0-')||Number(m.playerId.split('-')[1])<4);sim.repository.saveRosterMemberships('league',members);
+ assert.throws(()=>f.engine.run(f.sim.id,f.actor,{weeks:1}),/West0: Simulation needs/);
+ assert.deepEqual(sim.repository.loadLeague('league').league,phase);assert.equal(f.storage.runtime(f.sim.id,f.actor).status,'IDLE');
+});

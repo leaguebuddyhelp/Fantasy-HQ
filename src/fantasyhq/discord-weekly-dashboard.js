@@ -120,7 +120,7 @@ function createDiscordWeeklyDashboard({ repository = require('./repository').cre
     } catch (error) { await interaction.editReply({ content: error.message, embeds: [], components: [] }); }
   }
   let running;
-  function tick(client) { if (!running) running = (async () => { for (const guild of client.guilds.cache.values()) { try { await ensureReport(guild); } catch (error) { logger.error('Weekly Staff report:', error.message); } } })().finally(() => { running = null; }); return running; }
+  function tick(client) { if (!running) running = (async () => { for (const guild of client.guilds.cache.values()) { try { if(typeof repository.loadGuildLeagueBinding==='function'&&!repository.loadGuildLeagueBinding(guild.id)&&!process.env.FANTASYHQ_LEAGUE_ID)continue;await ensureReport(guild); } catch (error) { logger.error('Weekly Staff report:', error.message); } } })().finally(() => { running = null; }); return running; }
   return { ensureReport, tick, button };
 }
 module.exports = { createDiscordWeeklyDashboard, staffPayload, coachPayload, transactionCounts };

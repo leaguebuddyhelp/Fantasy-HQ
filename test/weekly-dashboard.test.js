@@ -125,3 +125,13 @@ test('report recovery searches beyond the newest 100 Staff messages before sendi
  f.channel.messages.fetch=async arg=>{if(typeof arg==='string')return fetch(arg);pages++;return arg.before?new Map([[original.id,original]]):newest;};
  await f.discord().ensureReport(f.guild);assert.equal(pages,2);assert.equal(f.sent.length,1);
 });
+
+test('weekly report sweep skips unconfigured guilds but still surfaces errors for configured leagues', async () => {
+ const before=process.env.FANTASYHQ_LEAGUE_ID;delete process.env.FANTASYHQ_LEAGUE_ID;
+ try {
+  const reported=[],errors=[],repository={dataRoot:'temporary-test-root',loadGuildLeagueBinding:id=>id==='configured'?{leagueId:'league'}:null};
+  const dashboard=createDiscordWeeklyDashboard({repository,service:{report:id=>{reported.push(id);throw Error('Configured storage is corrupt');}},logger:{error:(...args)=>errors.push(args)}});
+  await dashboard.tick({guilds:{cache:new Map([['unconfigured',{id:'unconfigured'}],['configured',{id:'configured'}]])}});
+  assert.deepEqual(reported,['configured']);assert.equal(errors.length,1);assert.match(errors[0][1],/corrupt/);
+ } finally {if(before===undefined)delete process.env.FANTASYHQ_LEAGUE_ID;else process.env.FANTASYHQ_LEAGUE_ID=before;}
+});

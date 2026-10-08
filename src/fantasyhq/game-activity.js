@@ -53,7 +53,7 @@ function createGameActivityService({submissions=require('./game-submissions').cr
  }
  function tick(client){if(running)return running;running=run(client).finally(()=>running=null);return running;}
  async function run(client){const rolesByGuild=new Map();for(const saved of submissions.records()){
-  const game=saved.game;if(!game.discordThreadId || game.discordThreadCleanedAt)continue;
+  const game=saved.game;if(!game.discordThreadId || game.discordThreadCleanedAt || game.discordThreadMissingId===game.discordThreadId)continue;
   try{
    const guild = await client.guilds.fetch(game.guildId); let staffChanged=false;
    if(guild.roles?.fetch){
@@ -97,7 +97,7 @@ function createGameActivityService({submissions=require('./game-submissions').cr
     await channel.send({embeds:[embed],allowedMentions:{parse:[],users:ids}});
     await submissions.mutate(game.gameId,r=>{r.game.activityReminders[stage].sentAt=new Date(now()).toISOString();});
    }catch(error){await submissions.mutate(game.gameId,r=>{r.game.activityReminders[stage].error=error.message;});logger.error('Game reminder:',error.message);}
-  }catch(error){logger.error('Game activity:',error.message);}
+  }catch(error){if(Number(error.code)===10003){await submissions.mutate(game.gameId,r=>{r.game.discordThreadMissingId=game.discordThreadId;r.game.discordThreadMissingAt=new Date(now()).toISOString();});logger.error('Game activity: saved thread is missing; recreate it from /games create.',{gameId:game.gameId,threadId:game.discordThreadId});}else logger.error('Game activity:',error.message);}
  }}
  return {recordActivity,message,button,tick};
 }

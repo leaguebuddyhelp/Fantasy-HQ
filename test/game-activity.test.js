@@ -137,3 +137,15 @@ test('existing game cards gain both commissioner role tags and ordinary refreshe
  assert.deepEqual(f.edits.at(-1).allowedMentions,{parse:[]});
  const edits=f.edits.length;await f.service.tick(f.client);assert.equal(f.edits.length,edits);
 });
+
+test('deleted Discord threads stop repeated API requests but become eligible again after recreation', async t => {
+    const f = fixture(t); let requests = 0;
+    f.client.guilds.fetch = async () => ({ channels: { fetch: async () => { requests++; throw Object.assign(Error('Unknown Channel'), { code: 10003 }); } } });
+    await f.service.tick(f.client); await f.service.tick(f.client); assert.equal(requests, 1);
+    assert.equal(f.submissions.load(f.game.gameId).game.discordThreadMissingId, 'thread');
+    assert.equal(f.submissions.load(f.game.gameId).game.discordThreadCleanedAt, undefined);
+    await f.submissions.mutate(f.game.gameId, r => r.game.discordThreadId = 'new-thread');
+    f.client.guilds.fetch = async () => ({ channels: { fetch: async () => { requests++; return f.channel; } } });
+    await f.service.tick(f.client); assert.equal(requests, 2);
+    assert.equal(f.submissions.load(f.game.gameId).game.status, 'SCHEDULED');
+});
