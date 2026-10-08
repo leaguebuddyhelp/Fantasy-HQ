@@ -5,7 +5,7 @@ function seededRandom(seed) {
     let state = createHash('sha256').update(String(seed)).digest().readUInt32LE(0);
     return () => { state += 0x6D2B79F5; let t = state; t = Math.imul(t ^ t >>> 15, t | 1); t ^= t + Math.imul(t ^ t >>> 7, t | 61); return ((t ^ t >>> 14) >>> 0) / 4294967296; };
 }
-const ENGINE_VERSION = 6;
+const ENGINE_VERSION = 7;
 const clamp = (value, low = 0, high = 1) => Math.max(low, Math.min(high, value));
 function numeric(value) { if (value == null || value === '' || typeof value === 'boolean') return null; const n = Number(value); return Number.isFinite(n) ? n : null; }
 function traitsFor(p) { return [p.archetype, p.build, p.strength_1, p.strength_2, p.strength_3].filter(Boolean).join(' ').toLowerCase(); }
@@ -69,8 +69,9 @@ function teamPositionNeeds(input, teamId, selections = []) {
             secondaryCount: 0,
             bestOverall: ratings.length ? Math.max(...ratings) : null };
     });
-    return { rosterAvailable: profile.roster.length > 0, positions, targets: positions.slice()
-        .sort((a, b) => b.score - a.score || a.starterStrength - b.starterStrength || POSITIONS.indexOf(a.position) - POSITIONS.indexOf(b.position)).slice(0, 2).map(position => position.position) };
+    const ranked = positions.slice().sort((a, b) => b.score - a.score || a.starterStrength - b.starterStrength || POSITIONS.indexOf(a.position) - POSITIONS.indexOf(b.position));
+    const targets = ranked.filter((position, index) => index < 2 || position.score >= 0.35).slice(0, 4).map(position => position.position);
+    return { rosterAvailable: profile.roster.length > 0, positions: positions.map(position => ({ ...position, targeted: targets.includes(position.position) })), targets };
 }
 function fitWith(prospect, profile) {
     const traits = traitsFor(prospect);

@@ -172,10 +172,10 @@ function sendFile(response, filePath, cacheControl = "no-cache") {
   fs.createReadStream(filePath).pipe(response);
 }
 
-function parseJsonBody(request) {
+function parseJsonBody(request, maxBytes = 512000) {
   return new Promise((resolve, reject) => {
     const chunks = []; let bytes = 0, oversized = false;
-    request.on('data', chunk => { bytes += Buffer.byteLength(chunk); if (bytes > 512000) { oversized = true; reject(new Error('Request body must be 512 KB or smaller.')); } else if (!oversized) chunks.push(chunk); });
+    request.on('data', chunk => { bytes += Buffer.byteLength(chunk); if (bytes > maxBytes) { oversized = true; reject(new Error(`Request body must be ${Math.floor(maxBytes / 1024)} KB or smaller.`)); } else if (!oversized) chunks.push(chunk); });
     request.on("end", () => {
       if (oversized) return;
       if (!chunks.length) {
@@ -306,6 +306,52 @@ function unsafeRequestHandler(request, response) {
     ...(playerUpgradeRuntime?.submissions ? { submissions: playerUpgradeRuntime.submissions } : {}),
   })) return;
 
+  if (['/api/league/coach-session','/api/league/sportsbook','/api/league/sportsbook/mine','/api/league/sportsbook/bet','/api/league/admin/sportsbook'].includes(url.pathname)) {
+    (async () => {
+      try {
+        const repository = gameThreadRuntime?.repository || setupService.repository;
+        const context = repository.loadLeagueContext({guildId: process.env.GUILD_ID}), leagueId = context.league.leagueId;
+        const sessions = require('./fantasyhq/coach-web-session').createCoachWebSessions({repository,
+          fetchMember: async (guildId,userId) => {
+            if(!gameThreadRuntime?.client?.isReady()) throw Error('Discord must be connected to verify coach access.');
+            const guild = await gameThreadRuntime.client.guilds.fetch(guildId);
+            return guild.members.fetch({user:userId,force:true});
+          }});
+        const sportsbook = require('./fantasyhq/sportsbook-service').createSportsbookService({repository,
+          submissions: playerUpgradeRuntime?.submissions || webGameSubmissions});
+        if(url.pathname === '/api/league/coach-session') {
+          if(request.method !== 'POST') {sendJson(response,405,{error:'Method not allowed.'});return;}
+          const body = await parseJsonBody(request,4096);
+          if(body.action === 'logout') {response.setHeader('Set-Cookie',sessions.logout(leagueId,request));sendJson(response,200,{signedOut:true});return;}
+          const result = await sessions.exchange(leagueId,body.token,request);
+          response.setHeader('Set-Cookie',result.cookie);sendJson(response,200,{coachUserId:result.actor.id,teamId:result.actor.teamId});return;
+        }
+        if(url.pathname === '/api/league/admin/sportsbook') {
+          if(!isAdminRequest(request)) {sendJson(response,403,{error:'Staff authorization required.'});return;}
+          if(request.method !== 'GET') {sendJson(response,405,{error:'Method not allowed.'});return;}
+          sendJson(response,200,sportsbook.staff(leagueId,{id:require('./shared/website-auth').websitePrincipal(request).principal,authorized:true}));return;
+        }
+        if(url.pathname === '/api/league/sportsbook') {
+          if(request.method !== 'GET') {sendJson(response,405,{error:'Method not allowed.'});return;}
+          const state=sportsbook.refresh(leagueId),simulationId=repository.loadSettings(leagueId).simulationId||null;
+          sendJson(response,200,{seasonId:context.seasonId,week:context.league.currentWeek,
+            markets:state.markets.filter(m=>m.seasonId===context.seasonId&&m.simulationId===simulationId&&(!url.searchParams.get('gameId')||m.gameId===url.searchParams.get('gameId'))),
+            games:(playerUpgradeRuntime?.submissions||webGameSubmissions).records().filter(r=>r.game.leagueId===leagueId&&r.game.seasonId===context.seasonId&&(simulationId?r.game.simulationId===simulationId:!r.game.simulationId)).map(r=>({gameId:r.game.gameId,week:r.game.weekNumber,team1Id:r.game.team1Id,team2Id:r.game.team2Id,team1Name:r.game.team1Name,team2Name:r.game.team2Name})),
+            leaderboard:sportsbook.leaderboard(leagueId)});return;
+        }
+        if(url.pathname === '/api/league/sportsbook/mine') {
+          if(request.method !== 'GET') {sendJson(response,405,{error:'Method not allowed.'});return;}
+          const actor=await sessions.authenticate(leagueId,request);sendJson(response,200,{...sportsbook.mine(leagueId,actor),coachUserId:actor.id,teamId:actor.teamId});return;
+        }
+        if(request.method !== 'POST') {sendJson(response,405,{error:'Method not allowed.'});return;}
+        const actor=await sessions.authenticate(leagueId,request,{mutation:true}),body=await parseJsonBody(request,64*1024);
+        if(body.action==='preview') sendJson(response,200,sportsbook.preview(leagueId,actor,{marketIds:body.marketIds,wager:body.wager}));
+        else if(body.action==='confirm') sendJson(response,200,sportsbook.confirm(leagueId,actor,body.token));
+        else sendJson(response,400,{error:'Choose preview or confirm.'});
+      } catch(error) {sendJson(response,400,{error:error.message});}
+    })();return;
+  }
+
   const weeklyTeamMatch = url.pathname.match(/^\/api\/league\/weekly\/([^/]+)$/);
   if (url.pathname === '/api/league/admin/weekly' || weeklyTeamMatch) {
     const staff = !weeklyTeamMatch;
@@ -349,6 +395,135 @@ function unsafeRequestHandler(request, response) {
       sendJson(response, 200, require('./fantasyhq/storage-safety').createStorageBackup(repository.dataRoot));
     } catch(error) { sendJson(response, 400, { error: error.message }); } })(); return;
   }
+  if (url.pathname === '/api/league/admin/news') {
+    if(!isAdminRequest(request)){sendJson(response,403,{error:'Staff website credentials required.'});return;}
+    (async()=>{try{
+      const context=boundLeagueContext(),principal=require('./shared/website-auth').websitePrincipal(request),actor={id:principal?.operator||context.league.commissionerUserId,authorized:true,staffAuthorized:true};
+      const service=require('./fantasyhq/news-service').createNewsService({repository:setupService.repository,submissions:webGameSubmissions}),leagueId=context.league.leagueId;
+      if(request.method==='GET'){sendJson(response,200,{articles:service.staffList(leagueId,actor)});return;}
+      if(request.method!=='POST'){sendJson(response,405,{error:'Method not allowed.'});return;}const body=await parseJsonBody(request);websiteOperator(body);sendJson(response,200,service.review(leagueId,actor,body));
+    }catch(error){sendJson(response,400,{error:error.message});}})();return;
+  }
+
+  if (url.pathname === '/api/league/admin/offseason-free-agency') {
+    if (!isAdminRequest(request)) { sendJson(response, 403, {error:'Staff website credentials required.'}); return; }
+    (async()=>{try{
+      const context=boundLeagueContext(),principal=require('./shared/website-auth').websitePrincipal(request),repository=playerUpgradeRuntime?.repository||leagueService.repository;
+      const service=require('./fantasyhq/offseason-free-agency').createOffseasonFreeAgencyService({repository}),actor={id:principal?.operator||context.league.commissionerUserId,authorized:true,staffAuthorized:true},leagueId=context.league.leagueId;
+      if(request.method==='GET'){
+        if(url.searchParams.get('imageId')){const original=service.readOriginal(leagueId,actor,url.searchParams.get('imageId'));if(url.searchParams.get('preview')==='1'){original.bytes=await require('./fantasyhq/offseason-image').normalize(original.bytes);original.contentType='image/png';}response.writeHead(200,{'Content-Type':original.contentType,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});response.end(original.bytes);}
+        else sendJson(response,200,service.inspect(leagueId,actor,{staff:true}));return;
+      }
+      if(request.method!=='POST'){sendJson(response,405,{error:'Method not allowed.'});return;}const body=await parseJsonBody(request,34*1024*1024);websiteOperator(body);
+      if(['open','extend','pause','resume','close','complete'].includes(body.action))sendJson(response,200,service.stageAction(leagueId,actor,body));
+      else if(body.action==='prepare-approval')sendJson(response,200,service.prepareApproval(leagueId,actor,body.offerIds));
+      else if(body.action==='confirm-approval')sendJson(response,200,service.confirmApproval(leagueId,actor,body.token));
+      else if(body.action==='reject')sendJson(response,200,service.reject(leagueId,actor,body));
+      else if(body.action==='upload'){if(typeof body.base64!=='string'||!/^[A-Za-z0-9+/]+={0,2}$/.test(body.base64))throw Error('Invalid image upload.');sendJson(response,200,await service.upload(leagueId,actor,{filename:body.filename,bytes:Buffer.from(body.base64,'base64')}));}
+      else if(body.action==='retry')sendJson(response,200,{image:await service.retry(leagueId,actor,body.imageId)});
+      else if(body.action==='prepare-verification')sendJson(response,200,service.prepareVerification(leagueId,actor,body));
+      else if(body.action==='confirm-verification')sendJson(response,200,service.confirmVerification(leagueId,actor,body.token));
+      else throw Error('Unknown offseason free-agency action.');
+    }catch(error){sendJson(response,400,{error:error.message});}})();return;
+  }
+
+  if (url.pathname === '/api/league/admin/offseason-rosters') {
+    if (!isAdminRequest(request)) { sendJson(response, 403, { error: 'Commissioner website key required.' }); return; }
+    (async () => { try {
+      const context = boundLeagueContext(), principal = require('./shared/website-auth').websitePrincipal(request);
+      if (principal?.operator && principal.operator !== context.league.commissionerUserId) throw Error('Use commissioner credentials for offseason roster controls.');
+      const repository = playerUpgradeRuntime?.repository || leagueService.repository;
+      const service = require('./fantasyhq/offseason-roster-service').createOffseasonRosterService({ repository });
+      const actor = { authorized: true, id: context.league.commissionerUserId }, leagueId = context.league.leagueId;
+      if (request.method === 'GET') { sendJson(response, 200, service.inspect(leagueId)); return; }
+      if (request.method !== 'POST') { sendJson(response, 405, { error: 'Method not allowed.' }); return; }
+      const body = await parseJsonBody(request); websiteOperator(body);
+      if (['open','extend'].includes(body.action)) sendJson(response, 200, service.windowAction(leagueId, actor, body));
+      else if (body.action === 'prepare') sendJson(response, 200, service.prepareCompletion(leagueId, actor));
+      else if (body.action === 'confirm') sendJson(response, 200, service.confirmCompletion(leagueId, actor, body.token));
+      else if (body.action === 'prepare-waiver') sendJson(response, 200, service.prepareWaiver(leagueId, actor, body.playerId));
+      else if (body.action === 'confirm-waiver') sendJson(response, 200, service.confirmWaiver(leagueId, actor, body.token));
+      else throw Error('Unknown roster action.');
+    } catch(error) { sendJson(response, 400, { error: error.message }); } })(); return;
+  }
+
+  if (url.pathname === '/api/league/admin/offseason-import') {
+    if (!isAdminRequest(request)) { sendJson(response, 403, { error: 'Commissioner website key required.' }); return; }
+    (async () => { try {
+      const context = boundLeagueContext(), principal = require('./shared/website-auth').websitePrincipal(request);
+      if (principal?.operator && principal.operator !== context.league.commissionerUserId) throw Error('Use credentials keyed by the commissioner Discord user ID for offseason imports.');
+      const repository = playerUpgradeRuntime?.repository || leagueService.repository;
+      const step = url.searchParams.get('step') || repository.loadOffseason(context.league.leagueId)?.seasons[context.seasonId]?.step;
+      const service = require('./fantasyhq/offseason-import-service').createOffseasonImportService({ repository, step });
+      const actor = { authorized: true, id: context.league.commissionerUserId }, leagueId = context.league.leagueId;
+      if (request.method === 'GET') {
+        if (url.searchParams.get('imageId')) {
+          const original = service.readOriginal(leagueId, actor, url.searchParams.get('imageId'));
+          if(url.searchParams.get('preview')==='1'){original.bytes=await require('./fantasyhq/offseason-image').normalize(original.bytes);original.contentType='image/png';}
+          response.writeHead(200, { 'Content-Type': original.contentType, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' }); response.end(original.bytes);
+        } else sendJson(response, 200, service.inspect(leagueId, actor, url.searchParams.get('salaryCap')));
+        return;
+      }
+      if (request.method !== 'POST') { sendJson(response, 405, { error: 'Method not allowed.' }); return; }
+      const body = await parseJsonBody(request, 34 * 1024 * 1024); websiteOperator(body);
+      if (body.action === 'upload') {
+        if (typeof body.base64 !== 'string' || !/^[A-Za-z0-9+/]+={0,2}$/.test(body.base64)) throw Error('Invalid image upload.');
+        sendJson(response, 200, await service.upload(leagueId, actor, { filename: body.filename, bytes: Buffer.from(body.base64, 'base64') }));
+      } else if (body.action === 'retry') sendJson(response, 200, { image: await service.retry(leagueId, actor, body.imageId) });
+      else if (body.action === 'review') sendJson(response, 200, service.review(leagueId, actor, body));
+      else if (body.action === 'prepare') sendJson(response, 200, service.prepare(leagueId, actor, body));
+      else if (body.action === 'confirm') sendJson(response, 200, service.confirm(leagueId, actor, body.token));
+      else throw Error('Choose upload, retry, save review, prepare or confirm.');
+    } catch (error) { sendJson(response, 400, { error: error.message }); } })(); return;
+  }
+
+  if (url.pathname === '/api/league/admin/retirements') {
+    if (!isAdminRequest(request)) { sendJson(response, 403, { error: 'Commissioner website key required.' }); return; }
+    (async () => { try {
+      const context = boundLeagueContext(), principal = require('./shared/website-auth').websitePrincipal(request);
+      if (principal?.operator && principal.operator !== context.league.commissionerUserId) throw Error('Use credentials keyed by the commissioner Discord user ID for retirement imports.');
+      const repository = playerUpgradeRuntime?.repository || leagueService.repository;
+      const service = require('./fantasyhq/retirement-import-service').createRetirementImportService({ repository });
+      const actor = { authorized: true, id: context.league.commissionerUserId }, leagueId = context.league.leagueId;
+      if (request.method === 'GET') {
+        if (url.searchParams.get('imageId')) {
+          const original = service.readOriginal(leagueId, actor, url.searchParams.get('imageId'));
+          if(url.searchParams.get('preview')==='1'){original.bytes=await require('./fantasyhq/offseason-image').normalize(original.bytes);original.contentType='image/png';}
+          response.writeHead(200, { 'Content-Type': original.contentType, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' }); response.end(original.bytes);
+        } else sendJson(response, 200, service.inspect(leagueId, actor));
+        return;
+      }
+      if (request.method !== 'POST') { sendJson(response, 405, { error: 'Method not allowed.' }); return; }
+      const body = await parseJsonBody(request, 34 * 1024 * 1024); websiteOperator(body);
+      if (body.action === 'upload') {
+        if (typeof body.base64 !== 'string' || !/^[A-Za-z0-9+/]+={0,2}$/.test(body.base64)) throw Error('Invalid image upload.');
+        sendJson(response, 200, await service.upload(leagueId, actor, { filename: body.filename, bytes: Buffer.from(body.base64, 'base64') }));
+      } else if (body.action === 'retry') sendJson(response, 200, { image: await service.retry(leagueId, actor, body.imageId) });
+      else if (body.action === 'prepare') sendJson(response, 200, service.prepare(leagueId, actor, body));
+      else if (body.action === 'confirm') sendJson(response, 200, service.confirm(leagueId, actor, body.token));
+      else throw Error('Choose upload, retry, prepare or confirm.');
+    } catch (error) { sendJson(response, 400, { error: error.message }); } })(); return;
+  }
+
+  if (url.pathname === '/api/league/admin/offseason') {
+    if (!isAdminRequest(request)) { sendJson(response, 403, { error: 'Commissioner website key required.' }); return; }
+    (async () => { try {
+      const context = boundLeagueContext(), principal = require('./shared/website-auth').websitePrincipal(request);
+      if (principal?.operator && principal.operator !== context.league.commissionerUserId) throw Error('Use credentials keyed by the commissioner Discord user ID for offseason transitions.');
+      const repository = playerUpgradeRuntime?.repository || leagueService.repository;
+      const service = require('./fantasyhq/offseason-service').createOffseasonService({ repository });
+      const leagueId = context.league.leagueId;
+      if (request.method === 'GET') { sendJson(response, 200, service.inspect(leagueId)); return; }
+      if (request.method !== 'POST') { sendJson(response, 405, { error: 'Method not allowed.' }); return; }
+      const body = await parseJsonBody(request), operator = websiteOperator(body);
+      const actor = { authorized: true, id: context.league.commissionerUserId, operator };
+      if (body.action === 'prepare') sendJson(response, 200, service.prepareNext(leagueId, actor));
+      else if (body.action === 'confirm') sendJson(response, 200, service.confirmNext(leagueId, actor, body.token));
+      else if (body.action === 'cancel') sendJson(response, 200, service.cancel(leagueId, actor, body.token));
+      else throw Error('Choose prepare, confirm or cancel.');
+    } catch (error) { sendJson(response, 400, { error: error.message }); } })(); return;
+  }
+
   if (url.pathname === '/api/league/admin/playoffs') {
     if (!isAdminRequest(request, url)) { sendJson(response, 403, { error: 'Admin authorization required.' }); return; }
     (async () => { try {
@@ -548,6 +723,55 @@ function unsafeRequestHandler(request, response) {
       console.error("Website team detail error:", error);
       sendJson(response, 500, { error: error.message || "Unable to load team" });
     }
+    return;
+  }
+
+  if (url.pathname === '/api/league/streams' && request.method === 'GET') {
+    try {const context=boundLeagueContext(),streams=require('./fantasyhq/streams-service').createStreamsService({repository:setupService.repository,submissions:webGameSubmissions}).list(context.league.leagueId,{gameId:url.searchParams.get('gameId'),seasonId:url.searchParams.get('seasonId')});sendJson(response,200,{streams});}
+    catch(error){sendJson(response,500,{error:error.message});}return;
+  }
+
+  if (url.pathname === '/api/league/news' && request.method === 'GET') {
+    try {
+      const context=boundLeagueContext(),repository=setupService.repository,service=require('./fantasyhq/news-service').createNewsService({repository,submissions:webGameSubmissions});
+      const filters=Object.fromEntries(['q','sort','seasonId','week','phase','teamId','playerId','category','storyline'].map(k=>[k,url.searchParams.get(k)]));const players=new Map(repository.loadPlayers(context.league.leagueId).map(p=>[p.playerId,p]));
+      const enrich=a=>({...a,players:a.playerIds.map(id=>players.get(id)).filter(Boolean),teams:a.teamIds.map(id=>context.teams.find(t=>t.teamId===id)).filter(Boolean)}),all=service.list(context.league.leagueId),articles=service.list(context.league.leagueId,filters).map(enrich);
+      if(url.searchParams.get('id')){const story=all.find(a=>a.id===url.searchParams.get('id'));if(!story){sendJson(response,404,{error:'Article not found.'});return;}sendJson(response,200,{article:enrich(story),related:all.filter(a=>a.id!==story.id&&(a.category===story.category||a.playerIds.some(id=>story.playerIds.includes(id))||a.teamIds.some(id=>story.teamIds.includes(id)))).slice(0,4).map(enrich)});return;}
+      sendJson(response,200,{articles,featured:articles.slice().sort((a,b)=>Number(b.featured)-Number(a.featured)||(.65*b.newsworthiness+.35*Math.max(0,100-(Date.now()-Date.parse(b.publishedAt))/8640000))-(.65*a.newsworthiness+.35*Math.max(0,100-(Date.now()-Date.parse(a.publishedAt))/8640000))||b.publishedAt.localeCompare(a.publishedAt)).slice(0,5),trending:articles.slice().sort((a,b)=>Object.values(b.reactions||{}).reduce((n,v)=>n+v,0)-Object.values(a.reactions||{}).reduce((n,v)=>n+v,0)||b.publishedAt.localeCompare(a.publishedAt)).slice(0,5),seasons:[...new Set(all.map(a=>a.seasonId))],categories:[...new Set(all.map(a=>a.category))],storylines:[...new Set(all.map(a=>a.storyline))],teams:context.teams.map(t=>({teamId:t.teamId,teamName:t.teamName}))});
+    } catch(error){sendJson(response,500,{error:error.message});}return;
+  }
+
+  if (url.pathname === '/api/league/power-rankings' && request.method === 'GET') {
+    try {
+      const context = boundLeagueContext(), service = require('./fantasyhq/power-rankings').createPowerRankingsService({repository:setupService.repository,submissions:webGameSubmissions});
+      const all = service.list(context.league.leagueId), history = service.list(context.league.leagueId,{seasonId:url.searchParams.get('seasonId')});
+      sendJson(response, 200, {current:all.filter(s=>s.seasonId===context.seasonId||(s.preseason&&s.sourceSeasonId===context.seasonId)).at(-1)||null,history,seasons:[...new Set(all.map(s=>s.seasonId))]});
+    } catch(error) { sendJson(response, 500, {error:error.message}); } return;
+  }
+
+  if (url.pathname === '/api/league/progression' && request.method === 'GET') {
+    try {
+      const context = boundLeagueContext();
+      const filters = Object.fromEntries(['seasonId','teamId','playerId'].map(key => [key,url.searchParams.get(key)]));
+      sendJson(response, 200, require('./fantasyhq/progression-history').createProgressionHistoryService({repository:setupService.repository}).summary(context.league.leagueId,filters));
+    } catch(error) { sendJson(response, 500, {error:error.message}); } return;
+  }
+
+  if (url.pathname === '/api/league/player-of-the-week' && request.method === 'GET') {
+    try {
+      const context = boundLeagueContext(), repository = setupService.repository;
+      const service = require('./fantasyhq/player-of-week').createPlayerOfWeekService({ repository, submissions: webGameSubmissions });
+      const all = service.list(context.league.leagueId);
+      const filters = Object.fromEntries(['seasonId', 'week', 'conference', 'teamId', 'playerId'].map(key => [key, url.searchParams.get(key)]));
+      const players = new Map(repository.loadPlayers(context.league.leagueId).map(p => [p.playerId, p]));
+      const enrich = w => ({ ...w, player: players.get(w.playerId) || { playerId: w.playerId, name: w.playerName } });
+      const latestWeek = Math.max(0, ...all.filter(w => w.seasonId === context.seasonId).map(w => w.week));
+      sendJson(response, 200, { leagueId: context.league.leagueId, seasonId: context.seasonId,
+        current: all.filter(w => w.seasonId === context.seasonId && w.week === latestWeek).map(enrich),
+        history: service.list(context.league.leagueId, filters).map(enrich), seasons: [...new Set(all.map(w => w.seasonId))],
+        teams: context.teams.map(t => ({ teamId: t.teamId, teamName: t.teamName })),
+        players: [...new Map(all.map(w => [w.playerId, { playerId: w.playerId, name: w.playerName }])).values()] });
+    } catch (error) { sendJson(response, 500, { error: error.message || 'Unable to load weekly awards.' }); }
     return;
   }
 

@@ -77,7 +77,7 @@ function createPlayerService(options = {}) {
         jerseyNumber: membership?.jerseyNumber ?? player.jerseyNumber ?? null,
         position1: membership?.position1 ?? player.position1 ?? null,
         position2: membership?.position2 ?? player.position2 ?? null,
-        age: leagueAge(player.birthdate, context.seasonId),
+        age: leagueAge(player.birthdate, context.seasonId) ?? player.age ?? null,
         tradeValue: playerTradeValue({ ...player, position1: membership?.position1 ?? player.position1, position2: membership?.position2 ?? player.position2 }, context.seasonId),
       };
     });
@@ -86,7 +86,7 @@ function createPlayerService(options = {}) {
   function getPlayer(leagueId, seasonId, playerId) {
     const player = listPlayers(leagueId, seasonId).find((entry) => entry.playerId === playerId);
     if (!player) throw new Error(`Unknown player "${playerId}".`);
-    return player;
+    return { ...player, playerOfWeek: require('./player-of-week').createPlayerOfWeekService({ repository }).list(leagueId, { playerId }) };
   }
 
   function updatePlayer({ leagueId, seasonId, playerId, patch, actingUserId, operator }) {
@@ -98,6 +98,7 @@ function createPlayerService(options = {}) {
     if (playerIndex === -1) throw new Error(`Unknown player "${playerId}".`);
 
     const current = getPlayer(leagueId, context.seasonId, playerId);
+    if ('teamId' in validated && !validated.teamId && current.teamId && Number(current.overall) >= 85) throw Error('Players rated 85+ OVR cannot be waived, including by the commissioner.');
     if ('teamId' in validated && validated.teamId !== current.teamId) { const lock = require('./transaction-locks').playerTransactionLock(repository, leagueId, context.seasonId, playerId); if (lock) throw Error(lock); }
     const nextBase = {
       ...players[playerIndex],

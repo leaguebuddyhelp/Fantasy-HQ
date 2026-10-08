@@ -47,7 +47,7 @@ function createTeamService(options = {}) {
         player: players.has(membership.playerId) ? {
           ...players.get(membership.playerId),
           contractView: contractView(players.get(membership.playerId), leagueSeasonStartYear(context.seasonId)),
-          age: leagueAge(players.get(membership.playerId).birthdate, context.seasonId),
+          age: leagueAge(players.get(membership.playerId).birthdate, context.seasonId) ?? players.get(membership.playerId).age ?? null,
           tradeValue: playerTradeValue({ ...players.get(membership.playerId), position1: membership.position1 ?? players.get(membership.playerId).position1, position2: membership.position2 ?? players.get(membership.playerId).position2 }, context.seasonId),
         } : null,
         seasonStats: playerStats.get(membership.playerId) || null,
@@ -63,8 +63,10 @@ function createTeamService(options = {}) {
       if (!picksByTeam.has(pick.currentOwnerTeamId)) continue;
       picksByTeam.get(pick.currentOwnerTeamId).push({ ...pick, originalTeamName: originalTeam?.teamName || pick.originalTeamId, originalTeamAbbreviation: originalTeam?.abbreviation || pick.originalTeamId, currentOwnerTeamName: currentOwner?.teamName || pick.currentOwnerTeamId, protectionLabel: PICK_PROTECTIONS[pick.protection]?.label || "Unprotected" });
     }
+    const needsInput = { draftYear: leagueSeasonStartYear(context.seasonId) + 1, prospects: [], rosters: Object.fromEntries(context.teams.map(t => [t.teamId, (rosterByTeam.get(t.teamId) || []).map(entry => ({ ...entry.player, position1: entry.position1 || entry.player?.position1 }))])) };
     return context.teams.map((team) => ({
       record: records.get(team.teamId),
+      positionNeeds: require('./mock-engine').teamPositionNeeds(needsInput, team.teamId),
       ...team,
       ownerUserId: owners.get(team.teamId)?.userId || null,
       ownerDisplayName: owners.get(team.teamId)?.displayName || owners.get(team.teamId)?.username || null,

@@ -30,7 +30,7 @@ function createGameActivityService({submissions=require('./game-submissions').cr
  }
  async function refresh(channel,record,force=false){
   if(!record.game.discordMessageId)return;
-  const view=activityView(record,now()),signature=JSON.stringify(["approved-game-v7",record.game.staffRoleIds,record.game.testMode,record.game.matchupType,record.game.inGameDate,view.status,view.submissionStatus,view.screenshots,view.pastDeadline,view.teams.map(t=>t.participated)]);
+  const view=activityView(record,now()),signature=JSON.stringify(["home-stream-reminder-v8",record.game.streamlink?.url,record.game.staffRoleIds,record.game.testMode,record.game.matchupType,record.game.inGameDate,view.status,view.submissionStatus,view.screenshots,view.pastDeadline,view.teams.map(t=>t.participated)]);
   const card=record.game.activityCard;
   if(!force&&card?.signature===signature)return;
   try{

@@ -738,8 +738,13 @@ test('all four real draft classes keep top talent within bounded slides across r
 test('mock needs count primary positions only and identify two needs even for complete elite rosters',()=>{
  const {teamPositionNeeds}=require('../src/fantasyhq/mock-engine'),input=inputFixture();
  input.rosters.t0=[{position1:'PG/SG',position2:'SG',overall:90,age:25},{position1:'PG',position2:'C',overall:88,age:25}];
- let needs=teamPositionNeeds(input,'t0');assert.equal(needs.positions.find(p=>p.position==='PG').primaryCount,2);assert.equal(needs.positions.find(p=>p.position==='SG').primaryCount,0);assert.equal(needs.positions.find(p=>p.position==='C').primaryCount,0);assert.equal(needs.targets.length,2);
+ let needs=teamPositionNeeds(input,'t0');assert.equal(needs.positions.find(p=>p.position==='PG').primaryCount,2);assert.equal(needs.positions.find(p=>p.position==='SG').primaryCount,0);assert.equal(needs.positions.find(p=>p.position==='C').primaryCount,0);assert.equal(needs.targets.length,4);assert.equal(needs.positions.filter(p=>p.targeted).length,4);
  input.rosters.t0=['PG','SG','SF','PF','C'].flatMap(position1=>Array.from({length:3},()=>({position1,overall:99,age:24})));
  needs=teamPositionNeeds(input,'t0');assert.equal(needs.targets.length,2);assert.equal(new Set(needs.targets).size,2);
  input.rosters.t0.filter(p=>p.position1==='C').forEach(p=>p.overall=68);assert.equal(teamPositionNeeds(input,'t0').targets[0],'C');
+});
+test('weekly second round includes picks 31–60, honors asset owners, never repeats first-round prospects and stays frozen across restarts',t=>{
+ const f=fixture(t),second=f.input.teams.map(team=>({pickId:'second_'+team.teamId,round:2,draftYear:2027,originalTeamId:team.teamId,currentOwnerTeamId:team.teamId}));second[0].currentOwnerTeamId='t1';f.repository.saveDraftPicks('l',[...f.input.picks,...second]);const first=f.simulations.weeklyProjection('l'),round2=f.simulations.secondRoundProjection('l',first);assert.equal(round2.length,30);assert.deepEqual(round2.map(s=>s.pickNumber),Array.from({length:30},(_,i)=>31+i));assert.equal(new Set([...first.selections,...round2].map(s=>s.prospectId)).size,60);assert.equal(round2.find(s=>s.originalTeamId==='t0').currentOwnerTeamId,'t1');
+ const restart=createMockSimulationService({repository:f.repository,scoutingService:{boardForContext:()=>({file:'class.json',prospects:f.input.prospects})},standingsService:{getStandings:()=>f.input.standings}});assert.deepEqual(restart.secondRoundProjection('l',first),round2);assert.deepEqual(f.simulations.weeklyProjection('l'),first);
+ const embed=require('../src/fantasyhq/discord-mock-draft').projectionEmbed(first.input,round2,first,[],2).toJSON();assert.match(embed.description,/Second Round/);assert.match(embed.fields[0].name,/31/);assert.match(embed.fields.at(-1).name,/60/);
 });

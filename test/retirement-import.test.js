@@ -1,0 +1,71 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const sharp = require('sharp');
+const { fixture } = require('./helpers/free-agency');
+const { createRetirementImportService } = require('../src/fantasyhq/retirement-import-service');
+function setup(t, recognize = async () => 'Player Retirements\na-0\nFree 0') {
+  const f = fixture(t); f.repository.saveLeague('league', { currentPhase: 'OFFSEASON', commissionerUserId: 'c' });
+  f.repository.commitLeagueFiles({ leagueId: 'league', files: [{ name: 'offseason.json', value: { version: 1, seasons: { '1': { seasonId: '1', step: 'RETIREMENTS', revision: 1, completedSteps: ['WRAP_UP'], history: [], receipts: {} } } } }] });
+  const options = { repository: f.repository, recognize, backup: () => ({ id: 'test' }) };
+  return { ...f, options, actor: { id: 'c', authorized: true }, importer: createRetirementImportService(options) };
+}
+const photo = () => sharp({ create: { width: 50, height: 50, channels: 3, background: '#ffffff' } }).jpeg().toBuffer();
+test('retirement evidence retains originals, detects duplicates, suggests IDs and never changes players before confirmation', async t => {
+  const f = setup(t), bytes = await photo(), original = f.repository.loadPlayers('league');
+  const upload = await f.importer.upload('league', f.actor, { bytes, filename: 'photo.jpg' });
+  assert.equal(upload.image.status, 'READY_FOR_REVIEW');
+  assert.deepEqual(f.importer.readOriginal('league', f.actor, upload.image.imageId).bytes, bytes);
+  assert.equal((await f.importer.upload('league', f.actor, { bytes, filename: 'renamed.jpg' })).duplicate, true);
+  assert.equal(f.importer.inspect('league', f.actor).images.length, 1);
+  assert.deepEqual(f.repository.loadPlayers('league'), original);
+  const preview = f.importer.prepare('league', f.actor, { playerIds: ['a-0', 'fa-0'], reviewedAllImages: true });
+  assert.equal(preview.selected.length, 2);
+  assert.deepEqual(f.repository.loadPlayers('league'), original);
+  const restarted = createRetirementImportService(f.options);
+  const receipt = restarted.confirm('league', f.actor, preview.token);
+  assert.equal(receipt.playerIds.length, 2);
+  assert.deepEqual(restarted.confirm('league', f.actor, preview.token), receipt);
+  const retired = f.repository.loadPlayers('league').find(p => p.playerId === 'a-0');
+  assert.ok(retired.retiredAt); assert.equal(retired.teamId, null); assert.equal(retired.retirementHistory[0].teamId, 'a');
+  assert.equal(f.repository.loadRosterMemberships('league').find(m => m.playerId === 'a-0').endedReason, 'RETIREMENT');
+  f.repository.saveLeague('league', { currentPhase: 'REGULAR_SEASON' });
+  assert.equal(f.service.browse('league', 'PG').some(p => p.playerId === 'fa-0'), false);
+});
+test('failed OCR allows explicit manual review while stale data and damaged originals block commit', async t => {
+  const f = setup(t, async () => { throw Error('Unclear photo'); });
+  const uploaded = await f.importer.upload('league', f.actor, { bytes: await photo(), filename: 'camera.jpg' });
+  assert.equal(uploaded.image.status, 'NEEDS_MANUAL_REVIEW');
+  assert.throws(() => f.importer.prepare('league', f.actor, { playerIds: ['a-0'] }), /Review every/);
+  assert.throws(() => f.importer.prepare('league', f.actor, { playerIds: ['a-0', 'a-0'], reviewedAllImages: true }), /unique/);
+  const preview = f.importer.prepare('league', f.actor, { playerIds: ['a-0'], reviewedAllImages: true });
+  const players = f.repository.loadPlayers('league'); players[0].overall++; f.repository.savePlayers('league', players);
+  assert.throws(() => f.importer.confirm('league', f.actor, preview.token), /changed/);
+  const second = f.importer.prepare('league', f.actor, { playerIds: ['a-0'], reviewedAllImages: true });
+  fs.writeFileSync(path.join(f.root, 'leagues', 'league', uploaded.image.originalPath), 'tampered');
+  assert.throws(() => f.importer.confirm('league', f.actor, second.token), /evidence changed/);
+  assert.equal(f.repository.loadPlayers('league')[0].retiredAt, undefined);
+});
+test('wrong phase, other actors, invalid images and active player transactions cannot retire players', async t => {
+  const f = setup(t);
+  await assert.rejects(() => f.importer.upload('league', { id: 'coach', authorized: true }, { bytes: Buffer.from('unused'), filename: 'x' }), /commissioner/);
+  await assert.rejects(() => f.importer.upload('league', f.actor, { bytes: Buffer.from('bad'), filename: 'bad.jpg' }));
+  await f.importer.upload('league', f.actor, { bytes: await photo(), filename: 'photo.jpg' });
+  f.repository.saveTrades('league', [{ seasonId: '1', status: 'PENDING_COMMITTEE', currentVersion: { transfers: [{ assetType: 'PLAYER', assetId: 'a-0' }] } }]);
+  assert.throws(() => f.importer.prepare('league', f.actor, { playerIds: ['a-0'], reviewedAllImages: true }), /locked/);
+  f.repository.saveLeague('league', { currentPhase: 'REGULAR_SEASON' });
+  assert.throws(() => f.importer.inspect('league', f.actor), /retirements offseason step/);
+});
+test('saved evidence can resume interrupted OCR after restart without duplicate originals', async t => {
+  const f = setup(t);
+  const uploaded = await f.importer.upload('league', f.actor, { bytes: await photo(), filename: 'photo.jpg' });
+  const state = f.repository.loadOffseason('league');
+  state.seasons['1'].imports.retirements.images[0].status = 'PROCESSING';
+  f.repository.commitLeagueFiles({ leagueId: 'league', files: [{ name: 'offseason.json', value: state }] });
+  const restarted = createRetirementImportService(f.options);
+  const image = await restarted.retry('league', f.actor, uploaded.image.imageId);
+  assert.equal(image.status, 'READY_FOR_REVIEW');
+  assert.equal(restarted.inspect('league', f.actor).images.length, 1);
+  assert.deepEqual(restarted.readOriginal('league', f.actor, image.imageId).bytes, f.importer.readOriginal('league', f.actor, image.imageId).bytes);
+});

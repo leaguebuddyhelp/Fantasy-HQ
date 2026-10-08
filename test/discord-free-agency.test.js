@@ -77,7 +77,7 @@ test('lost Discord acknowledgements recover marked messages without duplicate pi
 });
 test('MyTeam retains single dashboard with signing limits and persistent Waive Player control',()=>{
  const team={teamName:'Test',roster:[],schedule:[],draftPicks:[]};const context={league:{leagueName:'Test',currentPhase:'REGULAR_SEASON',currentWeek:1}};
- const payload=myTeamPayload(team,context,{completedSignings:4,activeTargets:1,allowedActiveTargets:1});assert.equal(payload.embeds.length,1);assert.match(JSON.stringify(payload.embeds[0].toJSON()),/4\/5/);assert.match(JSON.stringify(payload.embeds[0].toJSON()),/1\/1/);assert.deepEqual(payload.components[0].toJSON().components.map(b=>b.custom_id),['myweek:open','fa:waive']);
+ const payload=myTeamPayload(team,context,{completedSignings:4,activeTargets:1,allowedActiveTargets:1});assert.equal(payload.embeds.length,1);assert.match(JSON.stringify(payload.embeds[0].toJSON()),/4\/5/);assert.match(JSON.stringify(payload.embeds[0].toJSON()),/1\/1/);assert.deepEqual(payload.components[0].toJSON().components.map(b=>b.custom_id),['myweek:open','fa:waive','coachweb:open']);
 });
 
 test('full private coach upload workflow reaches confirmation, conditional release and Staff correction',async t=>{

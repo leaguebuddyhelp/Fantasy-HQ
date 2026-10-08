@@ -199,6 +199,10 @@ function createPlayerStatsService({ repository, submissions, publishedOnly = fal
                 lastGame: logs.at(-1) || null,
             };
         });
+        const qualificationWeek = String(context.league.currentSeasonId) === resolvedSeasonId
+            ? Number(context.league.currentWeek || 0)
+            : Math.max(0, ...(schedule?.weeks || []).filter(w => w.status === 'COMPLETED').map(w => Number(w.week)));
+        for (const player of stats) player.percentageQualification = require('./stat-qualification').percentageQualification(player, { scope, currentWeek: qualificationWeek });
         stats.sort((left, right) => left.name.localeCompare(right.name) || left.playerId.localeCompare(right.playerId));
         for (const logs of logsByPlayer.values()) logs.sort((left, right) => left.week - right.week
             || String(left.date || '').localeCompare(String(right.date || '')) || left.gameId.localeCompare(right.gameId));
@@ -238,7 +242,18 @@ function createPlayerStatsService({ repository, submissions, publishedOnly = fal
         return buildSnapshot(leagueId, context.seasonId).players.filter(player => player.teamId === teamId);
     }
 
-    return { getSeasonSnapshot, getSeasonPlayerStats, getPlayerSeasonStats, getPlayerGameLog, getPlayerStatsAndGameLog, getTeamPlayerStats, repository };
+    function getAllGamePerformances(leagueId, seasonId) {
+        const snapshot = buildSnapshot(leagueId, seasonId);
+        return [...snapshot.logsByPlayer].flatMap(([playerId, logs]) => logs.filter(log => !log.DNP && log.MIN > 0).map(log => ({playerId,...log})));
+    }
+    function getWeekPerformances(leagueId, seasonId, week) {
+        const snapshot = buildSnapshot(leagueId, seasonId);
+        return [...snapshot.logsByPlayer].flatMap(([playerId, logs]) => logs
+            .filter(log => log.week === week && !log.DNP && log.MIN > 0)
+            .map(log => ({ playerId, ...log })));
+    }
+
+    return { getSeasonSnapshot, getSeasonPlayerStats, getPlayerSeasonStats, getPlayerGameLog, getPlayerStatsAndGameLog, getTeamPlayerStats, getWeekPerformances, getAllGamePerformances, repository };
 }
 
 module.exports = { createPlayerStatsService, TOTAL_FIELDS, percentage };

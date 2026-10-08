@@ -74,7 +74,12 @@ async function handleMyTeamCommand(interaction) {
   const team = teams.find((entry) => entry.teamId === identity.teamId);
   if (!team) throw new Error("You don't have a team yet. Ask your commissioner to use /team assign.");
   const fa = require('./free-agency-service').createFreeAgencyService({ repository: setupService.repository });
-  const faStatus = fa.getStatus(context.league.leagueId, team.teamId);
+  let faStatus = fa.getStatus(context.league.leagueId, team.teamId);
+  if (context.league.currentPhase === 'FREE_AGENCY') {
+    const market = require('./offseason-free-agency').createOffseasonFreeAgencyService({repository:setupService.repository}).inspect(context.league.leagueId,{id:interaction.user.id},{teamId:team.teamId});
+    faStatus = {offseason:true,completedSignings:market.limits.openSignings,activeTargets:market.limits.activeOffers,allowedActiveTargets:5,stageName:market.stage?.name||'Waiting for Staff'};
+  }
+  context.offseasonStep = setupService.repository.loadOffseason(context.league.leagueId)?.seasons[context.seasonId]?.step;
   await interaction.editReply(myTeamPayload(team, context, faStatus));
 }
 
@@ -89,7 +94,7 @@ function myTeamPayload(team, context, faStatus = { completedSignings: 0, activeT
     const payroll = team.payroll;
     embed.addFields({ name: "💵 Team salary", value: `${payroll.knownPlayers ? `${compactDollars(payroll.salary)} reported salary` : "Salary unavailable"} · ${payroll.season}\nSalary available for ${payroll.knownPlayers}/${payroll.totalPlayers} players`, inline: true });
   }
-  embed.addFields({ name: "📝 Free Agency", value: `FA Signings: **${faStatus.completedSignings}/5**\nActive FA Targets: **${faStatus.activeTargets}/${faStatus.allowedActiveTargets}**`, inline: true });
+  embed.addFields({ name: "📝 Free Agency", value: faStatus.offseason ? `${faStatus.stageName}\nOpen-stage signings: **${faStatus.completedSignings}/9**\nActive offers: **${faStatus.activeTargets}/5**` : `FA Signings: **${faStatus.completedSignings}/5**\nActive FA Targets: **${faStatus.activeTargets}/${faStatus.allowedActiveTargets}**`, inline: true });
   // Compact rows keep a normal NBA roster in one embed; unusual imports are capped.
   const visible = roster.slice(0, 25);
   const lines = visible.map(entry => {
@@ -112,11 +117,11 @@ function myTeamPayload(team, context, faStatus = { completedSignings: 0, activeT
   const upcoming = (team.schedule || []).filter(entry => entry.week >= week).slice(0, 3);
   embed.addFields({ name: "📅 Coming up", value: upcoming.map(entry => `**Week ${entry.week}** · ${entry.bye ? "Bye" : `vs ${entry.opponent}`}`).join("\n") || "Schedule not confirmed yet." });
   embed.setFooter({ text: "/player for stats, trade value & contract details · /team roster for full roster · /schedule mine" });
-  return brandTeamReply({ embeds: [embed], components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId("myweek:open").setLabel("MY WEEK").setStyle(ButtonStyle.Primary), new ButtonBuilder().setCustomId("fa:waive").setLabel("WAIVE PLAYER").setStyle(ButtonStyle.Secondary))] }, team.teamName);
+  return brandTeamReply({ embeds: [embed], components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId("myweek:open").setLabel("MY WEEK").setStyle(ButtonStyle.Primary), new ButtonBuilder().setCustomId(context.offseasonStep === "CUTDOWN" ? "cutdown:open" : context.league.currentPhase === "FREE_AGENCY" ? "fa:sign" : "fa:waive").setLabel(context.offseasonStep === "CUTDOWN" ? "ROSTER CUTDOWN" : context.league.currentPhase === "FREE_AGENCY" ? "FREE AGENCY" : "WAIVE PLAYER").setStyle(ButtonStyle.Secondary), new ButtonBuilder().setCustomId("coachweb:open").setLabel("PRIVATE WEBSITE").setStyle(ButtonStyle.Secondary))] }, team.teamName);
 }
 
 function freeAgentsPayload(players, position = null, requestedPage = 1) {
-  const available = players.filter(player => !player.teamId && (!position || player.position1 === position))
+  const available = players.filter(player => !player.teamId && !player.retiredAt && (!position || player.position1 === position))
     .sort((a, b) => Number(b.overall || 0) - Number(a.overall || 0) || a.name.localeCompare(b.name));
   const pages = Math.max(1, Math.ceil(available.length / 15));
   const page = Math.max(1, Math.min(Number(requestedPage) || 1, pages));

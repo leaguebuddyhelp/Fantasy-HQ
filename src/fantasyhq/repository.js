@@ -2,6 +2,29 @@ const fs = require("fs");
 const path = require("path");
 const { randomUUID } = require("crypto");
 
+const TRANSACTION_FILES = new Set([
+  'players.json', 'roster-memberships.json', 'draft-picks.json', 'trades.json',
+  'free-agency.json', 'audit-log.json', 'league.json', 'playoffs.json',
+  'coach-web-sessions.json', 'sportsbook.json', 'news.json', 'power-rankings.json', 'player-upgrades.json', 'awards.json', 'championships.json', 'offseason.json',
+]);
+function validateTransactionFiles(files) {
+  if (!Array.isArray(files) || !files.length) throw Error('Transaction requires file entries.');
+  const names = new Set();
+  for (const entry of files) {
+    if (!entry || typeof entry.name !== 'string' || names.has(entry.name)
+      || (!TRANSACTION_FILES.has(entry.name) && !/^(schedules|postseason|season-archives)\/[a-zA-Z0-9_-]+\.json$/.test(entry.name) && entry.name !== 'current-schedule.json')
+      || !entry.value || typeof entry.value !== 'object') throw Error('Transaction contains an invalid file entry.');
+    if (['players.json', 'roster-memberships.json', 'draft-picks.json', 'trades.json', 'audit-log.json'].includes(entry.name) && !Array.isArray(entry.value)) throw Error('Transaction array schema is invalid.');
+    if (entry.name === 'coach-web-sessions.json') require('./coach-web-session').validateSessions(entry.value);
+    if (entry.name === 'sportsbook.json') require('./sportsbook-service').validateSportsbook(entry.value);
+    if (entry.name === 'news.json') require('./news-service').validateNews(entry.value);
+    if (entry.name === 'power-rankings.json') require('./power-rankings').validateRankings(entry.value);
+    if (entry.name === 'offseason.json') require('./offseason-state').validateOffseason(entry.value);
+    if ((entry.name.startsWith('schedules/') || entry.name === 'current-schedule.json') && !Array.isArray(entry.value.weeks)) throw Error('Transaction schedule schema is invalid.');
+    names.add(entry.name);
+  }
+}
+
 function normalizeConference(value) {
   const normalized = String(value || "").trim().toLowerCase();
   if (["east", "eastern", "eastern conference"].includes(normalized)) return "East";
@@ -182,10 +205,12 @@ function createFantasyHQRepository(options = {}) {
     const paths = buildLeaguePaths(dataRoot, leagueId), journal = path.join(paths.leagueRoot, 'week-transaction.json');
     if (!fs.existsSync(journal)) return;
     const tx = JSON.parse(fs.readFileSync(journal, 'utf8'));
+    if (tx.awards && (tx.awards.version !== 1 || !tx.awards.seasons || typeof tx.awards.seasons !== 'object' || Array.isArray(tx.awards.seasons))) throw Error('Invalid weekly awards journal.');
     writeJson(path.join(paths.schedulesRoot, `${tx.schedule.seasonId}.json`), tx.schedule);
     writeJson(paths.currentScheduleFile, tx.schedule);
     writeJson(paths.leagueFile, tx.league);
     writeJson(paths.auditLogFile, tx.audit);
+    if (tx.awards) writeJson(path.join(paths.leagueRoot, 'awards.json'), tx.awards);
     enqueueMockRefresh(leagueId, tx.audit.at(-1));
     fs.unlinkSync(journal);
   }
@@ -195,9 +220,10 @@ function createFantasyHQRepository(options = {}) {
     if (!fs.existsSync(journal)) return;
     const transaction = JSON.parse(fs.readFileSync(journal, "utf8"));
     if (transaction.leagueId !== leagueId || !Array.isArray(transaction.files)) throw new Error("Trade transaction journal is invalid; league data was not loaded.");
-    const allowed = new Set(["players.json", "roster-memberships.json", "draft-picks.json", "trades.json", "free-agency.json", "audit-log.json", "league.json", "playoffs.json", "player-upgrades.json", "awards.json", "championships.json"]);
+    validateTransactionFiles(transaction.files);
     for (const entry of transaction.files) {
-      if ((!allowed.has(entry.name) && ! /^(schedules|postseason)\/[a-zA-Z0-9_-]+\.json$/.test(entry.name) && entry.name !== 'current-schedule.json') || !entry.name || !entry.value) throw new Error("Trade transaction journal contains an invalid file entry.");
+      const file = path.join(paths.leagueRoot, entry.name);
+      if (entry.name.startsWith('season-archives/') && fs.existsSync(file) && JSON.stringify(readJson(file)) !== JSON.stringify(entry.value)) throw Error('Season archives are immutable.');
     }
     for (const entry of transaction.files) writeJson(path.join(paths.leagueRoot, entry.name), entry.value);
     enqueueMockRefresh(leagueId, transaction.files.find(entry => entry.name === 'audit-log.json')?.value.at(-1));
@@ -230,9 +256,9 @@ function createFantasyHQRepository(options = {}) {
   }
   function recoverResetTransaction(leagueId) {
     const paths=buildLeaguePaths(dataRoot,leagueId),file=path.join(paths.leagueRoot,'reset-transaction.json');if(!fs.existsSync(file))return;
-    const tx=readJson(file),allowed=new Set(['league.json','players.json','roster-memberships.json','draft-picks.json','trades.json','free-agency.json','player-upgrades.json','audit-log.json','current-schedule.json']);
-    if(tx.leagueId!==leagueId||!Array.isArray(tx.files)||!tx.seasonId)throw Error('Invalid reset journal.');
-    for(const entry of tx.files)if(!allowed.has(entry.name)&&!/^schedules\/[a-zA-Z0-9_-]+\.json$/.test(entry.name))throw Error('Unsafe reset path.');
+    const tx=readJson(file);
+    if(tx.leagueId!==leagueId||!Array.isArray(tx.files)||!/^[a-zA-Z0-9_-]+$/.test(String(tx.seasonId || '')))throw Error('Invalid reset journal.');
+    validateTransactionFiles(tx.files);
     for(const entry of tx.files)writeJson(path.join(paths.leagueRoot,entry.name),entry.value);
     const map=readGuildLeagueMap();for(const binding of Object.values(map))if(binding.leagueId===leagueId)binding.seasonId=tx.seasonId;writeGuildLeagueMap(map);fs.unlinkSync(file);
   }
@@ -278,11 +304,12 @@ function createFantasyHQRepository(options = {}) {
     recoverPlayerUpgradeTransaction(leagueId);
     return { committedAt: transaction.committedAt };
   }
-  function commitWeekTransition({ leagueId, expectedWeek, schedule, league, auditEntry }) {
+  function commitWeekTransition({ leagueId, expectedWeek, schedule, league, auditEntry, awards = null }) {
     const current = loadLeague(leagueId);
     if (current.league.currentWeek !== expectedWeek || current.seasonId !== schedule.seasonId) throw new Error('Week changed. Refresh and confirm again.');
     const paths = current.paths;
     const tx = { schedule: { ...schedule, savedAt: new Date().toISOString() }, league: normalizeLeagueRecord(leagueId, league), audit: [...loadAuditLog(leagueId), auditEntry] };
+    if (awards) { if (awards.version !== 1 || !awards.seasons || typeof awards.seasons !== 'object' || Array.isArray(awards.seasons)) throw Error('Invalid weekly awards.'); tx.awards = awards; }
     writeJson(path.join(paths.leagueRoot, 'week-transaction.json'), tx);
     recoverWeekTransaction(leagueId);
   }
@@ -359,8 +386,11 @@ function createFantasyHQRepository(options = {}) {
   function scheduleExists(leagueId, seasonId = null) {
     const { paths } = loadLeague(leagueId, seasonId);
     const resolvedSeasonId = resolveSeasonId(readJson(paths.leagueFile, {}) || {}, seasonId);
-    return fs.existsSync(path.join(paths.schedulesRoot, `${resolvedSeasonId}.json`))
-      || fs.existsSync(paths.currentScheduleFile);
+    if (fs.existsSync(path.join(paths.schedulesRoot, `${resolvedSeasonId}.json`))) return true;
+    if (!fs.existsSync(paths.currentScheduleFile)) return false;
+    const current = readJson(paths.currentScheduleFile, {});
+    const currentSeasonId = current.seasonId || readJson(paths.leagueFile, {}).currentSeasonId;
+    return String(currentSeasonId) === String(resolvedSeasonId);
   }
 
   function leagueExists(leagueId) {
@@ -376,7 +406,10 @@ function createFantasyHQRepository(options = {}) {
   function loadSchedule(leagueId, seasonId = null) {
     const { league, seasonId: resolvedSeasonId, paths } = loadLeague(leagueId, seasonId);
     const schedulePath = path.join(paths.schedulesRoot, `${resolvedSeasonId}.json`);
-    const payload = readJson(schedulePath, null) || readJson(paths.currentScheduleFile, null);
+    const legacy = readJson(paths.currentScheduleFile, null);
+    const legacySeasonId = legacy?.seasonId || league.currentSeasonId;
+    const payload = readJson(schedulePath, null)
+      || (String(legacySeasonId) === String(resolvedSeasonId) ? legacy : null);
     if (!payload) {
       throw new Error(`No saved schedule found for league ${league.leagueId} season ${resolvedSeasonId}.`);
     }
@@ -510,6 +543,31 @@ function createFantasyHQRepository(options = {}) {
   }
 
   return {
+    // Reuse the existing journal and recovery path for additive lifecycle files.
+    commitLeagueFiles({ leagueId, files }) {
+      recoverLeagueTransactions(leagueId);
+      validateTransactionFiles(files);
+      for (const entry of files) {
+        const file = path.join(buildLeaguePaths(dataRoot, leagueId).leagueRoot, entry.name);
+        if (fs.existsSync(file)) {
+          const current = readJson(file);
+          if (entry.name.startsWith('season-archives/') && JSON.stringify(current) !== JSON.stringify(entry.value)) throw Error('Season archives are immutable.');
+        }
+      }
+      writeJson(path.join(buildLeaguePaths(dataRoot, leagueId).leagueRoot, 'trade-transaction.json'), { leagueId, files, committedAt: new Date().toISOString() });
+      recoverTradeTransaction(leagueId);
+    },
+    loadOffseason(leagueId) {
+      recoverLeagueTransactions(leagueId);
+      const state = readJson(path.join(buildLeaguePaths(dataRoot, leagueId).leagueRoot, 'offseason.json'), null);
+      if (state) require('./offseason-state').validateOffseason(state);
+      return state;
+    },
+    loadSeasonArchive(leagueId, seasonId) {
+      recoverLeagueTransactions(leagueId);
+      if (!/^[a-zA-Z0-9_-]+$/.test(String(seasonId))) throw Error('Invalid archive season ID.');
+      return readJson(path.join(buildLeaguePaths(dataRoot, leagueId).leagueRoot, 'season-archives', `${seasonId}.json`), null);
+    },
     commitRosterTransaction({ leagueId, players, rosterMemberships, auditEntry }) {
       return commitTradeTransaction({ leagueId, players, rosterMemberships, draftPicks: loadListFile(buildLeaguePaths(dataRoot, leagueId).draftPicksFile), trades: loadListFile(buildLeaguePaths(dataRoot, leagueId).tradesFile), auditEntry });
     },
@@ -524,8 +582,12 @@ function createFantasyHQRepository(options = {}) {
       writeJson(path.join(buildLeaguePaths(dataRoot, leagueId).leagueRoot, 'trade-transaction.json'), { leagueId, files, committedAt: new Date().toISOString() });
       recoverTradeTransaction(leagueId);
     },
-    commitReset({leagueId,seasonId,files}) {recoverLeagueTransactions(leagueId);writeJson(path.join(buildLeaguePaths(dataRoot,leagueId).leagueRoot,'reset-transaction.json'),{leagueId,seasonId,files});recoverResetTransaction(leagueId);return loadLeague(leagueId);},
+    commitReset({leagueId,seasonId,files}) {recoverLeagueTransactions(leagueId);validateTransactionFiles(files);if(!/^[a-zA-Z0-9_-]+$/.test(String(seasonId || '')))throw Error('Invalid reset season ID.');writeJson(path.join(buildLeaguePaths(dataRoot,leagueId).leagueRoot,'reset-transaction.json'),{leagueId,seasonId,files});recoverResetTransaction(leagueId);return loadLeague(leagueId);},
     loadChampionships(leagueId) { recoverLeagueTransactions(leagueId); return readJson(path.join(buildLeaguePaths(dataRoot,leagueId).leagueRoot,'championships.json'),{version:1,seasons:{}}); },
+    loadCoachWebSessions(leagueId) { recoverLeagueTransactions(leagueId); return require('./coach-web-session').validateSessions(readJson(path.join(buildLeaguePaths(dataRoot,leagueId).leagueRoot,'coach-web-sessions.json'),{version:1,links:[],sessions:[]})); },
+    loadSportsbook(leagueId) { recoverLeagueTransactions(leagueId); return require('./sportsbook-service').validateSportsbook(readJson(path.join(buildLeaguePaths(dataRoot,leagueId).leagueRoot,'sportsbook.json'),{version:1,wallets:{},bets:[],markets:[],ledger:[],previews:[]})); },
+    loadNews(leagueId) { recoverLeagueTransactions(leagueId); return require('./news-service').validateNews(readJson(path.join(buildLeaguePaths(dataRoot,leagueId).leagueRoot,'news.json'),{version:1,articles:[]})); },
+    loadPowerRankings(leagueId) { recoverLeagueTransactions(leagueId); return require('./power-rankings').validateRankings(readJson(path.join(buildLeaguePaths(dataRoot,leagueId).leagueRoot,'power-rankings.json'),{version:1,seasons:{}})); },
     loadAwards(leagueId) { recoverLeagueTransactions(leagueId); return readJson(path.join(buildLeaguePaths(dataRoot,leagueId).leagueRoot,'awards.json'),{version:1,seasons:{}}); },
     commitAwards({leagueId,awards,auditEntry}) {
       recoverLeagueTransactions(leagueId);

@@ -30,7 +30,7 @@ function buildFixtureTeams() {
 }
 
 function buildRosterForTeam(team, seed) {
-  return {
+  const roster = {
     team: {
       name: team.teamName,
       slug: team.teamId,
@@ -94,6 +94,9 @@ function buildRosterForTeam(team, seed) {
       },
     ],
   };
+  for (let i = 0; i < 12; i++) roster.players.push({ ...roster.players[0], name: `${team.teamName} Reserve ${i}`, overall: 75, position1: ['PG','SG','SF','PF','C'][i % 5], profileUrl: `https://example.com/${team.teamId}-reserve-${i}`, jerseyNumber: 20 + i });
+  roster.playerCount = roster.players.length;
+  return roster;
 }
 
 async function jsonRequest(baseUrl, pathname, options = {}) {
@@ -277,6 +280,11 @@ test("preseason website admin flow validates and starts the season", async () =>
     const dataIssues = await jsonRequest(requestHandler, "/api/league/admin/data-issues", { headers });
     assert.equal(dataIssues.issues.filter((issue) => issue.severity === "error").length, 0);
 
+    const unbalancedValidation = await jsonRequest(requestHandler, "/api/league/admin/preseason/validate", { headers });
+    assert.equal(unbalancedValidation.ready, false);
+    assert.ok(unbalancedValidation.errors.some(error => error.includes('/15 players')));
+    const returningPlayer = movedTeam.team.roster.find(entry => entry.player.playerId !== editedPlayer.playerId).player;
+    await jsonRequest(requestHandler, "/api/league/admin/rosters/move-player", { method: "POST", headers, body: JSON.stringify({ playerId: returningPlayer.playerId, fromTeamId: "east-2", toTeamId: "east-1", operator: "Test Operator" }) });
     const preseasonValidation = await jsonRequest(requestHandler, "/api/league/admin/preseason/validate", { headers });
     assert.equal(preseasonValidation.ready, true, preseasonValidation.errors.join("\n"));
 

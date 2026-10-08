@@ -24,6 +24,7 @@ test('league Stats page sorts, filters, paginates, and expands the existing game
         threePPercent: 35,
         FTPercent: 80,
         TOV: 2,
+        percentageQualification: { FGPercent: { eligible: index === 1 }, threePPercent: { eligible: index === 0 }, FTPercent: { eligible: false } },
     }));
     await page.route('http://stats.test/**', async route => {
         const url = new URL(route.request().url());
@@ -95,5 +96,14 @@ test('league Stats page sorts, filters, paginates, and expands the existing game
     await page.locator('#league-stats-next').click();
     assert.equal(await rows().count(), 2);
     assert.equal(await page.locator('#league-stats-page-status').textContent(), '31–32 of 32 · Page 2 of 2');
+    await page.locator('[data-season-stats-sort="FGPercent"]').click();
+    assert.equal(await rows().count(), 1);
+    assert.equal(await rows().first().locator('[data-season-stats-player]').textContent(), 'Top Rebounder');
+    await page.locator('[data-season-stats-sort="threePPercent"]').click();
+    assert.equal(await rows().first().locator('[data-season-stats-player]').textContent(), 'Top Scorer');
+    await page.locator('[data-season-stats-sort="FTPercent"]').click();
+    assert.match(await rows().textContent(), /No players match/);
+    await page.locator('[data-season-stats-sort="PPG"]').click();
+    assert.equal(await rows().count(), 30);
     assert.deepEqual(errors, []);
 });

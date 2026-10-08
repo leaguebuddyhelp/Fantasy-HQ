@@ -32,9 +32,9 @@ function boardEmbeds(input, selections, title = 'LEAGUEbuddy Mock Draft') {
         return `**#${s.pickNumber}** ${ownerIcon(input, s)} **${ownership(input, s)}**\n${safe(p.name)} — ${safe(p.position_1)} — ${safe(p.team || p.nationality)}\nBoard #${s.boardRank ?? p.board_number} | AVP ${s.avp == null ? 'Unselected in saved simulations' : s.avp.toFixed(1)}${s.grade ? ` | **${s.grade}**` : ''}`;
     }).join('\n\n')));
 }
-function projectionEmbed(input, selections, snapshot, warnings = []) {
+function projectionEmbed(input, selections, snapshot, warnings = [], round = 1) {
     const card = new EmbedBuilder().setColor(COLOR).setTitle('🏀 LEAGUEbuddy Mock Draft')
-        .setDescription(`**${input.draftYear} Draft · First Round**\n📈 Weekly projected order · All 30 picks\n🗂 ${safe(input.draftClassId.replace(/ - Big Board$/i, ''))}`)
+        .setDescription(`**${input.draftYear} Draft · ${round === 2 ? 'Second' : 'First'} Round**\n📈 Weekly projected order · All 30 picks\n🗂 ${safe(input.draftClassId.replace(/ - Big Board$/i, ''))}`)
         .setFooter({ text: `Week ${input.currentWeek ?? 'Preseason'} · 1,000 simulations · ${snapshot.generatedAt}${warnings.length ? ` · ${warnings.join(' ')}` : ''}` });
     const lines = selections.map(s => {
         const p = input.prospects.find(p => p.prospectId === s.prospectId);
@@ -52,7 +52,7 @@ function projectionEmbed(input, selections, snapshot, warnings = []) {
             value += `${value ? '\n\n' : ''}${lines[end++]}`;
         }
         if (end === start) throw Error('A prospect entry exceeds Discord’s embed field limit.');
-        card.addFields({ name: `Picks ${start + 1}–${end}`, value, inline: false });
+        card.addFields({ name: `Picks ${selections[start].pickNumber}–${selections[end - 1].pickNumber}`, value, inline: false });
         start = end;
     }
     if (card.length > 6000) throw Error('The complete mock projection exceeds Discord’s single-embed limit.');
@@ -283,11 +283,24 @@ function createDiscordMockDraft({ repository, simulations, live, client = null }
         const needs = teamPositionNeeds(m.input, slot.currentOwnerTeamId, m.selections);
         const team = m.input.teams.find(team => team.teamId === slot.currentOwnerTeamId);
         info.addFields({ name: `🎯 ${safe(team.teamName)} · Position needs`, value: needs.rosterAvailable
-            ? `${needs.positions.map(position => `${position.priority === 'High' ? '🔴' : position.priority === 'Moderate' ? '🟡' : '🟢'} **${position.position} · ${position.priority} need** — ${position.primaryCount} primary · Rotation depth ${position.rotationDepth.toFixed(1)}${position.bestOverall == null ? '' : ` · Best ${position.bestOverall} OVR`}${position.contractReason ? `\n↳ ${position.contractReason}` : ''}`).join('\n')}\n\n**Target:** ${needs.targets.length ? needs.targets.join(' → ') : 'Best player available'}\nPrimary positions only. Based on rotation quality, starter/backup strength, age and contract expiry/options. Fringe depth is discounted. Updates with your mock picks.`
+            ? `${needs.positions.map(position => `${position.targeted ? '🟡' : '🟢'} **${position.position} · ${position.priority} need** — ${position.primaryCount} primary · Rotation depth ${position.rotationDepth.toFixed(1)}${position.bestOverall == null ? '' : ` · Best ${position.bestOverall} OVR`}${position.contractReason ? `\n↳ ${position.contractReason}` : ''}`).join('\n')}\n\n**Target:** ${needs.targets.length ? needs.targets.join(' → ') : 'Best player available'}\nPrimary positions only. Based on rotation quality, starter/backup strength, age and contract expiry/options. Fringe depth is discounted. Updates with your mock picks.`
             : 'Roster data is unavailable. Import the team roster to see position targets.' });
         if (result.pool.length) info.setFooter({ text: `Portrait: ${safe(result.pool[0].name)}` });
         const payload = { embeds: [info], components, allowedMentions: { parse: [] } };
         return result.pool.length ? portrait(payload, result.pool[0]) : payload;
+    }
+    function roundPayload(weekly, classNumber, round) {
+        const selections = round === 2 ? simulations.secondRoundProjection(weekly.input.leagueId, weekly) : weekly.selections;
+        const controls = [1,2].map(r => new ButtonBuilder().setCustomId(`mockround:${classNumber || 0}:${r}:${weekly.week ?? 'preseason'}:${weekly.seasonId}`).setLabel(`Round ${r}`).setStyle(r === round ? ButtonStyle.Primary : ButtonStyle.Secondary).setDisabled(r === round));
+        return {embeds:[projectionEmbed(weekly.input,selections,weekly,weekly.warnings,round)],components:[new ActionRowBuilder().addComponents(...controls)],allowedMentions:{parse:[]}};
+    }
+    async function handleRound(interaction) {
+        await interaction.deferReply({flags:MessageFlags.Ephemeral});
+        try {const c=context(interaction),leagueId=c.league.leagueId;await validateCoach(interaction.guild,leagueId,interaction.user.id,interaction.member);
+            const [,classValue,roundValue,week,seasonId]=interaction.customId.split(':'),round=Number(roundValue),classNumber=Number(classValue)||null;
+            if(![1,2].includes(round)||seasonId!==c.seasonId||week!==String(c.league.currentWeek??'preseason'))throw Error('The league week changed. Run the mock draft command again.');
+            const weekly=await simulations.classProjection(leagueId,classNumber);await interaction.editReply(roundPayload(weekly,classNumber,round));
+        }catch(error){await interaction.editReply({content:error.message,components:[]});}
     }
     async function projection(interaction) {
         const c = context(interaction), leagueId = c.league.leagueId;
@@ -297,7 +310,7 @@ function createDiscordMockDraft({ repository, simulations, live, client = null }
             await simulations.refresh(leagueId);
         }
         const weekly = await simulations.classProjection(leagueId, classNumber);
-        await interaction.editReply({ embeds: [projectionEmbed(weekly.input, weekly.selections, weekly, weekly.warnings)], allowedMentions: { parse: [] } });
+        await interaction.editReply(roundPayload(weekly, classNumber, 1));
     }
     async function handle(interaction) {
         try {
@@ -426,6 +439,6 @@ function createDiscordMockDraft({ repository, simulations, live, client = null }
         }
         await tick(runtimeClient);
     }
-    return { projection, handle, ensurePin, tick, restore, pump, validateCoach, selectionPayload, panelPayload };
+    return { projection, handleRound, handle, ensurePin, tick, restore, pump, validateCoach, selectionPayload, panelPayload };
 }
 module.exports = { createDiscordMockDraft, boardEmbeds, projectionEmbed, lotteryEmbed, reactionPayload, awardsEmbed, finalRecapPayload };

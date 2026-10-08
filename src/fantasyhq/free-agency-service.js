@@ -27,7 +27,7 @@ function createFreeAgencyService({ repository = createFantasyHQRepository(), now
     return offerWindowDuration(repository.loadSettings(s.leagueId) || {});
   }
   function roster(s, teamId) { return activeMemberships(s.memberships, s.context.seasonId).filter(m => m.teamId === teamId); }
-  function available(s, playerId) { const matches = s.players.filter(p => p.playerId === playerId); return matches.length === 1 && !activeMemberships(s.memberships, s.context.seasonId).some(m => m.playerId === playerId); }
+  function available(s, playerId) { const matches = s.players.filter(p => p.playerId === playerId); return matches.length === 1 && !matches[0].retiredAt && !activeMemberships(s.memberships, s.context.seasonId).some(m => m.playerId === playerId); }
   function windowFor(s, playerId) { return s.state.windows.find(w => w.playerId === playerId && w.seasonId === s.context.seasonId && ACTIVE_WINDOWS.has(w.status)); }
   function offersFor(s, windowId, teamId = null) { return s.state.offers.filter(o => o.windowId === windowId && (!teamId || o.teamId === teamId)); }
   function live(s, windowId, teamId = null) { return offersFor(s, windowId, teamId).filter(o => LIVE_OFFERS.has(o.status)); }
@@ -50,6 +50,7 @@ function createFreeAgencyService({ repository = createFantasyHQRepository(), now
   function requireRelease(s, teamId, playerId, windowId = null, waiverId = null) {
     const memberships = activeMemberships(s.memberships, s.context.seasonId).filter(m => m.playerId === playerId);
     if (memberships.length !== 1 || memberships[0].teamId !== teamId || s.players.filter(p => p.playerId === playerId).length !== 1) throw Error('Select a current roster player with one valid owner.');
+    if (Number(s.players.find(p => p.playerId === playerId)?.overall) >= 85) throw Error('Players rated 85+ OVR cannot be waived.');
     const reason = playerTransactionLock(repository, s.leagueId, s.context.seasonId, playerId, { windowId, waiverId });
     if (reason) throw Error(reason);
   }
@@ -124,6 +125,7 @@ function createFreeAgencyService({ repository = createFantasyHQRepository(), now
   function release(s, teamId, playerId, transactionId, reason) {
     const m = roster(s, teamId).find(m => m.playerId === playerId), p = s.players.find(p => p.playerId === playerId);
     if (!m || !p) throw Error('Release player changed ownership.');
+    if (Number(p.overall) >= 85) throw Error('Players rated 85+ OVR cannot be waived, including by Staff.');
     const oldContract = p.contract || null;
     m.active = false; m.endedAt = stamp(); m.transactionId = transactionId;
     p.teamId = null; delete p.contract; p.updatedAt = stamp();

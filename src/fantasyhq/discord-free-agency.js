@@ -16,7 +16,8 @@ const embed = (title, description) => new EmbedBuilder().setColor(0xffdc21).setT
 const time = value => `<t:${Math.floor(Date.parse(value) / 1000)}:t>`;
 const contractText = details => `Salary: **${typeof details.salary === 'number' ? compactDollars(details.salary) : details.salary || 'Not read'}**\nYears: **${details.years || 'Not read'}**\nStructure: **${({ FLAT: 'Flat', FRONT: 'Front (-5%)', BACK: 'Back (+5%)' })[details.structure] || details.structure || 'Not read'}**\nOption: **${details.option === 'PLAYER' ? 'Player Option' : details.option === 'TEAM' ? 'Team Option' : details.option || 'None'}**`;
 const isStaff = interaction => Boolean(interaction.member?.roles?.cache?.some(role => STAFF_ROLES.has(role.name)));
-function permanentPayload(settings = {}) {
+function permanentPayload(settings = {}, phase = 'REGULAR_SEASON') {
+  if (phase === 'FREE_AGENCY') return { embeds:[embed('LEAGUEbuddy OFFSEASON FREE AGENCY','Exclusive re-signing, then three rating stages. Each period normally lasts **24 hours**.\n\nKeep up to **5 private active offers**, with unique priorities **1–5**. Open stages allow **3 signings per team per stage**, **9 total**. Exclusive re-signings do not use those limits.\n\nStaff confirms winning offers after the deadline. Use the buttons below for the current stage.')],components:[row(button('sign','SIGN FREE AGENT',ButtonStyle.Primary),button('active','MY ACTIVE OFFERS'))],allowedMentions:{parse:[]} };
   const duration = offerWindowDuration(settings);
   const clock = duration === 3600000 ? '**1 hour**' : `**${duration / 1000} seconds (Test Mode)**`;
   return { embeds: [embed('LEAGUEbuddy FREE AGENCY', `Submit an official NBA 2K contract offer for an available free agent.\n\nNew offer windows remain open for ${clock}. Existing windows keep their saved deadlines. Contract details stay private until the player signs.\n\nRegular season: maximum **5 signings** and **2 active targets** per team.`)], components: [row(button('sign', 'SIGN FREE AGENT', ButtonStyle.Primary), button('active', 'MY ACTIVE OFFERS'))], allowedMentions: { parse: [] } };
@@ -127,6 +128,7 @@ function createDiscordFreeAgency({ repository, service = createFreeAgencyService
     try {
       const context = contextFor(interaction), leagueId = context.league.leagueId;
       const [, action, id, extra] = interaction.customId.split(':');
+      if (context.league.currentPhase === 'FREE_AGENCY' && ['sign','active'].includes(action)) { await require('./discord-offseason-free-agency').createDiscordOffseasonFreeAgency({ repository }).handle(interaction); return; }
       if (['approve', 'reject', 'correct', 'waiverapprove', 'waiverreject', 'correctsave'].includes(action)) {
         requireStaff(interaction);
         if (action === 'correct') { const o = state(leagueId).offers.find(o => o.id === id && o.status === 'PENDING_REVIEW'); if (!o) throw Error('This offer is no longer pending.'); await interaction.showModal(detailsModal(id, o.details, true)); return; }
@@ -254,7 +256,7 @@ function createDiscordFreeAgency({ repository, service = createFreeAgencyService
         const history = await channel.messages.fetch({ limit: 100 });
         message = [...history.values()].find(m => m.author.id === guild.members.me.id && m.components.some(r => r.components.some(c => (c.customId || c.custom_id || c.data?.custom_id) === 'fa:sign')));
       }
-      if (message) await message.edit(permanentPayload(settings)); else message = await channel.send({ ...permanentPayload(settings), nonce: createHash('sha256').update(`fa-pin:${leagueId}`).digest('hex').slice(0,24), enforceNonce: true });
+      if (message) await message.edit(permanentPayload(settings, repository.loadLeague(leagueId).league.currentPhase)); else message = await channel.send({ ...permanentPayload(settings, repository.loadLeague(leagueId).league.currentPhase), nonce: createHash('sha256').update(`fa-pin:${leagueId}`).digest('hex').slice(0,24), enforceNonce: true });
       if (!message.pinned) await message.pin('Permanent LEAGUEbuddy Free Agency entry');
       for (const duplicate of matching.filter(m => m.id !== message.id)) await duplicate.unpin('Repair duplicate Free Agency pin');
       const latest = repository.loadSettings(leagueId) || {};

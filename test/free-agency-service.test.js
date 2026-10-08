@@ -96,13 +96,13 @@ test('full roster must select release; open roster signs without one and repeate
   assert.throws(()=>f.submit('a','fa-1',{conditionalReleasePlayerId:null}),/roster is full/);
 });
 test('waiver needs Staff, preserves audit contract, clears active contract, never restores signing slots', t => {
-  const f=fixture(t,{count:14});const a=f.submit();f.review(a.id);f.advance(HOUR_MS);f.service.tick('league');
-  const request=f.service.requestWaiver('league',{teamId:'a',playerId:'fa-0',actorUserId:'coach-a'});
-  assert.equal(f.repository.loadPlayers('league').find(p=>p.playerId==='fa-0').teamId,'a');
+  const f=fixture(t,{count:14});const a=f.submit('a','fa-1');f.review(a.id);f.advance(HOUR_MS);f.service.tick('league');
+  const request=f.service.requestWaiver('league',{teamId:'a',playerId:'fa-1',actorUserId:'coach-a'});
+  assert.equal(f.repository.loadPlayers('league').find(p=>p.playerId==='fa-1').teamId,'a');
   assert.throws(()=>f.service.reviewWaiver('league',{waiverId:request.id,decision:'APPROVE',actorUserId:'coach',staffAuthorized:false}),/Staff/);
   f.service.reviewWaiver('league',{waiverId:request.id,decision:'APPROVE',actorUserId:'staff',staffAuthorized:true});f.service.reviewWaiver('league',{waiverId:request.id,decision:'REJECT',actorUserId:'staff',staffAuthorized:true});
   assert.equal(f.service.getStatus('league','a').completedSignings,1);assert.equal(f.roster('a').length,14);
-  const again=f.submit();f.review(again.id);f.advance(HOUR_MS);f.service.tick('league');assert.equal(f.service.getStatus('league','a').completedSignings,2);
+  const again=f.submit('a','fa-1');f.review(again.id);f.advance(HOUR_MS);f.service.tick('league');assert.equal(f.service.getStatus('league','a').completedSignings,2);
 });
 test('five-signing limit dynamically reduces active targets and rejected waivers change nothing', t => {
   const f=fixture(t);f.service.update('league',s=>s.teams={'1:a':{completedSignings:4}});

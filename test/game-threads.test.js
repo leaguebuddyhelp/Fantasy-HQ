@@ -21,6 +21,35 @@ function fixture(t) {
     const service = createGameThreadService({ submissions, syncOwners: async () => { syncs++; return { conflicts: [], staffUserIds, staffRoleIds }; }, logger: { error() { } } });
     return { staffUserIds, staffRoleIds, repository, submissions, service, guild, channels, calls, thread, failCreate: () => failCreate = true, failMember: () => failMember = true, syncs: () => syncs };
 }
+test('weekly threads show the home-team streaming reminder and a working Streamlink button without home/away tracking', async t => {
+    const f = fixture(t); await f.service.create(f.guild);
+    const game = f.submissions.records()[0].game;
+    const thread = f.channels.get(game.discordThreadId);
+    const message = thread.savedMessages.get(game.discordMessageId);
+    assert.match(message.payload.embeds[0].toJSON().fields.find(field => field.name === '📺 STREAMING').value, /The home team is required to stream/);
+    assert.ok(message.payload.components.flatMap(row => row.toJSON().components).some(button => button.custom_id === `gamestream:${game.gameId}`));
+    const handle = require('../src/fantasyhq/game-streamlink').createGameStreamlinkHandler(f.submissions);
+    const interaction = { guildId: 'guild', channelId: thread.id, channel: thread, user: { id: 'coach-' + game.team2Id },
+        customId: `gamestream:${game.gameId}`, isButton: () => true, showModal: async modal => { interaction.modal = modal.toJSON(); },
+        reply: async payload => { interaction.response = payload; }, editReply: async payload => { interaction.response = payload; },
+        deferReply: async () => { interaction.deferred = true; }, fields: { getTextInputValue: () => 'https://www.twitch.tv/coach' } };
+    await handle(interaction); assert.equal(interaction.modal.custom_id, `gamestreamsave:${game.gameId}`);
+    interaction.customId = `gamestreamsave:${game.gameId}`; interaction.isButton = () => false;
+    await handle(interaction);
+    const saved = f.submissions.load(game.gameId).game;
+    assert.equal(saved.streamlink.url, 'https://www.twitch.tv/coach');
+    assert.equal(saved.streamlink.submittedBy, 'coach-' + game.team2Id);
+    assert.equal(saved.homeTeamId, undefined); assert.equal(saved.streamTeamId, undefined);
+    assert.match(message.payload.embeds[0].toJSON().fields.find(field => field.name === '📺 STREAMING').value, /Watch stream/);
+    assert.equal(saved.inGameDate, undefined);
+    interaction.user.id = 'outsider'; await handle(interaction);
+    assert.match(interaction.response, /Only an owner/);
+    assert.equal(f.submissions.load(game.gameId).game.streamlinkHistory.length, 1);
+    interaction.user.id = 'coach-' + game.team1Id;
+    await f.submissions.mutate(game.gameId, record => { record.game.status = 'FINAL'; });
+    await handle(interaction); assert.match(interaction.response, /locked or finalized/);
+    assert.equal(f.submissions.load(game.gameId).game.streamlinkHistory.length, 1);
+});
 test('active week creates 14 private threads with correct coaches, games, controls and shared deadline; concurrent retry creates none', async t => {
     const f = fixture(t), before = f.repository.loadSchedule('test', '1'); const first = await f.service.create(f.guild);
     assert.equal(first.created, 14); assert.equal(first.failed, 0); assert.equal(f.syncs(), 1);

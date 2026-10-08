@@ -85,9 +85,19 @@ function createSimulationEngine({storage,rng=Math.random,onOutput=async()=>{}}){
     const submissions=createGameSubmissionService({repository}),upgrades=require('./player-upgrades-service').createPlayerUpgradeService({repository,submissions});upgrades.syncOwnerSnapshot({leagueId,seasonId:sim.seasonId,owners,phase:'REGULAR_SEASON'});upgrades.handlePhase({leagueId,seasonId:sim.seasonId,owners,phase:'REGULAR_SEASON'});
     let completed=0;
     while(completed<count){c=repository.loadLeague(leagueId);if(c.league.regularSeasonStatus==='COMPLETED')break;const week=c.league.currentWeek,schedule=repository.loadSchedule(leagueId,sim.seasonId),active=schedule.weeks.find(w=>w.week===week);
-      for(const match of active.games){const record=submissions.ensureGame({guildId:c.league.guildId||'simulation',weekNumber:week,teamQuery:match.team1Id});if(record.game.status!=='FINAL'){const result=await approve(sim,submissions,record);await output(sim,actor,runtime,{type:'GAME',week,gameId:result.game.gameId,team1:result.game.team1Name,team2:result.game.team2Name,scores:result.game.result.scores});}}
+      const coverage=await require('./simulation-coverage').beforeWeek({sim,submissions,week});
+      for(const match of active.games){const record=submissions.ensureGame({guildId:c.league.guildId||'simulation',weekNumber:week,teamQuery:match.team1Id});if(record.game.status!=='FINAL'){await require('./simulation-coverage').startGame({sim,submissions,gameId:record.game.gameId,coverage});const result=await approve(sim,submissions,record);await output(sim,actor,runtime,{type:'GAME',week,gameId:result.game.gameId,team1:result.game.team1Name,team2:result.game.team2Name,scores:result.game.result.scores});}}
       const previousTransactions=runtime.transactions.length;if(runtime.automaticTransactions)transactions(sim,runtime);for(const move of runtime.transactions.slice(previousTransactions))await output(sim,actor,runtime,{type:'TRANSACTION',week,summary:JSON.stringify(move)});develop(sim,submissions,runtime);
       const service=require('./week-advancement').createWeekAdvancementService({submissions,threads:{create:async()=>({created:0})}}),preview=service.prepare(c.league.guildId||'simulation',actor);await service.advance({id:c.league.guildId||'simulation'},actor,preview.token);
+      const weeklyAwards = require('./player-of-week').createPlayerOfWeekService({ repository, submissions }).list(leagueId, { seasonId: c.seasonId, week });
+      runtime.history.push({ type: 'TEST_MODE_PLAYER_OF_WEEK', week, winners: weeklyAwards.map(w => ({ awardId: w.awardId, playerId: w.playerId, teamId: w.teamId, conference: w.conference })) });
+      await output(sim, actor, runtime, { type: 'PLAYER_OF_WEEK', week, summary: weeklyAwards.map(w => `${w.conference}: ${w.playerName} · ${w.stats.PTS} PTS / ${w.stats.REB} REB / ${w.stats.AST} AST`).join('\n') || 'No eligible weekly player performances.' });
+      const ranking = require('./power-rankings').createPowerRankingsService({repository,submissions}).process(leagueId);
+      if(ranking){runtime.history.push({type:'TEST_MODE_POWER_RANKINGS',week,key:ranking.key,teams:ranking.teams});await output(sim,actor,runtime,{type:'POWER_RANKINGS',week,summary:ranking.teams.slice(0,10).map(t=>`${t.rank}. ${t.teamName} · ${t.score.toFixed(1)}`).join('\n')});}
+      const featureReport=require('./simulation-coverage').afterWeek({sim,submissions,week,coverage,actor});
+      runtime.history.push({type:'TEST_MODE_FEATURE_COVERAGE',week,...featureReport});
+      if(featureReport.news.length)await output(sim,actor,runtime,{type:'NEWS',week,summary:featureReport.news.map(a=>a.headline).join('\n')});
+      if(featureReport.sportsbook)await output(sim,actor,runtime,{type:'SPORTSBOOK',week,summary:`TEST MODE · Career balance $${(featureReport.sportsbook.profile.balanceCents/100).toFixed(2)} · Bet ${featureReport.sportsbook.settlement||'not placed'} · Stream lock ${featureReport.sportsbook.streamLockVerified?'verified':'no pending bet'} · Own-team restriction ${featureReport.sportsbook.ownTeamBlocked?'verified':'no eligible own-team market'}`});
       if(week===15){simulatedAwards(sim,submissions,runtime,'REGULAR_SEASON');await output(sim,actor,runtime,{type:'AWARDS',week,summary:'TEST MODE regular-season awards saved in the simulation archive.'});}
       completed++;await output(sim,actor,runtime,{type:'WEEK_COMPLETE',week});if([5,10,15].includes(week))storage.checkpoint(sim.id,actor,'Week '+week,true);
       if(completed<count&&pauseRequested(sim,actor,runtime)&&repository.loadLeague(leagueId).league.regularSeasonStatus!=='COMPLETED')return {paused:true,weeksCompleted:completed,phase:'REGULAR_SEASON'};
@@ -117,24 +127,27 @@ function createSimulationEngine({storage,rng=Math.random,onOutput=async()=>{}}){
     runtime.pauseRequested=true;storage.saveRuntime(id,actor,runtime);return {status:'PAUSE_REQUESTED'};
   }
   function resume(id,actor){const runtime=storage.runtime(id,actor);if(runtime.status!=='PAUSED'||!runtime.plan)throw Error('No paused simulation to resume.');return run(id,actor,{...runtime.plan,resume:true});}
-  function run(id,actor,{weeks=1,playoffs=false,automaticTransactions=false,outputMode='QUIET',resume=false}={}){
+  function run(id,actor,{weeks=1,playoffs=false,offseason=false,fullCycle=false,automaticTransactions=false,outputMode='QUIET',resume=false}={}){
     if(![1,3,5,15].includes(weeks)||!['QUIET','FULL'].includes(outputMode))throw Error('Choose 1, 3, 5 or 15 weeks and QUIET or FULL output.');
     const sim=storage.load(id,actor),key=path.dirname(sim.dir)+':'+sim.leagueId;if(running.has(key))throw Error('A simulation for this league is already running.');
     const runtime=storage.runtime(id,actor);if(runtime.status==='PAUSED'&&!resume)throw Error('Resume or reset the paused simulation first.');
-    const context=sim.repository.loadLeague(sim.leagueId);for(const team of context.teams){try{validateSimulationRoster(roster(sim,team.teamId));}catch(error){throw Error(`${team.teamName||team.teamId}: ${error.message}`);}}
-    const targetWeek=resume?runtime.plan?.targetWeek:Math.min(15,(context.league.currentWeek||1)+weeks-1);
+    const context=sim.repository.loadLeague(sim.leagueId);sim.seasonId=context.seasonId;for(const team of context.teams){try{validateSimulationRoster(roster(sim,team.teamId));}catch(error){throw Error(`${team.teamName||team.teamId}: ${error.message}`);}}
+    const targetWeek=resume?runtime.plan?.targetWeek:(fullCycle?15:Math.min(15,(context.league.currentWeek||1)+weeks-1));
     if(resume&&(!runtime.plan||runtime.status!=='PAUSED'))throw Error('No paused simulation to resume.');
     const count=resume?targetWeek-(context.league.currentWeek||1)+1:weeks;
     const before={games:runtime.history.filter(e=>e.type==='GAME').length,transactions:runtime.transactions.length,checkpoints:storage.checkpoints(id,actor).length,errors:runtime.errors.length};
     const standingsService=require('./standings-service').createStandingsService({repository:sim.repository});
     const recordsBefore=Object.values(standingsService.getStandings(sim.leagueId,sim.seasonId).conferences).flat();
-    runtime.plan={weeks,playoffs,automaticTransactions,outputMode,targetWeek};runtime.pauseRequested=false;runtime.status='RUNNING';runtime.processId=process.pid;runtime.automaticTransactions=automaticTransactions===true;runtime.outputMode=outputMode;storage.saveRuntime(id,actor,runtime);
+    runtime.plan={weeks,playoffs,offseason,fullCycle,automaticTransactions,outputMode,targetWeek};runtime.pauseRequested=false;runtime.status='RUNNING';runtime.processId=process.pid;runtime.automaticTransactions=automaticTransactions===true;runtime.outputMode=outputMode;storage.saveRuntime(id,actor,runtime);
     const job=(async()=>{try{
-      const result=playoffs?await runPlayoffs(sim,actor,runtime):await runWeeks(sim,actor,runtime,count);
+      let result;
+      if(fullCycle){const c=sim.repository.loadLeague(sim.leagueId);if(['SETUP','PRESEASON','REGULAR_SEASON'].includes(c.league.currentPhase)&&c.league.regularSeasonStatus!=='COMPLETED')result=await runWeeks(sim,actor,runtime,15);if(!result?.paused&&['REGULAR_SEASON','PLAYOFFS'].includes(sim.repository.loadLeague(sim.leagueId).league.currentPhase))result=await runPlayoffs(sim,actor,runtime);}
+      if((offseason||fullCycle)&&!result?.paused)result=await require('./simulation-offseason').runSimulationOffseason({sim,actor,runtime,onStage:async event=>{await output(sim,actor,runtime,{type:'OFFSEASON',summary:`TEST MODE · ${event.step} completed${event.nextSeasonId?' · Season '+event.nextSeasonId:''}`, ...event});storage.checkpoint(sim.id,actor,'Season '+event.seasonId+' '+event.step,true);return pauseRequested(sim,actor,runtime);}});
+      else if(!fullCycle&&!offseason)result=playoffs?await runPlayoffs(sim,actor,runtime):await runWeeks(sim,actor,runtime,count);
       runtime.status=result.paused?'PAUSED':'IDLE';
       const rows=Object.values(standingsService.getStandings(sim.leagueId,sim.seasonId).conferences).flat();
       const stats=require('./player-stats-service').createPlayerStatsService({repository:sim.repository,scope:playoffs?'PLAYOFFS':'REGULAR_SEASON'}).getSeasonPlayerStats(sim.leagueId,sim.seasonId).filter(p=>p.GP).sort((a,b)=>b.PPG-a.PPG).slice(0,3);
-      return {...result,gamesSimulated:runtime.history.filter(e=>e.type==='GAME').length-before.games,transactionsCompleted:runtime.transactions.length-before.transactions,checkpointsCreated:storage.checkpoints(id,actor).length-before.checkpoints,errors:runtime.errors.slice(before.errors),standingsChanges:rows.map(row=>{const previous=recordsBefore.find(r=>r.teamId===row.teamId);return {teamName:row.teamName,wins:row.W-(previous?.W||0),losses:row.L-(previous?.L||0)};}).filter(r=>r.wins||r.losses).sort((a,b)=>b.wins-a.wins).slice(0,5),performances:stats.map(p=>({name:p.name,PPG:p.PPG,RPG:p.RPG,APG:p.APG}))};
+      return {...result,gamesSimulated:runtime.history.filter(e=>e.type==='GAME').length-before.games,transactionsCompleted:runtime.transactions.length-before.transactions,checkpointsCreated:storage.checkpoints(id,actor).length-before.checkpoints,errors:runtime.errors.slice(before.errors),standingsChanges:(context.seasonId===sim.seasonId?rows:[]).map(row=>{const previous=recordsBefore.find(r=>r.teamId===row.teamId);return {teamName:row.teamName,wins:row.W-(previous?.W||0),losses:row.L-(previous?.L||0)};}).filter(r=>r.wins||r.losses).sort((a,b)=>b.wins-a.wins).slice(0,5),performances:stats.map(p=>({name:p.name,PPG:p.PPG,RPG:p.RPG,APG:p.APG}))};
     }catch(error){runtime.status='IDLE';runtime.errors.push({at:new Date().toISOString(),error:error.message});throw error;}finally{storage.saveRuntime(id,actor,runtime);}})().finally(()=>running.delete(key));running.set(key,job);return job;
   }
   return {run,pause,resume};

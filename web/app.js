@@ -508,7 +508,8 @@ function filteredLeaguePlayers() {
       .join(" ")
       .toLowerCase();
     if (query && !haystack.includes(query)) return false;
-    if (state.playerTeam === "free-agents" ? Boolean(player.teamId) : state.playerTeam && player.teamId !== state.playerTeam) return false;
+    if (player.retiredAt) return false;
+    if (state.playerTeam === "free-agents" ? Boolean(player.teamId || player.retiredAt) : state.playerTeam && player.teamId !== state.playerTeam) return false;
     if (state.playerConference && player.conference !== state.playerConference) return false;
     if (state.playerPosition && ![player.position1, player.position2].includes(state.playerPosition)) return false;
     return true;
@@ -622,7 +623,8 @@ function filteredLeagueStats() {
     const matchesTeam = !state.leagueStatsTeam || player.teamId === state.leagueStatsTeam;
     const matchesConference = !state.leagueStatsConference || player.conference === state.leagueStatsConference;
     const matchesSearch = !query || String(player.name || "").toLowerCase().includes(query);
-    return matchesTeam && matchesConference && matchesSearch;
+    const shootingEligible = !['FGPercent', 'threePPercent', 'FTPercent'].includes(state.leagueStatsSort) || player.percentageQualification?.[state.leagueStatsSort]?.eligible === true;
+    return matchesTeam && matchesConference && matchesSearch && shootingEligible;
   }).sort((left, right) => {
     const key = state.leagueStatsSort, a = left[key], b = right[key];
     const aMissing = a === null || a === undefined || a === "";
@@ -664,7 +666,9 @@ function renderLeagueStats() {
   elements.leagueStatsNext.disabled = state.leagueStatsPage === pages;
   elements.leagueStatsPageStatus.textContent = `${players.length ? start + 1 : 0}–${Math.min(start + pageSize, players.length)} of ${players.length} · Page ${state.leagueStatsPage} of ${pages}`;
   const warningCount = state.leagueStatsWarnings.length;
-  elements.leagueStatsStatus.textContent = `${state.leagueStats.length} players · ${document.querySelector('#player-stats-scope')?.value === 'REGULAR_SEASON' ? 'Published when the week advances' : 'Official approved postseason games'}${warningCount ? ` · ${warningCount} invalid game-stat rows excluded` : ''}`;
+  const percentageKey = ['FGPercent', 'threePPercent', 'FTPercent'].includes(state.leagueStatsSort) ? state.leagueStatsSort : null;
+  const qualificationHint = percentageKey ? ' · Qualified shooting leaders only; full percentages remain on player profiles' : '';
+  elements.leagueStatsStatus.textContent = `${state.leagueStats.length} players · ${document.querySelector('#player-stats-scope')?.value === 'REGULAR_SEASON' ? 'Published when the week advances' : 'Official approved postseason games'}${warningCount ? ` · ${warningCount} invalid game-stat rows excluded` : ''}${qualificationHint}`;
 }
 
 async function loadLeagueStats(force = false) {
@@ -904,7 +908,7 @@ async function getTeamDetail(teamId) {
 }
 
 async function getPlayerDetail(playerId) {
-  if (!state.playerDetailCache.has(playerId)) {
+  {
     const payload = await requestJson(`/api/league/players/${encodeURIComponent(playerId)}`);
     state.playerDetailCache.set(playerId, payload.player);
   }
@@ -925,6 +929,7 @@ function teamDialogMarkup(team) {
       <div class="league-detail-grid">
         <section class="detail-panel">
           <h3>Roster</h3>${team.payroll ? `<p>💵 ${escapeHtml(team.payroll.short)}</p>` : ""}
+          ${team.positionNeeds ? `<h4>🎯 Position needs</h4><p>Target: ${team.positionNeeds.targets.map(escapeHtml).join(' → ')}</p><p>${team.positionNeeds.positions.map(p => `${p.targeted ? '🟡' : '🟢'} ${escapeHtml(p.position)} · ${escapeHtml(p.priority)} need · ${p.primaryCount} primary${p.bestOverall == null ? '' : ' · Best ' + p.bestOverall + ' OVR'}`).join('<br>')}</p><small>Primary positions, rotation quality, age and contract security. Two to four positions are highlighted.</small>` : ''}
           <div class="detail-list">
             ${(team.roster || []).map((entry) => `
               <button type="button" class="detail-list-row" data-dialog-player="${escapeHtml(entry.player.playerId)}">
@@ -1012,6 +1017,7 @@ function playerDialogMarkup(player) {
         ${playerPortraitMarkup(player, "league-player-portrait")}
       </div>
       ${readonlyPlayerFacts(player)}
+      <section class="detail-panel"><h3>🏆 Player of the Week</h3>${(player.playerOfWeek || []).map(w => `<p><a href="#player-of-the-week" data-award-season="${escapeHtml(w.seasonId)}" data-award-week="${w.week}">Season ${escapeHtml(w.seasonId)} · Week ${w.week} · ${escapeHtml(w.conference)}</a> · ${escapeHtml(w.teamName)}</p>`).join('') || '<p>No weekly awards yet.</p>'}</section>
       ${hasAdminAccess() ? `
         <form id="player-admin-form" class="admin-form" data-player-id="${escapeHtml(player.playerId)}">
           <h3>Admin editor</h3>
@@ -1928,4 +1934,366 @@ for (const kind of ['player','team']) for(const control of ['scope','season'])do
   // Populate historical season selectors without opening simulation controls on the website.
   setInterval(()=>{if(location.hash==='#playoffs'&&!document.hidden)load();},30000);
   load();
+})();
+
+// Offseason controls use the existing authenticated commissioner gateway.
+(() => {
+  const button = document.querySelector('#offseason-review'), output = document.querySelector('#offseason-output');
+  if (!button || !output) return;
+  let busy = false;
+  async function request(action, token) {
+    if (busy) return;
+    busy = true; button.disabled = true;
+    try {
+      const view = await adminRequestJson('/api/league/admin/offseason', { method: 'POST', body: JSON.stringify({ action, token, operator: commissionerName.value.trim() }) });
+      output.replaceChildren();
+      const heading = document.createElement('p'); heading.textContent = `Current step: ${view.step.replaceAll('_', ' ')}`; output.append(heading);
+      if (view.blockers.length) {
+        const list = document.createElement('ul');
+        for (const text of view.blockers) { const item = document.createElement('li'); item.textContent = text; list.append(item); }
+        output.append(list);
+      } else if (action === 'prepare' && view.token) {
+        const summary = document.createElement('p'); summary.textContent = `Confirm advancement to ${view.nextStep.replaceAll('_', ' ')}? A storage backup will be saved.`; output.append(summary);
+        const confirm = document.createElement('button'); confirm.type = 'button'; confirm.textContent = 'Confirm next step';
+        confirm.addEventListener('click', () => { confirm.disabled = true; request('confirm', view.token); });
+        const cancel = document.createElement('button'); cancel.type = 'button'; cancel.textContent = 'Cancel'; cancel.addEventListener('click', () => request('cancel', view.token));
+        output.append(confirm, cancel);
+      } else { const text = document.createElement('p'); text.textContent = action === 'cancel' ? 'Transition cancelled. No phase changed.' : 'Step advanced. Review the next step when its work is complete.'; output.append(text); }
+    } catch (error) { output.textContent = error.message; } finally { busy = false; button.disabled = false; }
+  }
+  button.addEventListener('click', () => request('prepare'));
+})();
+
+(() => {
+  const output = document.querySelector('#retirement-output'), input = document.querySelector('#retirement-images');
+  const upload = document.querySelector('#retirement-upload'), reload = document.querySelector('#retirement-reload');
+  if (!output || !input || !upload || !reload) return;
+  let busy = false, originalUrls = [];
+  const post = body => adminRequestJson('/api/league/admin/retirements', { method: 'POST', body: JSON.stringify(body) });
+  async function review() {
+    const [batch, playerResponse] = await Promise.all([adminRequestJson('/api/league/admin/retirements'), requestJson('/api/league/players')]);
+    for (const url of originalUrls) URL.revokeObjectURL(url); originalUrls = [];
+    output.replaceChildren();
+    if (!batch.images.length) { output.textContent = 'Upload all retirement pages first.'; return; }
+    for (const image of batch.images) {
+      const details = document.createElement('details'), title = document.createElement('summary'); title.textContent = `${image.filename} · ${image.status.replaceAll('_', ' ')}`; details.append(title);
+      const original = document.createElement('img'); original.alt = `Original evidence: ${image.filename}`; original.style.maxWidth = '100%';
+      details.addEventListener('toggle', async () => {
+        if (!details.open || original.src) return;
+        try {
+          const response = await fetch(`/api/league/admin/retirements?preview=1&imageId=${encodeURIComponent(image.imageId)}`, { headers: { 'x-leaguebuddy-admin-key': state.adminKey } });
+          if (!response.ok) throw Error('Unable to load the original evidence.');
+          const url = URL.createObjectURL(await response.blob()); originalUrls.push(url); original.src = url;
+        } catch (error) { const p = document.createElement('p'); p.textContent = error.message; details.append(p); }
+      });
+      const text = document.createElement('pre'); text.textContent = image.text || image.error || 'OCR unavailable. Review the original and select players manually.'; details.append(original, text);
+      if (!batch.confirmed && ['PROCESSING', 'NEEDS_MANUAL_REVIEW'].includes(image.status)) {
+        const retry = document.createElement('button'); retry.type = 'button'; retry.textContent = 'Retry OCR from saved photo';
+        retry.addEventListener('click', () => run(async () => { retry.disabled = true; await post({ action: 'retry', imageId: image.imageId }); await review(); })); details.append(retry);
+      }
+      output.append(details);
+    }
+    if (batch.confirmed) { const p = document.createElement('p'); p.textContent = 'Retirements confirmed. Return to the offseason checklist to advance.'; output.append(p); return; }
+    const players = (Array.isArray(playerResponse) ? playerResponse : playerResponse.players || []).filter(p => !p.retiredAt);
+    const selected = new Set(), list = document.createElement('div');
+    const suggested = new Set(batch.images.flatMap(i => i.candidates.flatMap(row => row.candidates.map(p => p.playerId))));
+    const search = document.createElement('input'); search.type = 'search'; search.placeholder = 'Search all players to add or correct a match'; search.setAttribute('aria-label', 'Find retired players'); output.append(search, list);
+    function renderPlayers() {
+      list.replaceChildren(); const query = search.value.trim().toLowerCase();
+      const matches = players.filter(p => selected.has(p.playerId) || (query ? p.name.toLowerCase().includes(query) : suggested.has(p.playerId))).sort((a,b) => a.name.localeCompare(b.name));
+      for (const p of matches.slice(0, 100)) {
+        const label = document.createElement('label'), box = document.createElement('input'); box.type = 'checkbox'; box.checked = selected.has(p.playerId);
+        box.addEventListener('change', () => box.checked ? selected.add(p.playerId) : selected.delete(p.playerId));
+        label.append(box, document.createTextNode(`${p.name} · ${p.teamName || 'Free Agent'}`)); label.style.display = 'block'; list.append(label);
+      }
+      if (!matches.length) list.textContent = 'No suggested matches. Search the player name shown in the photo.';
+    }
+    search.addEventListener('input', renderPlayers); renderPlayers();
+    const reviewed = document.createElement('input'); reviewed.type = 'checkbox'; const reviewedLabel = document.createElement('label'); reviewedLabel.append(reviewed, document.createTextNode(' I reviewed every original photo and selected every retired player.'));
+    const none = document.createElement('input'); none.type = 'checkbox'; const noneLabel = document.createElement('label'); noneLabel.append(none, document.createTextNode(' The photos show no retirements.')); noneLabel.style.display = 'block';
+    const prepare = document.createElement('button'); prepare.type = 'button'; prepare.textContent = 'Review retirement changes'; output.append(reviewedLabel, noneLabel, prepare);
+    prepare.addEventListener('click', () => run(async () => {
+      const preview = await post({ action: 'prepare', playerIds: [...selected], noRetirements: none.checked, reviewedAllImages: reviewed.checked });
+      output.replaceChildren(); const text = document.createElement('p'); text.textContent = preview.noRetirements ? 'Confirm no retirements?' : `Retire ${preview.selected.map(p => p.name).join(', ')}? Their IDs, contracts and history will be preserved.`; output.append(text);
+      const confirm = document.createElement('button'); confirm.type = 'button'; confirm.textContent = 'Confirm retirements';
+      confirm.addEventListener('click', () => run(async () => { await post({ action: 'confirm', token: preview.token }); await review(); }));
+      const cancel = document.createElement('button'); cancel.type = 'button'; cancel.textContent = 'Back to review'; cancel.addEventListener('click', () => run(review)); output.append(confirm, cancel);
+    }));
+  }
+  async function run(work) {
+    if (busy) return; busy = true; upload.disabled = reload.disabled = true;
+    try { await work(); } catch (error) { const p = document.createElement('p'); p.textContent = error.message; output.append(p); }
+    finally { busy = false; upload.disabled = reload.disabled = false; }
+  }
+  reload.addEventListener('click', () => run(review));
+  upload.addEventListener('click', () => run(async () => {
+    if (!input.files.length) throw Error('Choose retirement photos first.');
+    for (const [index, file] of [...input.files].entries()) {
+      if (file.size > 24 * 1024 * 1024) throw Error(`${file.name}: maximum file size is 24 MB.`);
+      output.textContent = `Processing photo ${index + 1} of ${input.files.length}: ${file.name}…`;
+      const data = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result).split(',')[1]); reader.onerror = reject; reader.readAsDataURL(file); });
+      await post({ action: 'upload', filename: file.name, base64: data });
+    }
+    input.value = ''; await review();
+  }));
+})();
+
+// Weekly awards use the existing public league API and permanent player profiles.
+(() => {
+  const status = document.querySelector('#pow-status'), current = document.querySelector('#pow-current'), history = document.querySelector('#pow-history');
+  const controls = { seasonId: document.querySelector('#pow-season'), week: document.querySelector('#pow-week'), conference: document.querySelector('#pow-conference'), teamId: document.querySelector('#pow-team'), playerId: document.querySelector('#pow-player') };
+  let loading = false, reload = false;
+  const card = w => `<article class="summary-card" data-award-id="${escapeHtml(w.awardId)}">${playerPortraitMarkup(w.player, 'league-player-portrait')}<h3>🏆 ${escapeHtml(w.conference)} · Week ${w.week}</h3><button type="button" data-pow-player="${escapeHtml(w.playerId)}">${escapeHtml(w.playerName)}</button><p>${escapeHtml(w.teamName)} · Season ${escapeHtml(w.seasonId)}</p><p>🏀 ${w.stats.PTS} PTS · ${w.stats.REB} REB · 🎯 ${w.stats.AST} AST<br>🛡️ ${w.stats.STL} STL · ${w.stats.BLK} BLK · ${w.stats.TO} TO<br>📊 ${w.stats.FGPercent == null ? '—' : Math.round(w.stats.FGPercent) + '%'} FG · ${w.stats['3PM']}/${w.stats['3PA']} 3PT · ${w.stats.FTM}/${w.stats.FTA} FT</p><p>${escapeHtml(w.explanation)}</p><button type="button" data-pow-game="${escapeHtml(w.gameId)}" data-pow-game-player="${escapeHtml(w.playerId)}" data-pow-game-season="${escapeHtml(w.seasonId)}">View verified game</button><div data-pow-game-output="${escapeHtml(w.gameId)}" hidden></div></article>`;
+  function options(select, entries, label) { const previous = select.value; select.innerHTML = `<option value="">${label}</option>` + entries.map(([value, text]) => `<option value="${escapeHtml(String(value))}">${escapeHtml(text)}</option>`).join(''); select.value = previous; }
+  async function load() {
+    if (loading) { reload = true; return; } loading = true;
+    try {
+      const query = new URLSearchParams(Object.entries(controls).filter(([, select]) => select.value).map(([key, select]) => [key, select.value]));
+      const payload = await requestJson('/api/league/player-of-the-week?' + query);
+      options(controls.seasonId, payload.seasons.map(s => [s, 'Season ' + s]), 'All seasons');
+      options(controls.week, Array.from({ length: 15 }, (_, i) => [i + 1, 'Week ' + (i + 1)]), 'All weeks');
+      options(controls.teamId, payload.teams.map(t => [t.teamId, t.teamName]), 'All teams');
+      options(controls.playerId, payload.players.map(p => [p.playerId, p.name]), 'All players');
+      current.innerHTML = payload.current.map(card).join('') || '<p>No finalized weekly awards this season.</p>';
+      history.innerHTML = payload.history.map(card).join('') || '<p>No awards match these filters.</p>';
+      status.textContent = 'Calculated from verified single-game performances after week finalization.';
+    } catch (error) { status.textContent = error.message + (history.children.length ? ' Showing previously loaded awards.' : ''); }
+    finally { loading = false; if (reload) { reload = false; load(); } }
+  }
+  for (const control of Object.values(controls)) control.addEventListener('change', load);
+  document.querySelector('#pow-refresh').addEventListener('click', load);
+  document.querySelector('#player-of-the-week').addEventListener('click', async event => {
+    const player = event.target.closest('[data-pow-player]'), game = event.target.closest('[data-pow-game]');
+    try {
+      if (player) await showPlayerDetail(player.dataset.powPlayer);
+      if (game) {
+        const payload = await requestJson(`/api/league/stats/players/${encodeURIComponent(game.dataset.powGamePlayer)}/games?season=${encodeURIComponent(game.dataset.powGameSeason)}`);
+        const log = payload.games.find(row => row.gameId === game.dataset.powGame);
+        const output = game.closest('article').querySelector('[data-pow-game-output]'); output.hidden = false;
+        output.textContent = log ? `${log.teamName} vs ${log.opponent} · ${log.result} ${log.score} · ${log.MIN} MIN · ${log.PTS} PTS · ${log.REB} REB · ${log.AST} AST · FG ${log.FG} · 3PT ${log['3PT']} · FT ${log.FT}` : 'The historical game log is unavailable.';
+      }
+    } catch (error) { showToast(error.message); }
+  });
+  document.addEventListener('click', event => {
+    const link = event.target.closest('[data-award-week]'); if (!link) return;
+    const option = document.createElement('option'); option.value = link.dataset.awardSeason; option.textContent = 'Season ' + link.dataset.awardSeason;
+    if (![...controls.seasonId.options].some(o => o.value === option.value)) controls.seasonId.add(option);
+    controls.seasonId.value = link.dataset.awardSeason;
+    if (!controls.week.options.length || controls.week.options.length === 1) options(controls.week, Array.from({ length: 15 }, (_, i) => [i + 1, 'Week ' + (i + 1)]), 'All weeks');
+    controls.week.value = link.dataset.awardWeek;
+    controls.conference.value = ''; controls.teamId.value = ''; controls.playerId.value = '';
+    elements.leagueDialog?.close(); load();
+  });
+  window.addEventListener('hashchange', () => { if (location.hash === '#player-of-the-week') load(); });
+  if (location.hash === '#player-of-the-week') load();
+  setInterval(() => { if (location.hash === '#player-of-the-week' && !document.hidden) load(); }, 30000);
+})();
+
+(() => {
+  const kind = document.querySelector('#offseason-import-kind'), output = document.querySelector('#offseason-import-output');
+  let data, rows = [], policy = {}, imageUrls = [], busy = false;
+  const endpoint = () => '/api/league/admin/offseason-import?step=' + kind.value;
+  const post = body => adminRequestJson(endpoint(), { method:'POST', body:JSON.stringify(body) });
+  const number = value => value === '' || value == null ? null : Number(value);
+  function selection(key, row, entries, blank = 'Choose…') { return `<select data-import-field="${key}" data-import-row="${row}"><option value="">${blank}</option>${entries.map(([value,label])=>`<option value="${escapeHtml(String(value))}"${String(rows[row]?.[key]??'')===String(value)?' selected':''}>${escapeHtml(label)}</option>`).join('')}</select>`; }
+  const numeric = (key,index,value) => `<input type="number" data-import-field="${key}" data-import-row="${index}" value="${value??''}" aria-label="${escapeHtml(key)}">`;
+  function table(teamFilter = '') {
+    const body = output.querySelector('#import-review-body'); if(!body)return;
+    const teams = data.teams.map(t=>[t.teamId,t.teamName]), players = data.players.map(p=>[p.playerId,p.name]);
+    body.innerHTML = rows.map((r,index)=>{
+      if(teamFilter&&r.teamId!==teamFilter)return '';
+      let cells = kind.value==='LOTTERY' ? `<td>${r.pickNumber}</td><td>${selection('originalTeamId',index,teams)}</td><td>${selection('teamId',index,teams)}</td><td><input data-import-field="reason" data-import-row="${index}" value="${escapeHtml(r.reason||'')}" placeholder="Reason if ownership differs"></td>`
+        : kind.value==='OPTIONS' ? `<td>${escapeHtml(data.players.find(p=>p.playerId===r.playerId)?.name||r.playerId)}</td><td>${escapeHtml(data.teams.find(t=>t.teamId===r.teamId)?.teamName||'')}</td><td>${selection('decision',index,[['ACCEPTED','Accepted'],['DECLINED','Declined']])}</td>`
+        : kind.value==='PROGRESSION' ? `<td>${selection('playerId',index,players)}</td><td>${selection('teamId',index,teams)}</td><td>${escapeHtml(String(data.players.find(p=>p.playerId===r.playerId)?.overall??'—'))}</td><td>${numeric('overall',index,r.overall)}</td><td>${numeric('change',index,r.change)}</td>`
+        : `<td>${r.pickNumber}</td><td>${selection('playerId',index,players)}</td><td>${selection('teamId',index,teams)}</td><td>${numeric('overall',index,r.overall)}</td><td>${numeric('age',index,r.age)}</td><td>${r.pickNumber>30?selection('pickAssetId',index,data.picks.filter(p=>Number(p.round)===2).map(p=>[p.pickId,(data.teams.find(t=>t.teamId===p.originalTeamId)?.teamName||p.originalTeamId)+' → '+(data.teams.find(t=>t.teamId===p.currentOwnerTeamId)?.teamName||p.currentOwnerTeamId)])):'Official lottery asset'}</td><td>${r.pickNumber>30?selection('contractYears',index,[[3,'2 + 1 team option'],[4,'3 + 1 team option']]):'2 + 1 + 1 team options'}</td><td>${r.pickNumber>30?numeric('firstYearSalary',index,r.firstYearSalary):'NBA-derived rookie scale'}</td><td>${r.pickNumber>30&&r.contractYears===4?numeric('secondYearSalary',index,r.secondYearSalary):'NBA-derived scale'}</td>`;
+      return '<tr>'+cells+'</tr>';
+    }).join('');
+  }
+  function proposalMarkup(image) {
+    const report=image.proposals;if(!report)return '';
+    return '<h4>OCR row suggestions</h4>'+report.warnings.map(w=>'<p>'+escapeHtml(w)+'</p>').join('')
+      +report.rows.map(r=>'<p><strong>'+escapeHtml(r.name)+'</strong> · '+(kind.value==='LOTTERY'?'Review original franchise and owner':escapeHtml(r.playerCandidates.map(p=>p.name).join(' / ')||'Player requires matching'))
+      +(r.teamId?' · '+escapeHtml(data.teams.find(t=>t.teamId===r.teamId)?.teamName||r.teamId):'')
+      +(r.overall!=null?' · '+r.overall+' OVR':'')+(r.change!=null?' · '+(r.change>0?'+':'')+r.change:'')
+      +(r.pickNumber?' · Pick '+r.pickNumber:'')+(r.decision?' · '+escapeHtml(r.decision):'')
+      +r.flags.map(flag=>'<br>'+escapeHtml(flag)).join('')+'</p>').join('');
+  }
+  function applyProposals() {
+    const grouped=new Map();let changed=0,conflicts=0;
+    for(const image of data.images)for(const proposal of image.proposals?.rows||[]) {
+      if(proposal.confidence<80||proposal.flags.some(flag=>/stored roster|ambiguous/.test(flag))||(kind.value!=='LOTTERY'&&!proposal.playerId))continue;
+      const key=['DRAFT','LOTTERY'].includes(kind.value)?proposal.pickNumber:proposal.playerId;if(!key)continue;
+      const candidates=grouped.get(key)||[];candidates.push(proposal);grouped.set(key,candidates);
+    }
+    for(const row of rows) {
+      const candidates=grouped.get(['DRAFT','LOTTERY'].includes(kind.value)?row.pickNumber:row.playerId)||[];
+      for(const field of kind.value==='LOTTERY'?['teamId','originalTeamId']:kind.value==='OPTIONS'?['decision']:kind.value==='PROGRESSION'?['overall','change']:['playerId','teamId','overall','age']) {
+        const values=[...new Set(candidates.map(p=>p[field]).filter(v=>v!==null&&v!==undefined&&v!==''))];
+        if(values.length>1){conflicts++;continue;}
+        if(values.length===1&&(row[field]===null||row[field]===undefined||row[field]==='')){row[field]=values[0];changed++;}
+      }
+    }
+    output.querySelector('#import-confirmation')?.replaceChildren();output.querySelector('#import-reviewed').checked=false;
+    table(output.querySelector('#import-team-filter')?.value||'');showToast(changed+' matched fields added for review'+(conflicts?' · '+conflicts+' conflicts require manual entry':'')+'. Review every photo before confirmation.');
+  }
+  function render() {
+    imageUrls.forEach(URL.revokeObjectURL); imageUrls = [];
+    const headers = kind.value==='LOTTERY'?['Pick','Original franchise','Pick owner','Reconciliation reason']:kind.value==='DRAFT'?['Pick','Prospect','Team','OVR','Age','Owned second-round pick','Contract years','Year 1 salary ($)','Year 2 salary ($)']:kind.value==='OPTIONS'?['Player','Current team','Option decision']:['Player','Table team','Previous OVR','New OVR','OVR change'];
+    output.innerHTML = `<p>${escapeHtml(kind.options[kind.selectedIndex].text)} · ${data.images.length} saved photos${data.receipt?' · Confirmed':''}</p>
+      <div>${data.images.map(image=>`<details><summary>${escapeHtml(image.filename)} · ${escapeHtml(image.status)}</summary><button type="button" data-import-original="${escapeHtml(image.imageId)}">View photo</button><button type="button" data-import-retry="${escapeHtml(image.imageId)}">Retry OCR</button><pre>${escapeHtml(image.text||image.error||'')}</pre>${proposalMarkup(image)}${(image.candidates||[]).map(c=>`<p>${escapeHtml(c.text)} → ${c.candidates.map(p=>escapeHtml(p.name)).join(' / ')}</p>`).join('')}</details>`).join('')}</div>
+      ${kind.value==='DRAFT'?`<label>NBA 2K salary cap for ${escapeHtml(data.nextSeason)} ($)<input type="number" id="import-salary-cap" value="${policy.salaryCap||''}"></label><label>First-round scale percentage<input type="number" min="80" max="120" id="import-scale-percent" value="${policy.scalePercentage??120}"></label><button type="button" id="import-apply-scale">Preview NBA-derived salary limits</button><p id="import-scale-info">Verify these contracts against NBA 2K. Later-year tables are derived from the confirmed cap.</p>`:''}
+      ${kind.value==='PROGRESSION'?`<label>Review team<select id="import-team-filter"><option value="">All teams</option>${data.teams.map(t=>`<option value="${escapeHtml(t.teamId)}">${escapeHtml(t.teamName)}</option>`).join('')}</select></label><p id="import-coverage">${data.coverage.map(t=>escapeHtml(t.teamName)+': '+t.rosterCount+'/15 roster players').join(' · ')}</p><label><input type="checkbox" id="import-preserve-schedule"${policy.preserveExistingSchedule?' checked':''}> Keep the existing 15-week conference schedule (14 games and one bye per team)</label>`:''}
+      ${['LOTTERY','DRAFT','OPTIONS','PROGRESSION'].includes(kind.value)?'<button type="button" id="import-apply-ocr">Add matched OCR fields for review</button>':''}
+      <div class="standings-scroll"><table class="standings-table"><thead><tr>${headers.map(h=>'<th>'+h+'</th>').join('')}</tr></thead><tbody id="import-review-body"></tbody></table></div>
+      <label><input type="checkbox" id="import-reviewed"${data.review?.reviewedAllImages?' checked':''}> I reviewed all photos and every player/team mapping.</label>
+      <button type="button" id="import-save">Save review progress</button><button type="button" id="import-prepare">Review final changes</button><div id="import-confirmation"></div>`;
+    table();
+  }
+  async function load() {
+    data = await adminRequestJson(endpoint());policy=data.review?.policy||{};
+    rows = data.review?.rows || (kind.value==='LOTTERY'?Array.from({length:30},(_,i)=>({pickNumber:i+1,teamId:'',originalTeamId:''})):kind.value==='DRAFT'?Array.from({length:60},(_,i)=>({pickNumber:i+1,playerId:'',teamId:'',overall:null,age:null,contractYears:i>=30?3:null})):kind.value==='OPTIONS'?data.players.filter(p=>p.option&&!p.option.optionDecision).map(p=>({playerId:p.playerId,teamId:p.teamId,decision:''})):data.players.filter(p=>p.teamId).map(p=>({playerId:p.playerId,teamId:p.teamId,overall:null,change:null})));
+    render();
+  }
+  function review() {
+    if(kind.value==='DRAFT'){policy.salaryCap=number(output.querySelector('#import-salary-cap').value);policy.scalePercentage=number(output.querySelector('#import-scale-percent').value);}
+    if(kind.value==='PROGRESSION')policy.preserveExistingSchedule=output.querySelector('#import-preserve-schedule').checked;
+    return {rows,policy,reviewedAllImages:output.querySelector('#import-reviewed').checked};
+  }
+  output.addEventListener('change',event=>{
+    output.querySelector('#import-confirmation')?.replaceChildren();
+    const field=event.target.dataset.importField,index=Number(event.target.dataset.importRow);
+    if(field){rows[index][field]=['overall','age','change','contractYears','firstYearSalary','secondYearSalary'].includes(field)?number(event.target.value):event.target.value;
+      if(field==='playerId'&&kind.value==='DRAFT'){const player=data.players.find(p=>p.playerId===event.target.value);rows[index].age=player?.age??null;}if(field==='contractYears'||field==='playerId')table(output.querySelector('#import-team-filter')?.value||'');}
+    if(event.target.id==='import-team-filter')table(event.target.value);
+  });
+  output.addEventListener('click',async event=>{
+    if(!(event.target instanceof HTMLElement)||event.target.tagName!=='BUTTON')return;
+    try {
+      if(event.target.dataset.importOriginal){const response=await fetch(endpoint()+'&preview=1&imageId='+encodeURIComponent(event.target.dataset.importOriginal),{headers:{ 'x-leaguebuddy-admin-key':state.adminKey }});if(!response.ok)throw Error((await response.json()).error);const url=URL.createObjectURL(await response.blob());imageUrls.push(url);const image=document.createElement('img');image.src=url;image.alt='Photo preview; original file preserved';image.style.maxWidth='100%';event.target.closest('details').append(image);}
+      else if(event.target.dataset.importRetry){await post({action:'retry',imageId:event.target.dataset.importRetry});await load();}
+      else if(event.target.id==='import-apply-ocr'){applyProposals();}
+      else if(event.target.id==='import-save'){await post({action:'review',...review()});showToast('Review saved.');}
+      else if(event.target.id==='import-prepare'){const result=await post({action:'prepare',...review()});output.querySelector('#import-confirmation').innerHTML=`<p>${escapeHtml(result.summary)}. These changes become official together.</p><button type="button" id="import-confirm" data-token="${escapeHtml(result.token)}">Confirm ${escapeHtml(kind.options[kind.selectedIndex].text)}</button>`;}
+      else if(event.target.id==='import-confirm'){await post({action:'confirm',token:event.target.dataset.token});await load();showToast('Import confirmed. Review the offseason checklist to advance.');}
+      else if(event.target.id==='import-apply-scale'){
+        review();const result=await adminRequestJson(endpoint()+'&salaryCap='+encodeURIComponent(policy.salaryCap));const scale=result.scale;
+        output.querySelector('#import-scale-info').textContent=`${scale.derived?'NBA-derived league table':'Published NBA base table'} · First pick at ${policy.scalePercentage}%: $${Math.round(scale.rows[0].salaries[0]*policy.scalePercentage/100).toLocaleString()} · Second-round year 1 range: $${scale.secondRound.minimumFirstYear.toLocaleString()}–$${scale.secondRound.fourYears[0].toLocaleString()}. Confirm the actual offered amounts in the rows.`;
+      }
+    }catch(error){showToast(error.message);}
+  });
+  document.querySelector('#offseason-import-load').addEventListener('click',()=>load().catch(e=>showToast(e.message)));
+  document.querySelector('#offseason-import-upload').addEventListener('click',async()=>{
+    if(busy)return;busy=true;
+    try {for(const file of document.querySelector('#offseason-import-images').files){const base64=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result).split(',')[1]);reader.onerror=reject;reader.readAsDataURL(file);});await post({action:'upload',filename:file.name,base64});}await load();}
+    catch(error){showToast(error.message);}finally{busy=false;}
+  });
+  kind.addEventListener('change',()=>{rows=[];policy={};output.innerHTML='Upload or load the saved import for this step.';});
+})();
+
+(() => {
+  const output = document.querySelector('#offseason-rosters-output');
+  const endpoint = '/api/league/admin/offseason-rosters';
+  const post = body => adminRequestJson(endpoint, {method:'POST',body:JSON.stringify(body)});
+  async function load() {
+    const data = await adminRequestJson(endpoint);
+    output.innerHTML = `<p><strong>${escapeHtml(data.step)}</strong> · ${data.window?.deadlineAt?'Deadline '+escapeHtml(new Date(data.window.deadlineAt).toLocaleString()):'Cutdown period has not opened.'}</p>${data.blockers.map(b=>'<p>'+escapeHtml(b)+'</p>').join('')}<div class="admin-inline">${data.step==='CUTDOWN'&&!data.receipt?'<button data-roster-action="'+(data.window?'extend':'open')+'">'+(data.window?'Extend by 24 hours':'Open 24-hour cutdowns')+'</button>':''}${!data.receipt?'<button data-roster-action="prepare">Review completion</button>':'<p>Completion confirmed.</p>'}</div><div id="roster-confirmation"></div><div>${data.teams.map(team=>'<details><summary>'+escapeHtml(team.teamName)+' · '+team.count+'/15</summary>'+team.players.map(p=>'<p>'+escapeHtml(p.name)+' · '+escapeHtml(String(p.overall))+' OVR'+(p.protected?' · Protected':data.step==='CUTDOWN'&&team.count>15&&data.window?.status==='OPEN'&&!data.receipt?' <button data-waive-player="'+escapeHtml(p.playerId)+'">Review waiver</button>':'')+'</p>').join('')+'</details>').join('')}</div>`;
+  }
+  output.addEventListener('click', async event => {
+    const button = event.target.closest('button'); if(!button)return;
+    button.disabled=true;
+    try {
+      const playerId=button.dataset.waivePlayer,action=button.dataset.rosterAction;
+      if(playerId||action==='prepare'){
+        const preview=await post(playerId?{action:'prepare-waiver',playerId}:{action:'prepare'});
+        if(!preview.token){showToast('Resolve the listed blockers first.');await load();return;}
+        const target=output.querySelector('#roster-confirmation');
+        target.innerHTML='<p>'+escapeHtml(playerId?'Waive '+preview.playerName+' and release their contract?':'Confirm this offseason step is complete?')+'</p>';
+        const confirm=document.createElement('button');confirm.textContent=playerId?'Confirm waiver':'Confirm completion';
+        confirm.addEventListener('click',async()=>{confirm.disabled=true;try{await post({action:playerId?'confirm-waiver':'confirm',token:preview.token});await load();}catch(e){showToast(e.message);confirm.disabled=false;}});target.append(confirm);
+      } else if(action){await post({action,hours:24});await load();}
+    }catch(e){showToast(e.message);}finally{button.disabled=false;}
+  });
+  document.querySelector('#offseason-rosters-load').addEventListener('click',()=>load().catch(e=>showToast(e.message)));
+})();
+
+(() => {
+  const controls={seasonId:document.querySelector('#progression-season'),teamId:document.querySelector('#progression-team'),playerId:document.querySelector('#progression-player')};let busy=false;
+  const card=c=>`<article class="summary-card">${playerPortraitMarkup(c.player,'league-player-portrait')}<button data-progression-player="${escapeHtml(c.playerId)}">${escapeHtml(c.playerName)}</button><p>${escapeHtml(c.teamName)} · Season ${escapeHtml(c.seasonId)}</p><p>${c.previousOverall} → ${c.overall} OVR · ${c.change>0?'+':''}${c.change}</p></article>`;
+  function options(select,entries,label){const old=select.value;select.innerHTML='<option value="">'+label+'</option>'+entries.map(([id,name])=>'<option value="'+escapeHtml(id)+'">'+escapeHtml(name)+'</option>').join('');select.value=old;}
+  async function load(){if(busy)return;busy=true;try{
+    const query=new URLSearchParams(Object.entries(controls).filter(([,v])=>v.value).map(([k,v])=>[k,v.value]));
+    const data=await requestJson('/api/league/progression?'+query);
+    options(controls.seasonId,data.seasons.map(s=>[s,'Season '+s]),'All seasons');options(controls.teamId,data.teams.map(t=>[t.teamId,t.teamName]),'All teams');
+    // Keep the selected player across filtered requests; clearing the filter restores the full list.
+    const entries=[...new Map(data.changes.map(c=>[c.playerId,[c.playerId,c.playerName]])).values()];if(!entries.some(([id])=>id===controls.playerId.value)&&controls.playerId.value)entries.push([controls.playerId.value,controls.playerId.selectedOptions[0]?.textContent||controls.playerId.value]);options(controls.playerId,entries,'All players');
+    for(const key of ['risers','fallers'])document.querySelector('#progression-'+key).innerHTML=data[key].map(card).join('')||'<p>No matching changes.</p>';
+    document.querySelector('#progression-history').innerHTML=data.changes.map(card).join('')||'<p>No confirmed progression yet.</p>';
+    document.querySelector('#progression-rankings').innerHTML=data.teamRankings.map((t,i)=>'<p>'+ (i+1)+'. '+escapeHtml(t.teamName)+' · '+(t.averageChange>0?'+':'')+t.averageChange.toFixed(2)+' average OVR change · '+t.players+' verified changes</p>').join('');
+    document.querySelector('#progression-status').textContent='Changes preserve the team represented at the time of confirmation.';
+  }catch(e){document.querySelector('#progression-status').textContent=e.message;}finally{busy=false;}}
+  for(const c of Object.values(controls))c.addEventListener('change',load);
+  document.querySelector('#progression-refresh').addEventListener('click',load);
+  document.querySelector('#progression').addEventListener('click',e=>{const p=e.target.closest('[data-progression-player]');if(p)showPlayerDetail(p.dataset.progressionPlayer).catch(e=>showToast(e.message));});
+  window.addEventListener('hashchange',()=>{if(location.hash==='#progression')load();});if(location.hash==='#progression')load();
+  setInterval(()=>{if(location.hash==='#progression'&&!document.hidden)load();},30000);
+})();
+
+(() => {
+ const season=document.querySelector('#rankings-season'),snapshot=document.querySelector('#rankings-snapshot');let history=[],busy=false;
+ function render(){const selected=history.find(s=>s.seasonId+':'+s.key===snapshot.value)||history.at(-1);document.querySelector('#rankings-table').innerHTML=selected?'<p>Season '+escapeHtml(selected.seasonId)+' · '+escapeHtml(selected.key)+'</p><table><thead><tr><th>Rank</th><th>Team</th><th>Score</th><th>Record</th><th>Movement</th><th>Season</th><th>Roster</th><th>Recent</th><th>Schedule</th></tr></thead><tbody>'+selected.teams.map(t=>'<tr><td>'+t.rank+'</td><td>'+escapeHtml(t.teamName)+'</td><td>'+t.score.toFixed(1)+'</td><td>'+t.wins+'-'+t.losses+'</td><td>'+(t.movement==null?'New':t.movement>0?'↑ '+t.movement:t.movement<0?'↓ '+Math.abs(t.movement):'—')+'</td>'+['seasonPerformance','rosterStrength','recentForm','strengthOfSchedule'].map(k=>'<td>'+t.breakdown[k].toFixed(1)+'</td>').join('')+'</tr>').join('')+'</tbody></table>':'<p>No published rankings yet.</p>';}
+ async function load(){if(busy)return;busy=true;try{const data=await requestJson('/api/league/power-rankings?seasonId='+encodeURIComponent(season.value)),old=season.value,oldSnapshot=snapshot.value;history=data.history;season.innerHTML='<option value="">All seasons</option>'+data.seasons.map(s=>'<option value="'+escapeHtml(s)+'">Season '+escapeHtml(s)+'</option>').join('');season.value=old;snapshot.innerHTML='<option value="">Latest snapshot</option>'+history.map(s=>'<option value="'+escapeHtml(s.seasonId+':'+s.key)+'">Season '+escapeHtml(s.seasonId)+' · '+escapeHtml(s.key)+'</option>').join('');snapshot.value=oldSnapshot;render();}catch(e){document.querySelector('#rankings-status').textContent=e.message;}finally{busy=false;}}
+ season.addEventListener('change',()=>{snapshot.value='';load();});snapshot.addEventListener('change',render);document.querySelector('#rankings-refresh').addEventListener('click',load);window.addEventListener('hashchange',()=>{if(location.hash==='#power-rankings')load();});if(location.hash==='#power-rankings')load();setInterval(()=>{if(location.hash==='#power-rankings'&&!document.hidden)load();},30000);
+})();
+
+(() => {
+ const output=document.querySelector('#offseason-fa-output'),endpoint='/api/league/admin/offseason-free-agency';let data,urls=[];
+ const post=body=>adminRequestJson(endpoint,{method:'POST',body:JSON.stringify(body)});
+ const field=(key,row,value)=>`<input data-fa-contract="${key}" data-fa-row="${row}" value="${escapeHtml(String(value??''))}" aria-label="${escapeHtml(key)}">`;
+ async function load(){data=await adminRequestJson(endpoint);if(data.receipt){output.innerHTML='<p>Offseason free agency verified. Return to the offseason checklist to advance.</p>';return;}urls.forEach(URL.revokeObjectURL);urls=[];const stage=data.stage,won=data.offers.filter(o=>o.status==='WON');output.innerHTML=`<p><strong>${escapeHtml(stage?.name||'Exclusive re-signing not opened')}</strong> · ${escapeHtml(stage?.status||'Waiting')} ${stage?.deadlineAt?' · Deadline '+escapeHtml(new Date(stage.deadlineAt).toLocaleString()):''}</p><div class="admin-inline">${['open','extend','pause','resume','close','complete'].map(a=>'<button data-fa-action="'+a+'">'+({open:'Open next period',extend:'Extend 24 hours',pause:'Pause clock',resume:'Resume clock',close:'Close period',complete:'Complete period'}[a])+'</button>').join('')}</div><p>Score: 35% annual salary · 25% total value · 25% length · 15% age fit. Rankings use verified offer amounts; missing ages receive a neutral age factor.</p><div>${data.rankings.map(group=>'<details open><summary>'+escapeHtml(group.playerName)+'</summary>'+group.offers.map(o=>'<p><label><input type="checkbox" data-fa-approve="'+escapeHtml(o.id)+'"> '+escapeHtml(data.teams.find(t=>t.teamId===o.teamId)?.teamName||o.teamId)+' · '+o.score.toFixed(2)+' score · Priority '+o.priority+' · $'+o.contract.seasons[0].salary.toLocaleString()+' annually · '+o.contract.seasons.length+' years</label> <button data-fa-reject="'+escapeHtml(o.id)+'">Reject with reason</button></p>').join('')+'</details>').join('')}</div><button id="offseason-fa-prepare">Review selected approvals</button><div id="offseason-fa-confirmation"></div><h4>NBA 2K Transaction Report</h4><p>After all four periods, upload every report page and match the exact displayed contract for every approved signing. Resolve unexpected signings before final verification.</p><input id="offseason-fa-images" type="file" accept="image/jpeg,image/png,image/heic,image/heif,.heic,.heif" multiple><button id="offseason-fa-upload">Upload report photos</button><div>${(data.evidence?.images||[]).map(i=>'<details><summary>'+escapeHtml(i.filename)+' · '+escapeHtml(i.status)+'</summary><button data-fa-original="'+escapeHtml(i.imageId)+'">View photo</button><button data-fa-retry="'+escapeHtml(i.imageId)+'">Retry OCR</button><pre>'+escapeHtml(i.text||i.error||'')+'</pre>'+((i.proposals?.warnings||[]).map(w=>'<p>'+escapeHtml(w)+'</p>').join(''))+(i.proposals?.rows||[]).map(row=>'<p><strong>'+escapeHtml(row.name)+'</strong> → '+escapeHtml(row.playerCandidates.map(p=>p.name).join(' / ')||'Match player manually')+(row.teamId?' · '+escapeHtml(data.teams.find(t=>t.teamId===row.teamId)?.teamName||row.teamId):' · Match team manually')+' · '+row.contractYears+' years · $'+row.reportedTotal.toLocaleString()+' total'+row.flags.map(flag=>'<br>'+escapeHtml(flag)).join('')+'</p>').join('')+'</details>').join('')}</div><table><thead><tr><th>Signing</th><th>Team</th><th>Salary</th><th>Years</th><th>Type</th><th>Option</th></tr></thead><tbody>${won.map((o,i)=>'<tr><td>'+escapeHtml(o.playerId)+'</td><td>'+escapeHtml(data.teams.find(t=>t.teamId===o.teamId)?.teamName||o.teamId)+'</td>'+['salary','years','structure','option'].map(k=>'<td>'+field(k,i,'')+'</td>').join('')+'</tr>').join('')}</tbody></table><label><input id="offseason-fa-reviewed" type="checkbox"> I reviewed every report page, verified all approved signings, and resolved every unexpected signing.</label><button id="offseason-fa-verify">Review final reconciliation</button>`;}
+ output.addEventListener('change',()=>output.querySelector('#offseason-fa-confirmation')?.replaceChildren());
+ function confirm(preview,action,label){const target=output.querySelector('#offseason-fa-confirmation');target.textContent=label+'? ';const button=document.createElement('button');button.textContent='Confirm';button.addEventListener('click',async()=>{button.disabled=true;try{await post({action,token:preview.token});await load();showToast('Confirmed.');}catch(e){showToast(e.message);button.disabled=false;}});target.append(button);}
+ output.addEventListener('click',async e=>{const b=e.target.closest('button');if(!b)return;try{
+  if(b.dataset.faAction){await post({action:b.dataset.faAction,hours:24});await load();}
+  else if(b.id==='offseason-fa-prepare'){const offerIds=[...output.querySelectorAll('[data-fa-approve]:checked')].map(i=>i.dataset.faApprove),p=await post({action:'prepare-approval',offerIds});confirm(p,'confirm-approval','Approve '+offerIds.length+' verified signings');}
+  else if(b.dataset.faReject){const target=output.querySelector('#offseason-fa-confirmation');target.innerHTML='<label>Rejection reason<input id="offseason-fa-reason"></label>';const send=document.createElement('button');send.textContent='Confirm rejection';send.addEventListener('click',async()=>{try{await post({action:'reject',offerId:b.dataset.faReject,reason:target.querySelector('input').value});await load();}catch(e){showToast(e.message);}});target.append(send);}
+  else if(b.id==='offseason-fa-upload'){for(const file of output.querySelector('#offseason-fa-images').files){const base64=await new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(String(r.result).split(',')[1]);r.onerror=reject;r.readAsDataURL(file);});await post({action:'upload',filename:file.name,base64});}await load();}
+  else if(b.dataset.faOriginal){const r=await fetch(endpoint+'?preview=1&imageId='+encodeURIComponent(b.dataset.faOriginal),{headers:{'x-leaguebuddy-admin-key':state.adminKey}});if(!r.ok)throw Error((await r.json()).error);const url=URL.createObjectURL(await r.blob());urls.push(url);const image=document.createElement('img');image.src=url;image.alt='Transaction Report photo preview';image.style.maxWidth='100%';b.closest('details').append(image);}
+  else if(b.dataset.faRetry){await post({action:'retry',imageId:b.dataset.faRetry});await load();}
+  else if(b.id==='offseason-fa-verify'){const won=data.offers.filter(o=>o.status==='WON'),rows=won.map((o,i)=>({offerId:o.id,playerId:o.playerId,teamId:o.teamId,details:Object.fromEntries(['salary','years','structure','option'].map(k=>[k,output.querySelector('[data-fa-contract="'+k+'"][data-fa-row="'+i+'"]').value]))}));const p=await post({action:'prepare-verification',rows,reviewedAllImages:output.querySelector('#offseason-fa-reviewed').checked});confirm(p,'confirm-verification','Verify '+p.rowCount+' NBA 2K signings');}
+ }catch(e){showToast(e.message);}});
+ document.querySelector('#offseason-fa-load').addEventListener('click',()=>load().catch(e=>showToast(e.message)));
+})();
+
+(() => {
+ const output=document.querySelector('#news-review-output');let articles=[];
+ const render=()=>{const status=document.querySelector('#news-review-status').value;output.innerHTML=articles.filter(a=>a.status===status).map(a=>`<details data-news-review="${escapeHtml(a.id)}"><summary>${escapeHtml(a.headline)}${a.revalidationRequired?' · SOURCE REVIEW REQUIRED':''}</summary><p>${escapeHtml(a.category)} · Season ${escapeHtml(a.seasonId)} · Week ${a.week}</p><pre>${escapeHtml(JSON.stringify(a.pendingSource?.facts||a.facts,null,2))}</pre><label>Headline<input data-news-edit="headline" value="${escapeHtml(a.headline)}"></label><label>Article<textarea data-news-edit="article" rows="8">${escapeHtml(a.article)}</textarea></label><label>Reason / correction notice<input data-news-edit="reason"></label><label><input data-news-edit="breaking" type="checkbox"${a.breaking?' checked':''}> Breaking news</label><label><input data-news-edit="featured" type="checkbox"${a.featured?' checked':''}> Feature / pin this story</label><div class="admin-inline">${(a.status==='PUBLISHED'?['correct']:['edit','regenerate','approve','reject']).map(action=>'<button data-news-review-action="'+action+'">'+({correct:'Save correction',edit:'Save draft',regenerate:'Regenerate from verified facts',approve:'Approve publication',reject:'Reject story'}[action])+'</button>').join('')}</div><p>${a.correctionNotice?escapeHtml(a.correctionNotice):''}</p><p>${a.revisions.length} retained revisions</p></details>`).join('')||'<p>No stories in this status.</p>';};
+ async function load(){articles=(await adminRequestJson('/api/league/admin/news')).articles;render();}
+ output.addEventListener('click',async e=>{const button=e.target.closest('[data-news-review-action]');if(!button)return;const card=button.closest('[data-news-review]'),action=button.dataset.newsReviewAction,body={id:card.dataset.newsReview,action};for(const key of ['headline','article','reason','breaking','featured']){const input=card.querySelector('[data-news-edit="'+key+'"]');body[key]=input.type==='checkbox'?input.checked:input.value;}button.disabled=true;try{await adminRequestJson('/api/league/admin/news',{method:'POST',body:JSON.stringify(body)});await load();showToast('News review saved.');}catch(e){showToast(e.message);button.disabled=false;}});
+ document.querySelector('#news-review-load').addEventListener('click',()=>load().catch(e=>showToast(e.message)));document.querySelector('#news-review-status').addEventListener('change',render);
+})();
+(() => {
+ const controls={q:document.querySelector('#news-search'),seasonId:document.querySelector('#news-season'),teamId:document.querySelector('#news-team'),category:document.querySelector('#news-category'),week:document.querySelector('#news-week'),phase:document.querySelector('#news-phase'),storyline:document.querySelector('#news-storyline'),sort:document.querySelector('#news-sort')};let busy=false,reload=false,searchTimer;
+ const card=(a,hero=false)=>`<article class="summary-card${hero?' news-hero':''}">${a.players?.[0]?playerPortraitMarkup(a.players[0],'league-player-portrait'):''}<h3><button data-news-article="${escapeHtml(a.id)}">${escapeHtml(a.headline)}</button></h3><p>${escapeHtml(a.category)} · ${escapeHtml(new Date(a.publishedAt).toLocaleString())}</p>${hero?'<p>'+escapeHtml(a.article.split(/(?<=[.!?])\s/).slice(0,2).join(' '))+'</p>':''}${a.correctionNotice?'<p><strong>Correction:</strong> '+escapeHtml(a.correctionNotice)+'</p>':''}</article>`;
+ const options=(select,entries,label)=>{const old=select.value;select.innerHTML='<option value="">'+label+'</option>'+entries.map(([id,name])=>'<option value="'+escapeHtml(String(id))+'">'+escapeHtml(name)+'</option>').join('');select.value=old;};
+ async function load(){if(busy){reload=true;return;}busy=true;try{const query=new URLSearchParams(Object.entries(controls).filter(([,v])=>v.value).map(([k,v])=>[k,v.value])),data=await requestJson('/api/league/news?'+query);options(controls.seasonId,data.seasons.map(s=>[s,'Season '+s]),'All seasons');options(controls.teamId,data.teams.map(t=>[t.teamId,t.teamName]),'All teams');options(controls.category,data.categories.map(c=>[c,c]),'All categories');options(controls.storyline,(data.storylines||[]).map(s=>[s,s]),'All storylines');options(controls.week,Array.from({length:15},(_,i)=>[i+1,'Week '+(i+1)]),'All weeks');document.querySelector('#news-featured').innerHTML=data.featured.map((a,i)=>card(a,i===0)).join('');document.querySelector('#news-headlines').innerHTML=data.articles.map(a=>card(a)).join('')||'<p>No published stories match these filters.</p>';document.querySelector('#news-trending').innerHTML=data.trending.map(a=>'<p><button data-news-article="'+escapeHtml(a.id)+'">'+escapeHtml(a.headline)+'</button></p>').join('');document.querySelector('#news-status').textContent='Staff-approved reports · Search and archive filters update the full league feed.';}catch(e){document.querySelector('#news-status').textContent=e.message;}finally{busy=false;if(reload){reload=false;load();}}}
+ async function article(id){const data=await requestJson('/api/league/news?id='+encodeURIComponent(id)),a=data.article,output=document.querySelector('#news-article');output.innerHTML='<article>'+card(a,false)+'<p>'+escapeHtml(a.article)+'</p><p>Season '+escapeHtml(a.seasonId)+' · Week '+a.week+' · '+escapeHtml(a.phase)+' · '+escapeHtml(a.storyline)+'</p>'+a.players.map(p=>'<button data-news-player="'+escapeHtml(p.playerId)+'">'+escapeHtml(p.name)+'</button>').join(' ')+a.teams.map(t=>'<button data-news-team="'+escapeHtml(t.teamId)+'">'+escapeHtml(t.teamName)+'</button>').join(' ')+'<h4>Verified statistics</h4><p>'+escapeHtml(a.statistics?`${a.statistics.PTS} PTS · ${a.statistics.REB} REB · ${a.statistics.AST} AST · ${a.statistics.STL} STL · ${a.statistics.BLK} BLK · ${a.statistics.FG} FG · ${a.statistics['3PT']} 3PT · ${a.statistics.FT} FT`:'See the verified league record.')+'</p><h4>Related stories</h4>'+data.related.map(a=>card(a)).join('')+'</article>';output.scrollIntoView({block:'start'});}
+ document.querySelector('#news').addEventListener('click',e=>{const a=e.target.closest('[data-news-article]'),p=e.target.closest('[data-news-player]'),t=e.target.closest('[data-news-team]');const action=a?article(a.dataset.newsArticle):p?showPlayerDetail(p.dataset.newsPlayer):t?showTeamDetail(t.dataset.newsTeam):null;action?.catch(e=>showToast(e.message));});for(const [key,c] of Object.entries(controls))c.addEventListener(key==='q'?'input':'change',()=>{if(key==='q'){clearTimeout(searchTimer);searchTimer=setTimeout(load,300);}else load();});document.querySelector('#news-refresh').addEventListener('click',load);window.addEventListener('hashchange',()=>{if(location.hash==='#news')load();});if(location.hash==='#news')load();setInterval(()=>{if(location.hash==='#news'&&!document.hidden)load();},30000);
+})();
+(() => {
+ let busy=false;
+ const matchup=s=>escapeHtml(s.team1Name)+' vs '+escapeHtml(s.team2Name);
+ function detail(s){const p=s.preview;return `<article class="summary-card"><h3>${matchup(s)}</h3><p>Week ${s.week} · Season ${escapeHtml(s.seasonId)} · ${escapeHtml(s.status)}</p><p>${p.teams.map(t=>escapeHtml(t.teamName)+' '+t.wins+'-'+t.losses).join(' · ')}</p><h4>🔥 Players to watch</h4>${p.playersToWatch.map(w=>'<p>'+playerPortraitMarkup(w.player||{name:w.name},'league-player-portrait')+'<button data-stream-player="'+escapeHtml(w.playerId)+'">'+escapeHtml(w.name)+'</button> · '+w.PPG.toFixed(1)+' PTS / '+w.RPG.toFixed(1)+' REB / '+w.APG.toFixed(1)+' AST</p>').join('')||'<p>No published player statistics yet.</p>'}<h4>📊 Game breakdown</h4><p>${escapeHtml(p.breakdown)}</p><h4>🔮 Predicted winner</h4><p>${escapeHtml(p.prediction?.teamName||'Unavailable')} · ${escapeHtml(p.prediction?.reason||'')}</p><p><a href="${escapeHtml(s.url)}" target="_blank" rel="noopener noreferrer">📺 Watch live</a></p><p><a href="?gameId=${encodeURIComponent(s.gameId)}#sportsbook">🎟️ View game Sportsbook</a></p><p>Betting ${s.marketLocked?'locked':'open'}${s.status==='FINAL'?' · Game completed':''}</p>${s.result?.scores?'<p>Final: '+Object.entries(s.result.scores).map(([teamId,score])=>escapeHtml(teamId===s.team1Id?s.team1Name:s.team2Name)+' '+score).join(' · ')+'</p>':''}</article>`;}
+ async function load(){if(busy)return;busy=true;try{const data=await requestJson('/api/league/streams'),selected=new URL(location.href).searchParams.get('gameId');document.querySelector('#streams-games').innerHTML=data.streams.map(s=>'<article class="summary-card"><h3>'+matchup(s)+'</h3><p>Week '+s.week+' · '+escapeHtml(s.status)+'</p><button data-stream-game="'+escapeHtml(s.gameId)+'">Open game page</button> <a href="'+escapeHtml(s.url)+'" target="_blank" rel="noopener noreferrer">Watch live</a></article>').join('')||'<p>No submitted game streams yet.</p>';const game=data.streams.find(s=>s.gameId===selected);document.querySelector('#streams-game-detail').innerHTML=game?detail(game):selected?'<p>This stream has not been submitted or is unavailable.</p>':'';document.querySelector('#streams-status').textContent='The home team is required to stream. Either participating coach can post the link from the game thread.';}catch(e){document.querySelector('#streams-status').textContent=e.message;}finally{busy=false;}}
+ document.querySelector('#streams').addEventListener('click',e=>{const game=e.target.closest('[data-stream-game]'),p=e.target.closest('[data-stream-player]');if(game){const url=new URL(location.href);url.searchParams.set('gameId',game.dataset.streamGame);url.hash='streams';history.pushState(null,'',url);load();}if(p)showPlayerDetail(p.dataset.streamPlayer).catch(e=>showToast(e.message));});document.querySelector('#streams-refresh').addEventListener('click',load);window.addEventListener('hashchange',()=>{if(location.hash==='#streams')load();});window.addEventListener('popstate',()=>{if(location.hash==='#streams')load();});if(location.hash==='#streams')load();setInterval(()=>{if(location.hash==='#streams'&&!document.hidden)load();},15000);
+})();
+
+(() => {
+ const button=document.querySelector('#sportsbook-staff-load'),output=document.querySelector('#sportsbook-staff-output');if(!button)return;
+ const amount=cents=>'$'+(cents/100).toFixed(2);
+ button.addEventListener('click',async()=>{button.disabled=true;try{
+  const data=await adminRequestJson('/api/league/admin/sportsbook'),pending=data.bets.filter(b=>b.pendingCorrection);
+  output.innerHTML='<p>'+Object.keys(data.wallets).length+' career wallets · '+data.bets.filter(b=>b.status==='OPEN').length+' open bets · '+pending.length+' corrected payouts awaiting Staff resolution</p>'
+   +pending.map(bet=>{const account=data.wallets[bet.userId],correction=bet.pendingCorrection;return '<article class="summary-card"><h4>Coach '+escapeHtml(bet.userId)+'</h4><p>Original result '+escapeHtml(bet.status)+' → verified result '+escapeHtml(correction.status)+'</p><p>Wallet '+amount(account.balanceCents)+' · Correction '+amount(correction.adjustmentCents)+' · Shortfall '+amount(Math.max(0,-correction.adjustmentCents-account.balanceCents))+'</p><p>New wagers are frozen. The original settlement and exact correction are retained for review.</p><p>'+bet.legs.map(leg=>escapeHtml(leg.kind)+' · '+escapeHtml(leg.gameId)).join('<br>')+'</p></article>';}).join('')
+   +'<details><summary>Private wager ledger</summary>'+data.ledger.map(entry=>'<p>'+escapeHtml(entry.at||'Initial wallet')+' · '+escapeHtml(entry.userId)+' · '+escapeHtml(entry.type)+' · '+amount(entry.amountCents)+'</p>').join('')+'</details>';
+ }catch(error){output.textContent=error.message;}finally{button.disabled=false;}});
 })();

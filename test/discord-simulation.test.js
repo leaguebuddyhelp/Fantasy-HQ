@@ -28,3 +28,8 @@ test('cleanup treats deleted test channels as already cleaned',async t=>{
  const manager=createDiscordSimulation({repository:fixture(t).repository});
  const failures=await manager.cleanup({id:'guild',channels:{fetch:async()=>{throw Object.assign(Error('Unknown Channel'),{code:10003});}}},[{guildId:'guild',channelId:'deleted',messageId:'test'}]);assert.deepEqual(failures,[]);
 });
+
+test('offseason stage delivery keys remain distinct across stages and seasons',()=>{
+ const {simulationEventKey}=require('../src/fantasyhq/discord-simulation'),sim={seasonId:'1'};
+ const first=simulationEventKey(sim,{type:'OFFSEASON',step:'RETIREMENTS'}),draft=simulationEventKey(sim,{type:'OFFSEASON',step:'DRAFT'});assert.notEqual(first,draft);assert.equal(first,simulationEventKey(sim,{type:'OFFSEASON',step:'RETIREMENTS'}));assert.notEqual(first,simulationEventKey({...sim,seasonId:'2'},{type:'OFFSEASON',step:'RETIREMENTS'}));
+});

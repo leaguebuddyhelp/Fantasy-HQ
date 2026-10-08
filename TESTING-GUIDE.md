@@ -221,3 +221,11 @@ Run `/admin bind league_id:<saved original ID> season_id:<saved original season>
 Record failures with: league/season/week, command or button, game/trade/mock ID, expected versus actual result, screenshot, and relevant terminal error. Avoid tokens and Admin keys.
 
 Some configured fields are not full workflows: a playoff-team setting does not implement a playoff engine. The game deadline setting is stored/displayed, but the actual week-thread clock currently uses 48 hours. Result-confirmation and commissioner-approval settings are also stored/displayed; the implemented result gate is validated screenshots and review when required, rather than separate configurable post-game approvals. There is no actual NBA 2K game execution inside the bot, no full real draft execution from the mock, and no playoff bracket simulation implemented. Test the present features above rather than treating those missing systems as Test Mode failures.
+
+## New complete practice run
+
+From Staff **Test Mode → Run Simulation**, select **Complete season + offseason**, **Keep current rosters**, and **Summary only**. All stages use the isolated league copy. After rollover, run **1 week**; then restore **Starting state**. Use **More Options → Restore Checkpoint** to return to an offseason stage, and use Pause/Resume to stop between completed stages. **Every game and event** displays labeled test events in Staff.
+
+For the new photo importer, upload a HEIC/JPG/PNG, inspect the normalized preview, and choose **Add matched OCR fields for review**. Verify that manual edits remain, conflicting or unreadable fields remain unresolved, and applying suggestions removes the previous confirmation. Save review progress before preparing the final confirmation. The stored original is preserved.
+
+Detailed implementation and remaining production checks: [Complete implementation checklist](COMPLETE-IMPLEMENTATION-CHECKLIST.md).

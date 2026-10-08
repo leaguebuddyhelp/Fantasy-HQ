@@ -14,6 +14,8 @@ async function correctSimulatedPlayer({storage,id,actor,gameId,playerId,stats,re
   await submissions.mutate(gameId,r=>{r.resultRevisions||=[];r.resultRevisions.push({action:'SIMULATION_CORRECTED',operator:actor.id,reason,game:structuredClone(r.game),playerGameStats:structuredClone(r.playerGameStats),teamGameStats:structuredClone(r.teamGameStats)});r.game.result=candidate.game.result;r.playerGameStats=candidate.playerGameStats;r.teamGameStats=candidate.teamGameStats;});
   if(record.game.seriesId&&sim.repository.loadLeague(sim.leagueId).league.currentPhase==='PLAYOFFS')require('./postseason-service').createPostseasonService({repository:sim.repository,submissions}).synchronize(sim.leagueId,actor);
   const c=sim.repository.loadLeague(sim.leagueId);if(sim.repository.scheduleExists(sim.leagueId,c.seasonId)){const schedule=sim.repository.loadSchedule(sim.leagueId,c.seasonId);if(schedule.statsPublication){const games=require('./official-game').officialRegularGames(submissions.records(),{leagueId:sim.leagueId,seasonId:c.seasonId,schedule}).games.filter(r=>r.game.weekNumber<=schedule.statsPublication.throughWeek);schedule.statsPublication.snapshots=require('./official-game').publicationSnapshot(games);schedule.statsPublication.gameIds=games.map(r=>r.game.gameId);sim.repository.saveSchedule(schedule);}}
+  require('./sportsbook-service').createSportsbookService({repository:sim.repository,submissions}).settle(sim.leagueId);
+  require('./news-service').createNewsService({repository:sim.repository,submissions}).detect(sim.leagueId);
   runtime.history.push({type:'CORRECTION',gameId,playerId,reason,actorId:actor.id});storage.saveRuntime(id,actor,runtime);return candidate;
 }
 module.exports={correctSimulatedPlayer};

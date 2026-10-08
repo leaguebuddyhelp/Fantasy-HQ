@@ -82,6 +82,7 @@ function createRosterService(options = {}) {
       && String(entry.seasonId) === String(seasonId)
       && (!teamId || entry.teamId === teamId));
     if (!membership) throw new Error("Active roster membership not found for that player.");
+    if (Number(players.find(p => p.playerId === playerId)?.overall) >= 85) throw Error('Players rated 85+ OVR cannot be waived, including by the commissioner.');
     const lock = require('./transaction-locks').playerTransactionLock(repository, leagueId, String(seasonId), playerId); if (lock) throw Error(lock);
     membership.active = false;
     membership.endedAt = new Date().toISOString();
@@ -262,6 +263,7 @@ function createRosterService(options = {}) {
       player.updatedAt = membership.updatedAt = new Date().toISOString();
     }
     for (const removed of preview.removed) {
+      if (Number(players.find(p => p.playerId === removed.playerId)?.overall) >= 85) throw Error('Roster import cannot waive an 85+ OVR player. Reconcile their official move first.');
       const lock = require('./transaction-locks').playerTransactionLock(repository, leagueId, String(seasonId), removed.playerId); if (lock) throw Error(lock);
       const membership = activeMemberships(memberships, seasonId).find(m => m.playerId === removed.playerId && m.teamId === teamId);
       if (!membership) throw Error('Import roster changed; preview again.');

@@ -10,6 +10,7 @@
   <title>LEAGUEbuddy</title>
   <link rel="stylesheet" href="/styles.css">
   <script src="/app.js" defer></script>
+  <script src="/sportsbook.js" defer></script>
 </head>
 
 <body>
@@ -31,6 +32,12 @@
       <a href="#schedule-hub">Schedule</a>
       <a href="#standings">Standings</a>
       <a href="#playoffs">Playoffs</a>
+      <a href="#news">News</a>
+      <a href="#sportsbook">Sportsbook</a>
+      <a href="#streams">Watch Live</a>
+      <a href="#player-of-the-week">Weekly Awards</a>
+      <a href="#progression">Progression</a>
+      <a href="#power-rankings">Power Rankings</a>
       <a href="#board">Draft</a>
       <a href="#league-admin">Admin</a>
       <span class="live-pill"><i></i> Board live</span>
@@ -58,6 +65,67 @@
       </div>
     </section>
 
+    <section class="league-summary-section" id="news">
+      <h2>LEAGUEbuddy News</h2><p id="news-status">Staff-approved reporting from verified league records.</p>
+      <label>Search<input id="news-search" type="search" placeholder="Players, teams, headlines or dates"></label>
+      <label>Season<select id="news-season"><option value="">All seasons</option></select></label>
+      <label>Franchise<select id="news-team"><option value="">All teams</option></select></label>
+      <label>Category<select id="news-category"><option value="">All categories</option></select></label>
+      <label>Storyline<select id="news-storyline"><option value="">All storylines</option></select></label>
+      <label>Week<select id="news-week"><option value="">All weeks</option></select></label>
+      <label>Phase<select id="news-phase"><option value="">All phases</option><option value="REGULAR_SEASON">Regular season</option><option value="PLAY_IN">Play-In</option><option value="PLAYOFFS">Playoffs</option><option value="OFFSEASON">Offseason</option><option value="FREE_AGENCY">Free agency</option><option value="DRAFT">Draft</option></select></label>
+      <label>Sort<select id="news-sort"><option value="newest">Newest</option><option value="oldest">Oldest</option><option value="relevance">Relevance</option></select></label><button id="news-refresh" type="button">Refresh News</button>
+      <div id="news-featured" class="summary-grid"></div><h3>Latest headlines</h3><div id="news-headlines" class="summary-grid"></div><h3>Trending stories</h3><div id="news-trending"></div><div id="news-article" aria-live="polite"></div>
+    </section>
+    <section id="sportsbook" class="league-summary-section" aria-labelledby="sportsbook-title">
+      <h2 id="sportsbook-title">🎟️ LEAGUEbuddy Sportsbook</h2>
+      <p>Fictional league dollars · $300 starting career balance · No deposits, withdrawals or real-world prizes.</p>
+      <p id="sportsbook-status" aria-live="polite">Sign in through Discord MyTeam to place bets or see your private history.</p>
+      <button id="sportsbook-refresh" type="button">Refresh markets</button><button id="sportsbook-logout" type="button" hidden>Sign out</button>
+      <div id="sportsbook-profile"></div><h3 id="sportsbook-market-title">Weekly markets</h3>
+      <div id="sportsbook-markets" class="summary-grid"></div>
+      <div class="summary-card" id="sportsbook-slip"><h3>🎟️ Bet slip</h3><div id="sportsbook-legs"></div>
+        <label>Wager ($)<input id="sportsbook-wager" inputmode="decimal" value="10" autocomplete="off"></label>
+        <button id="sportsbook-preview" type="button">Review bet</button><div id="sportsbook-confirmation" aria-live="polite"></div>
+      </div>
+      <h3>My private bets</h3><div id="sportsbook-bets"></div><h3>Career leaderboard</h3><div id="sportsbook-leaderboard"></div>
+    </section>
+    <section class="league-summary-section" id="streams">
+      <h2>Watch Live</h2><p id="streams-status">Game streams and verified matchup previews.</p><button id="streams-refresh" type="button">Refresh streams</button>
+      <div id="streams-games" class="summary-grid"></div><div id="streams-game-detail" aria-live="polite"></div>
+    </section>
+    <section class="league-summary-section" id="power-rankings">
+      <h2>Power Rankings</h2><p id="rankings-status">Rankings publish after finalized league weeks and confirmed preseason progression.</p>
+      <label>Season<select id="rankings-season"><option value="">All seasons</option></select></label>
+      <label>Snapshot<select id="rankings-snapshot"><option value="">Latest snapshot</option></select></label><button id="rankings-refresh" type="button">Refresh rankings</button>
+      <div id="rankings-table"></div>
+    </section>
+    <section class="league-summary-section" id="progression">
+      <h2>Player Progression</h2>
+      <p id="progression-status">Verified NBA 2K offseason changes and career OVR history.</p>
+      <label>Season<select id="progression-season"><option value="">All seasons</option></select></label>
+      <label>Team<select id="progression-team"><option value="">All teams</option></select></label>
+      <label>Player<select id="progression-player"><option value="">All players</option></select></label>
+      <button id="progression-refresh" type="button">Refresh progression</button>
+      <h3>Biggest risers</h3><div id="progression-risers" class="summary-grid"></div>
+      <h3>Biggest fallers</h3><div id="progression-fallers" class="summary-grid"></div>
+      <h3>Team progression rankings</h3><div id="progression-rankings"></div>
+      <h3>All verified changes</h3><div id="progression-history" class="summary-grid"></div>
+    </section>
+    <section class="league-summary-section" id="player-of-the-week">
+      <div class="section-heading"><div><p class="eyebrow">Verified weekly performances</p><h2>🏆 Player of the Week</h2></div><button type="button" id="pow-refresh">Refresh</button></div>
+      <p id="pow-status" role="status">Awards appear after the commissioner finalizes a week.</p>
+      <h3>Current Week Winners</h3><div class="summary-grid" id="pow-current"></div>
+      <h3>Player of the Week History</h3>
+      <div class="admin-form-grid">
+        <label>Season<select id="pow-season"><option value="">All seasons</option></select></label>
+        <label>Week<select id="pow-week"><option value="">All weeks</option></select></label>
+        <label>Conference<select id="pow-conference"><option value="">Both conferences</option><option>East</option><option>West</option></select></label>
+        <label>Team<select id="pow-team"><option value="">All teams</option></select></label>
+        <label>Player<select id="pow-player"><option value="">All players</option></select></label>
+      </div>
+      <div class="summary-grid" id="pow-history"></div>
+    </section>
     <section class="league-schedule-section" id="my-week">
       <div class="section-heading"><div><p class="eyebrow">Coach dashboard</p><h2>My Week</h2>
         <p>Choose your team to see this week’s matchup and next step. Your private trades, offers and waivers are in Discord /myteam → MY WEEK.</p></div>
@@ -326,9 +394,50 @@
         </div>
         <div class="admin-panel" id="playoffs-panel">
           <h3>Playoff handoff</h3>
-          <p>After Week 15, resolve every game and review eight seeds per conference before changing phase.</p>
+          <p>After Week 15, resolve every game and review ten seeds per conference before changing phase.</p>
           <button id="playoffs-review" type="button">Review playoff seeding</button>
           <div id="playoffs-output" aria-live="polite"></div>
+        </div>
+        <div class="admin-panel" id="offseason-panel">
+          <h3>Offseason checklist</h3>
+          <p>Review the current step and its blockers. The commissioner confirms each transition.</p>
+          <button id="offseason-review" type="button">Review offseason step</button>
+          <div id="offseason-output" aria-live="polite"></div>
+        </div>
+        <div class="admin-panel" id="retirement-import-panel">
+          <h3>Retirement import</h3>
+          <p>During the retirements step, upload every page, inspect the photos and match each retired player. Nothing changes until confirmation.</p>
+          <input id="retirement-images" type="file" accept="image/jpeg,image/png,image/heic,image/heif,.heic,.heif" multiple aria-label="Retirement images">
+          <button id="retirement-upload" type="button">Upload photos</button>
+          <button id="retirement-reload" type="button">Review saved photos</button>
+          <div id="retirement-output" aria-live="polite"></div>
+        </div>
+        <div class="admin-panel" id="news-review-panel">
+          <h3>News review</h3><p>Review verified source facts. Only approved stories publish; routine stories are spaced three hours apart and capped at four daily.</p>
+          <label>Status<select id="news-review-status"><option value="DRAFT">Drafts</option><option value="APPROVED">Approved queue</option><option value="PUBLISHED">Published and corrections</option><option value="REJECTED">Rejected</option></select></label><button id="news-review-load" type="button">Review News</button><div id="news-review-output" aria-live="polite"></div>
+        </div>
+        <div class="admin-panel" id="sportsbook-staff-panel">
+          <h3>Sportsbook review</h3><p>Review private wager totals and frozen wallets with pending corrected payouts.</p>
+          <button id="sportsbook-staff-load" type="button">Review betting ledger</button><div id="sportsbook-staff-output" aria-live="polite"></div>
+        </div>
+        <div class="admin-panel" id="offseason-fa-panel">
+          <h3>Offseason free agency</h3><p>Coaches submit private offers from the existing Discord Free Agency panel. Staff reviews the ranked offers after each period closes.</p>
+          <button id="offseason-fa-load" type="button">Review offseason market</button>
+          <div id="offseason-fa-output" aria-live="polite"></div>
+        </div>
+        <div class="admin-panel" id="offseason-roster-panel">
+          <h3>Offseason trades and roster cutdowns</h3>
+          <p>Resolve pending transactions, then confirm completion. Cutdowns require exactly 15 players per team; 85+ OVR players are protected.</p>
+          <button id="offseason-rosters-load" type="button">Review rosters</button>
+          <div id="offseason-rosters-output" aria-live="polite"></div>
+        </div>
+        <div class="admin-panel" id="offseason-import-panel">
+          <h3>NBA 2K offseason imports</h3>
+          <p>Upload all pages for the current step. Check the selected table team, which may differ from the franchise header. Match the saved players and review every row before confirmation.</p>
+          <label>Import<select id="offseason-import-kind"><option value="LOTTERY">Official lottery</option><option value="DRAFT">Draft results</option><option value="OPTIONS">Pending options</option><option value="PROGRESSION">Player progression and final rosters</option></select></label>
+          <input id="offseason-import-images" type="file" accept="image/jpeg,image/png,image/heic,image/heif,.heic,.heif" multiple aria-label="Offseason evidence photos">
+          <button id="offseason-import-upload" type="button">Upload photos</button><button id="offseason-import-load" type="button">Review saved import</button>
+          <div id="offseason-import-output" aria-live="polite"></div>
         </div>
         <div class="admin-panel" id="season-start-panel">
           <h3>Start regular season</h3>

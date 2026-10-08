@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { statsPayload } = require('../src/fantasyhq/discord-league-feeds');
 test('eight stat leader categories rank five players, exclude no games and zero shooting attempts', () => {
-    const players = Array.from({ length: 7 }, (_, i) => ({ playerId: String(i), name: `Player ${i}`, teamName: 'Boston Celtics', GP: 2, PPG: i, RPG: i, APG: i, SPG: i, BPG: i, FGPercent: 40 + i, threePPercent: 30 + i, FTPercent: 70 + i, FGA: 10, '3PA': 5, FTA: 4 }));
+    const players = Array.from({ length: 7 }, (_, i) => ({ playerId: String(i), name: `Player ${i}`, teamName: 'Boston Celtics', GP: 2, PPG: i, RPG: i, APG: i, SPG: i, BPG: i, FGPercent: 40 + i, threePPercent: 30 + i, FTPercent: 70 + i, FGA: 30, '3PA': 25, FTA: 24 }));
     players.push({ ...players[6], name: 'No games', GP: 0, PPG: 100 });
     players.push({ ...players[6], name: 'No attempts', FGA: 0, '3PA': 0, FTA: 0, FGPercent: 100, threePPercent: 100, FTPercent: 100 });
     const embed = statsPayload(players, { seasonId: '1', league: { currentWeek: 2 } }).embeds[0].toJSON();

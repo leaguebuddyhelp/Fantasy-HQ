@@ -34,6 +34,15 @@ function draftField({ teams, standings, draftYear, settings = {} }) {
     return { rules, lottery, playoff: all.filter(t => !lottery.some(l => l.teamId === t.teamId)).sort(compare), warnings: [!explicitLosers ? 'Play-in eligibility is projected from current conference seeds.' : null, !config.priorOriginalPicks ? 'Prior real draft results are unavailable; repeat-pick restrictions require league settings.' : null, rules.provisional ? '2030+ provisionally continues 3-2-1 pending NBA rules.' : null].filter(Boolean) };
 }
 function generateDraftOrder(input, { rng = Math.random, lottery = true } = {}) {
+    if (!lottery && input.officialOrder) {
+        const order = input.officialOrder.map(row => {
+            const asset = input.picks.find(p => p.pickId === row.originalPickAssetId);
+            if (!asset || !input.teams.some(t => t.teamId === asset.currentOwnerTeamId)) throw Error('Confirmed lottery ownership requires reconciliation.');
+            return { pickNumber: row.pickNumber, originalTeamId: asset.originalTeamId, currentOwnerTeamId: asset.currentOwnerTeamId, originalPickAssetId: asset.pickId };
+        }).sort((a,b) => a.pickNumber - b.pickNumber);
+        if (order.length !== 30 || new Set(order.map(p => p.pickNumber)).size !== 30 || order.some((p,index) => p.pickNumber !== index + 1)) throw Error('Invalid confirmed NBA 2K lottery order.');
+        return { order, rules: { id: 'NBA_2K_CONFIRMED', official: true }, warnings: [] };
+    }
     const field = draftField(input), { rules } = field;
     let selected = [];
     if (lottery) {

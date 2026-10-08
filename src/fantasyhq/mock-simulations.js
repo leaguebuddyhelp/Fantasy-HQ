@@ -2,7 +2,7 @@ const path = require('path');
 const { randomUUID, createHash } = require('crypto');
 const { atomicWrite, read, rootFor, locked, requestRefresh } = require('./mock-storage');
 const { generateDraftOrder } = require('./draft-order');
-const { project, seededRandom, ENGINE_VERSION } = require('./mock-engine');
+const { project, chooseProspect, seededRandom, ENGINE_VERSION } = require('./mock-engine');
 const { leagueSeasonStartYear } = require('./asset-valuation');
 const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const jobs = new Map();
@@ -33,7 +33,7 @@ async function simulate(input, { seed = randomUUID(), previous = null } = {}) {
     const rng = seededRandom(seed), aggregates = Object.fromEntries(input.prospects.map(p => [p.prospectId, { timesSelected: 0, frequencyByPick: Array(30).fill(0), teamDestinations: {}, earliest: null, latest: null, avp: null, availabilityByPick: [], mostCommonRange: null }]));
     const simulations = [];
     for (let n = 0; n < 1000; n++) {
-        const { order } = generateDraftOrder(input, { rng });
+        const { order } = generateDraftOrder(input, { rng, lottery: !input.officialOrder });
         const round = project(input, order, previous, rng);
         simulations.push(round);
         for (const s of round) {
@@ -65,7 +65,7 @@ function createMockSimulationService({ repository, scoutingService, standingsSer
         const board = scoutingService.boardForContext(classNumber == null ? c : { ...c, league: { ...c.league, seasonNumber: classNumber } }), draftClassId = board.file.replace(/\.json$/i, '');
         if (board.prospects.length < 30) throw Error('The current Big Board needs at least 30 prospects.');
         const entries = rosterService.currentRosterEntries(leagueId, c.seasonId);
-        return { leagueId, seasonId: c.seasonId, draftClassId, currentWeek: c.league.currentWeek, draftYear: leagueSeasonStartYear(c.league.seasonNumber) + 1, teams: c.teams, prospects: board.prospects.map(p => ({ ...p, prospectId: `${draftClassId}:${p.board_number}` })), rosters: Object.fromEntries(c.teams.map(t => [t.teamId, entries.filter(e => e.membership.teamId === t.teamId).map(e => ({ ...e.player, position1: e.membership.position1 || e.player?.position1, position2: e.membership.position2 || e.player?.position2 }))])), standings: standingsService.getStandings(leagueId, c.seasonId), picks: repository.loadDraftPicks(leagueId).filter(p => Number(p.round) === 1 && Number(p.draftYear) === leagueSeasonStartYear(c.league.seasonNumber) + 1), settings: { mockDraft: repository.loadSettings(leagueId)?.mockDraft || {} } };
+        return { leagueId, seasonId: c.seasonId, officialOrder: repository.loadOffseason(leagueId)?.seasons[c.seasonId]?.receipts?.LOTTERY?.order || null, draftClassId, currentWeek: c.league.currentWeek, draftYear: leagueSeasonStartYear(c.league.seasonNumber) + 1, teams: c.teams, prospects: board.prospects.map(p => ({ ...p, prospectId: `${draftClassId}:${p.board_number}` })), rosters: Object.fromEntries(c.teams.map(t => [t.teamId, entries.filter(e => e.membership.teamId === t.teamId).map(e => ({ ...e.player, position1: e.membership.position1 || e.player?.position1, position2: e.membership.position2 || e.player?.position2 }))])), standings: standingsService.getStandings(leagueId, c.seasonId), picks: repository.loadDraftPicks(leagueId).filter(p => [1,2].includes(Number(p.round)) && Number(p.draftYear) === leagueSeasonStartYear(c.league.seasonNumber) + 1), settings: { mockDraft: repository.loadSettings(leagueId)?.mockDraft || {} } };
     }
     const cache = new Map();
     function active(leagueId) {
@@ -164,14 +164,26 @@ function createMockSimulationService({ repository, scoutingService, standingsSer
         jobs.set(jobKey, task);
         return task;
     }
+    function secondRoundProjection(leagueId, weekly) {
+        const input = weekly.input, root = rootFor(repository, leagueId), file = path.join(root, `weekly-round2-${hash([input.seasonId,input.currentWeek,input.draftClassId]).slice(0,24)}.json`);
+        const prior = read(file); if (prior?.engineVersion === ENGINE_VERSION && prior.simulationSnapshotId === weekly.simulationSnapshotId) return prior.selections;
+        if (input.prospects.length < 60) throw Error('Round 2 requires at least 60 verified prospects.');
+        const secondPicks = repository.loadDraftPicks(leagueId).filter(p => Number(p.round) === 2 && Number(p.draftYear) === input.draftYear);
+        if (secondPicks.length !== 30 || new Set(secondPicks.map(p=>p.originalTeamId)).size !== 30) throw Error('Initialize all 30 second-round pick assets through league setup.');
+        const base = generateDraftOrder({...input,officialOrder:null},{lottery:false}).order;
+        const order = base.map((slot,index)=>{const asset=secondPicks.find(p=>p.originalTeamId===slot.originalTeamId);if(!asset||!input.teams.some(t=>t.teamId===asset.currentOwnerTeamId))throw Error('Reconcile second-round pick ownership first.');return {...slot,pickNumber:index+31,currentOwnerTeamId:asset.currentOwnerTeamId,originalPickAssetId:asset.pickId};});
+        const selected = [...weekly.selections], snapshot = byId(leagueId,weekly.simulationSnapshotId), rng = seededRandom(`weekly-round2:${leagueId}:${input.seasonId}:${input.draftClassId}:${input.currentWeek}`);
+        for(const slot of order){const p=chooseProspect(input,slot,selected,snapshot,rng);selected.push({...slot,prospectId:p.prospectId,avp:snapshot?.prospectAggregates[p.prospectId]?.avp??null});}
+        const selections=selected.slice(30);locked(root,()=>atomicWrite(file,{engineVersion:ENGINE_VERSION,simulationSnapshotId:weekly.simulationSnapshotId,selections}));return selections;
+    }
     function reconcileRequests(leagueId) {
         // Recover events even if a process stopped between the league transaction and enqueue.
         const input = inputFor(leagueId), prior = active(leagueId), processed = new Set(prior?.metadata.processedEvents || []);
         for (const e of repository.loadAuditLog(leagueId)) {
-            const eventId = e.action === 'week.advanced' ? `week:${e.requestId}` : e.action === 'trade.completed' && input.picks.some(p => e.metadata?.affectedPickIds?.includes(p.pickId)) ? `trade:${e.metadata.processingId}` : null;
+            const eventId = e.action === 'week.advanced' ? `week:${e.requestId}` : e.action === 'trade.completed' && input.picks.some(p => e.metadata?.affectedPickIds?.includes(p.pickId)) ? `trade:${e.metadata.processingId}` : ['offseason.progression.confirmed','offseason.options.confirmed','offseason.draft.confirmed','offseason.retirements.confirmed','offseason.cutdown.waived'].includes(e.action) ? `roster:${e.metadata?.requestId || e.timestamp}` : null;
             if (eventId && String(e.seasonId || e.result?.seasonId || input.seasonId) === input.seasonId && !processed.has(eventId)) requestRefresh(repository, leagueId, e.action, eventId);
         }
     }
-    return { inputFor, active, byId, refresh, requireActive, weeklyProjection, classProjection, reconcileRequests, repository };
+    return { inputFor, active, byId, refresh, requireActive, weeklyProjection, classProjection, secondRoundProjection, reconcileRequests, repository };
 }
 module.exports = { createMockSimulationService, simulate, validateSnapshot, hash };

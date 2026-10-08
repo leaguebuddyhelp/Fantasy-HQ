@@ -24,6 +24,10 @@ function createTradeService(options = {}) {
     }
 
     function timestamp() { return new Date(now()).toISOString(); }
+    function offseasonTradeWindow(context) {
+        const season = repository.loadOffseason(context.league.leagueId)?.seasons[context.seasonId];
+        return context.league.currentPhase === 'OFFSEASON' && season?.step === 'TRADES' && !season.receipts?.TRADES;
+    }
     function audit(leagueId, trade, action, actorUserId, metadata = {}) {
         repository.appendAuditLog(leagueId, {
             action,
@@ -192,7 +196,8 @@ function createTradeService(options = {}) {
         const playersIn = new Map(trade.participatingTeams.map(teamId => [teamId, 0]));
         const errors = [];
         const currentWeek = Number(state.context.league.currentWeek);
-        const withinNewTradeWindow = state.context.league.currentPhase === "REGULAR_SEASON" && Number.isInteger(currentWeek) && currentWeek >= 1 && currentWeek <= 9;
+        const offseasonWindow = offseasonTradeWindow(state.context);
+        const withinNewTradeWindow = offseasonWindow || state.context.league.currentPhase === "REGULAR_SEASON" && Number.isInteger(currentWeek) && currentWeek >= 1 && currentWeek <= 9;
         if (!withinNewTradeWindow && !trade.originSubmittedAt) errors.push(state.context.league.currentPhase === "PLAYOFFS" ? "Trading is closed during the playoffs." : "New trades may be submitted only through Week 9.");
         const seenAssets = new Set();
         let assetCount = 0;
@@ -206,7 +211,7 @@ function createTradeService(options = {}) {
             let value;
             if (assetType === "PLAYER") {
                 const player = state.playerById.get(assetId), membership = state.membershipByPlayer.get(assetId);
-                if (!player || !membership) { errors.push(`Player ${assetId} no longer exists on an active roster.`); continue; }
+                if (!player || player.retiredAt || !membership) { errors.push(`Player ${assetId} no longer exists on an active roster.`); continue; }
                 if ((state.membershipsByPlayer.get(assetId) || []).length !== 1) { errors.push(`${player.name} does not have exactly one active team owner.`); continue; }
                 if (membership.teamId !== fromTeamId) { errors.push(`${player.name} is no longer on ${state.context.teams.find(team => team.teamId === fromTeamId)?.teamName || fromTeamId}.`); continue; }
                 const lock = require('./transaction-locks').playerTransactionLock(repository, state.context.league.leagueId, state.context.seasonId, assetId, { includeTrades: false });
@@ -234,7 +239,7 @@ function createTradeService(options = {}) {
             const rosterSize = state.rosterByTeam.get(teamId)?.length || 0;
             const projectedRosterCount = rosterSize - playersOut.get(teamId) + playersIn.get(teamId);
             const difference = received.get(teamId) - sent.get(teamId);
-            if (projectedRosterCount !== 15) errors.push(`${team?.teamName || teamId} would have ${projectedRosterCount} players; every team must finish with exactly 15.`);
+            if (offseasonWindow ? projectedRosterCount < 1 || projectedRosterCount > 20 : projectedRosterCount !== 15) errors.push(`${team?.teamName || teamId} would have ${projectedRosterCount} players; ${offseasonWindow ? 'offseason rosters must have 1–20 players' : 'every team must finish with exactly 15'}.`);
             if (!options.skipValueRule && Math.abs(difference) > 50) errors.push(`${team?.teamName || teamId} is ${Math.abs(difference)} trade-value points outside the allowed range.`);
             if (!options.skipTradeCount && (currentCounts.get(teamId) || 0) >= 5) errors.push(`${team?.teamName || teamId} has already completed 5/5 trades.`);
             return { teamId, teamName: team?.teamName || teamId, sent: sent.get(teamId), received: received.get(teamId), difference, rosterCount: rosterSize, projectedRosterCount, tradeCount: currentCounts.get(teamId) || 0 };
@@ -245,7 +250,7 @@ function createTradeService(options = {}) {
 
     function validateDeadline(state, existingSubmittedAt = null) {
         const week = Number(state.context.league.currentWeek);
-        const withinWindow = state.context.league.currentPhase === "REGULAR_SEASON" && Number.isInteger(week) && week >= 1 && week <= 9;
+        const withinWindow = offseasonTradeWindow(state.context) || state.context.league.currentPhase === "REGULAR_SEASON" && Number.isInteger(week) && week >= 1 && week <= 9;
         if (!withinWindow && !existingSubmittedAt) throw new Error(state.context.league.currentPhase === "PLAYOFFS" ? "Trading is closed during the playoffs." : "New trades may be submitted only through Week 9.");
     }
 
@@ -463,7 +468,7 @@ function createTradeService(options = {}) {
             if (transfer.assetType === "PLAYER") {
                 const membership = memberships.find(entry => entry.playerId === transfer.assetId && String(entry.seasonId) === String(trade.seasonId) && entry.active !== false && !entry.endedAt);
                 const player = playerById.get(transfer.assetId);
-                if (!membership || membership.teamId !== transfer.fromTeamId || !player || movedPlayerIds.has(transfer.assetId)) throw new Error(`Player ${transfer.assetId} changed ownership during processing.`);
+                if (!membership || membership.teamId !== transfer.fromTeamId || !player || player.retiredAt || movedPlayerIds.has(transfer.assetId)) throw new Error(`Player ${transfer.assetId} changed ownership during processing.`);
                 membership.ownershipHistory ||= [{ teamId: transfer.fromTeamId, action: "ROSTERED", timestamp: membership.importedAt || null, tradeId: null }];
                 membership.ownershipHistory.push({ teamId: transfer.toTeamId, action: "TRADED", timestamp: completedAt, tradeId: trade.tradeId });
                 membership.teamId = transfer.toTeamId; membership.updatedAt = completedAt;

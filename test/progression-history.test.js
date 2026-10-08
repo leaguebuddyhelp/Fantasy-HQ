@@ -1,0 +1,15 @@
+const test=require('node:test'),assert=require('node:assert/strict');
+const {fixture}=require('./helpers/free-agency');
+const {createProgressionHistoryService}=require('../src/fantasyhq/progression-history');
+test('progression history preserves teams through transfers and rollover and ranks all signed changes deterministically',t=>{
+ const f=fixture(t),players=f.repository.loadPlayers('league');players[0].progressionHistory=[{seasonId:'1',teamId:'a',teamName:'Original Team',previousOverall:80,overall:88,change:8,confirmedAt:'2026-10-08',requestId:'r'}];players[1].progressionHistory=[{seasonId:'1',teamId:'a',previousOverall:82,overall:75,change:-7,confirmedAt:'2026-10-08',requestId:'r'}];players[0].teamId='b';f.repository.savePlayers('league',players);f.repository.saveLeague('league',{currentSeasonId:'2'});
+ const service=createProgressionHistoryService({repository:f.repository}),report=service.summary('league',{seasonId:'1'});assert.equal(report.changes.length,2);assert.equal(report.risers[0].playerId,players[0].playerId);assert.equal(report.fallers[0].playerId,players[1].playerId);assert.equal(report.risers[0].teamName,'Original Team');assert.equal(report.teamRankings[0].averageChange,.5);assert.equal(service.list('league',{teamId:'b'}).length,0);assert.equal(service.list('league',{playerId:players[0].playerId}).length,1);
+});
+test('combined Discord progression announcement renders increases, decreases and recorded OVR without inventing changes',async()=>{
+ const changes=[{playerId:'p1',teamId:'t',previousOverall:80,overall:99,change:19},{playerId:'p2',teamId:'t',previousOverall:85,overall:78,change:-7}],players=[{playerId:'p1',name:'Example & One'},{playerId:'p2',name:'Example Two'}];
+ const payload=await require('../src/fantasyhq/discord-progression').progressionPayload({leagueId:'l',seasonId:'1',receipt:{requestId:'r',changes,verifiedTeamIds:['t']},players,teams:[{teamId:'t',teamName:'Boston Celtics'}]});assert.equal(payload.embeds.length,1);assert.equal(payload.files.length,1);const embed=payload.embeds[0].toJSON();assert.match(embed.fields[0].value,/80 → 99 \(\+19\)/);assert.match(embed.fields[1].value,/85 → 78 \(-7\)/);assert.ok(payload.files[0].attachment.length>1000);assert.equal(embed.footer.text,'PROGRESSION:l:1:r');
+});
+test('permanent announcement recovery prevents duplicate posts after send succeeds but saving delivery fails',async()=>{
+ const {publishPermanentPost}=require('../src/fantasyhq/discord-permanent-post'),messages=new Map();let sends=0,receipt,fail=true;const channel={id:'ch',messages:{fetch:async()=>messages},send:async body=>{sends++;const m={id:'m',createdTimestamp:Date.now(),embeds:body.embeds};messages.set('m',m);return m;}};
+ const args={key:'unique-progression',channel,marker:'marker',save:value=>{if(value.status==='DELIVERED'&&fail){fail=false;throw Error('Interrupted');}receipt=value;},payload:async()=>({embeds:[{footer:{text:'marker'}}]})};await assert.rejects(publishPermanentPost(args),/Interrupted/);await publishPermanentPost({...args,receipt});assert.equal(sends,1);assert.equal(receipt.messageId,'m');
+});

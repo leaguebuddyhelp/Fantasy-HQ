@@ -3010,3 +3010,7 @@ footer strong {
 .series-winner { color:#ffdc21; font-weight:700; }
 .postseason-matchup small { display:block; margin-bottom:.5rem; }
 @media(max-width:650px) { .postseason-rounds { grid-template-columns:1fr; overflow-x:visible; } }
+
+#news-featured .news-hero { grid-column: 1 / -1; border-top: 3px solid var(--accent, #ffdc21); }
+#news-article > article { max-width: 80ch; line-height: 1.7; }
+#news .league-player-portrait, #streams .league-player-portrait { max-width: 120px; height: 100px; object-fit: contain; }

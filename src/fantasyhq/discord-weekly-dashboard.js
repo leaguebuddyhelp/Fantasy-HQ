@@ -28,6 +28,7 @@ function staffPayload(view, counts = transactionCounts(view)) {
   if (view.storageIssues?.length || view.notificationFailures || view.upgradeDebtCount) embed.addFields({ name: '⚠ Recovery needed', value: `${view.storageIssues?.length || 0} unreadable game records · ${view.notificationFailures || 0} failed notification attempts · ${view.upgradeDebtCount || 0} upgrade balances need review. Staff can inspect the website checklist and storage backups.` });
   const controls = [];
   if (!view.closed) controls.push(new ButtonBuilder().setCustomId(`weeklystaff:review:${view.week}`).setLabel('Review week advancement').setStyle(ButtonStyle.Primary));
+  controls.push(new ButtonBuilder().setCustomId('offseason:review').setLabel('Offseason checklist').setStyle(ButtonStyle.Secondary));
   const base = websiteBase();
   if (base) controls.push(new ButtonBuilder().setURL(`${base}/#staff-weekly`).setLabel('Website checklist').setStyle(ButtonStyle.Link));
   return { embeds: [embed], components: controls.length ? [new ActionRowBuilder().addComponents(...controls)] : [], allowedMentions: { parse: [] } };

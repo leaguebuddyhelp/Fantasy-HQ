@@ -25,9 +25,20 @@ function nbaPlayerCard(player, context) {
   if (player.tradeValueReason) embed.addFields({ name: 'Contract value impact', value: player.tradeValueReason.slice(0, 1024) });
 
   const files = [];
+  if (player.portraitPath) {
+    const candidate = path.resolve(player.portraitPath);
+    const roots = ['../../data/2kratings/images', '../../draft_class/images'].map(root => path.resolve(__dirname, root) + path.sep);
+    if (roots.some(root => candidate.startsWith(root)) && fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
+      const real = fs.realpathSync(candidate);
+      if (roots.some(root => real.startsWith(root))) {
+        const name = `player-portrait${path.extname(real)}`;
+        files.push(new AttachmentBuilder(real, { name })); embed.setThumbnail(`attachment://${name}`);
+      }
+    }
+  }
   let slug;
   try { slug = new URL(player.profileUrl).pathname.split("/").filter(Boolean).pop(); } catch { }
-  if (slug && /^[a-z0-9-]+$/.test(slug)) {
+  if (!files.length && slug && /^[a-z0-9-]+$/.test(slug)) {
     const root = path.resolve(__dirname, "../../data/2kratings/images");
     const local = ["png", "webp", "jpg", "jpeg"].map((extension) => path.join(root, `${slug}.${extension}`))
       .find((file) => fs.existsSync(file));

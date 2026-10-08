@@ -9,12 +9,12 @@ const CATEGORIES = [
     ['🥅 FG%', 'FGPercent', 'FGA'], ['🔥 3PT%', 'threePPercent', '3PA'], ['🎟️ FT%', 'FTPercent', 'FTA'],
 ];
 const pending = new Map();
-function statsPayload(players, context) {
+function statsPayload(players, context, scope = 'REGULAR_SEASON') {
     const embed = new EmbedBuilder().setColor(0xffdc21).setTitle('📊 SEASON STAT LEADERS')
-        .setDescription('Top 5 players in each category · Published after week advancement\nShooting percentages use total makes / attempts; at least one attempt required.')
+        .setDescription(`Top 5 players in each category · Published after week advancement\nShooting percentages use total makes / attempts. ${scope === 'REGULAR_SEASON' ? `Minimum ${Number(context.league.currentWeek || 0) * 10} attempts per category` : 'Minimum 8 attempts per player game in this scope'}.`)
         .setFooter({ text: `Season ${context.league.seasonNumber || context.seasonId} · Week ${context.league.currentWeek || 0} · Updates when the week advances` });
     for (const [label, key, attempts] of CATEGORIES) {
-        const leaders = players.filter(p => p.GP > 0 && p[key] != null && Number.isFinite(Number(p[key])) && (!attempts || p[attempts] > 0))
+        const leaders = players.filter(p => p.GP > 0 && p[key] != null && Number.isFinite(Number(p[key])) && (!attempts || (p.percentageQualification?.[key]?.eligible ?? require('./stat-qualification').qualifiesForPercentage(p, key, { scope, currentWeek: context.league.currentWeek }))))
             .sort((a, b) => b[key] - a[key] || (attempts ? b[attempts] - a[attempts] : b.GP - a.GP) || a.name.localeCompare(b.name) || String(a.playerId).localeCompare(String(b.playerId))).slice(0, 5);
         embed.addFields({ name: label, inline: true, value: leaders.map((p, i) => `**${i + 1}. ${String(p.name).slice(0, 45)}** · ${Number(p[key]).toFixed(1)}${attempts ? '%' : ''}\n${p.teamName ? teamLabel(p.teamName) : 'Free Agent'}`).join('\n') || 'No official stats yet.' });
     }
@@ -44,9 +44,25 @@ function createDiscordLeagueFeeds({ repository = require('./repository').createF
         if (fresh.discordPins?.[pinKey] !== message.id || fresh.discordPins?.[signatureKey] !== signature) repository.saveSettings(leagueId, { ...fresh, discordPins: { ...fresh.discordPins, [pinKey]: message.id, [signatureKey]: signature } });
         return message;
     }
+    function ensureAvailableTeams(guild, leagueId) {
+        const key = `available:${repository.dataRoot}:${guild.id}`;
+        if (pending.has(key)) return pending.get(key);
+        const task = (async () => {
+            let message, signature;
+            do {
+                const context = repository.loadLeague(leagueId), owners = repository.loadOwners(leagueId);
+                signature = JSON.stringify(owners);
+                message = await upsert(guild, leagueId, 'availableTeams', require('./discord-available-teams').availableTeamsPayload(context, owners));
+            } while (signature !== JSON.stringify(repository.loadOwners(leagueId)));
+            return message;
+        })().finally(() => pending.delete(key));
+        pending.set(key, task);
+        return task;
+    }
     async function run(guild, leagueId) {
         const context = repository.loadLeague(leagueId);
         const results = await Promise.allSettled([
+            ensureAvailableTeams(guild, leagueId),
             upsert(guild, leagueId, 'standings', standingsPayload(standingsService.getStandings(leagueId, context.seasonId))),
             upsert(guild, leagueId, 'stats', statsPayload(statsService.getSeasonPlayerStats(leagueId, context.seasonId), context)),
         ]);
@@ -73,6 +89,6 @@ function createDiscordLeagueFeeds({ repository = require('./repository').createF
         }
     }
     function tick(client) { if (!running) running = refresh(client).finally(() => { running = null; }); return running; }
-    return { ensurePins, tick };
+    return { ensurePins, ensureAvailableTeams, tick };
 }
 module.exports = { CATEGORIES, statsPayload, createDiscordLeagueFeeds };

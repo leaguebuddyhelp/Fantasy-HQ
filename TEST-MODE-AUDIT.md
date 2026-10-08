@@ -62,3 +62,13 @@ A temporary copy of the actual local 2k-test league completed three weeks: 42 si
 7. Use More Options to save and restore a checkpoint. Only tracked test output should be removed.
 
 Live Discord clicks and delivery require a server smoke test; automated tests do not establish that those clicks occurred.
+
+## October 8 continuation: full offseason and feature coverage
+
+The existing engine now offers **Offseason + next season** and **Complete season + offseason** in its duration menu. It uses the production stage services with conspicuous synthetic TEST MODE evidence, stage checkpoints, pause/resume and current-season restoration. Missing fixture contracts get simulation-only assumptions; real terms and protected-player rules remain enforced.
+
+The regular-season simulation also exercises News, stream previews and first-link market locks, private Sportsbook wagers and settlement. The automated suite covers props, specials, own-team bans, pushes, voids, corrected results and career-wallet preservation. Completed simulations preserve historical News, recompute Team Needs/rankings, and can start the next season.
+
+Fixed current-schedule fallback incorrectly blocking rollover, incompatible new week-one status, stale simulation season IDs, duplicate offseason Discord delivery keys and negative record-change summaries after rollover. Runtime reads no longer reload every league store on each game update; complete workspace validation remains at load/checkpoint/restore boundaries.
+
+Final combined check: **609 tests passed, zero failures**; final targeted controls/lifecycle checks: **7 passed**. The current additions are not deployed. See [the implementation checklist](COMPLETE-IMPLEMENTATION-CHECKLIST.md) for the practice walkthrough and remaining release checks.

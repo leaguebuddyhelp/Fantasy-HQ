@@ -48,7 +48,8 @@ function createWeekAdvancementService({ submissions = require('./game-submission
     else { league.regularSeasonStatus = 'COMPLETED'; league.regularSeasonCompletedAt = timestamp; }
     const result = { previousWeek: view.week, currentWeek: next?.week || 15, seasonComplete: !next, deadlineAt: next?.deadlineAt || null, games: next?.games.length || 0, forced: c.force, unresolved: view.unresolved };
     require('./storage-safety').createStorageBackup(repository.dataRoot, { label: `before-week-${view.week}-advance` });
-    repository.commitWeekTransition({ leagueId, expectedWeek: view.week, schedule, league, auditEntry: { action: 'week.advanced', userId: actor.id, commissionerUserId: actor.commissionerUserId || null, operator: actor.operator || actor.id, timestamp, week: view.week, force: c.force, unresolved: view.unresolved, requestId: token, result } });
+    const weeklyAward = require('./player-of-week').createPlayerOfWeekService({ repository, submissions, now }).prepareWeek(leagueId, view.seasonId, view.week, schedule);
+    repository.commitWeekTransition({ leagueId, expectedWeek: view.week, schedule, league, awards: weeklyAward?.awards || null, auditEntry: { action: 'week.advanced', userId: actor.id, commissionerUserId: actor.commissionerUserId || null, operator: actor.operator || actor.id, timestamp, week: view.week, force: c.force, unresolved: view.unresolved, requestId: token, result } });
     if (next) { try { result.threads = await threads.create(guild); result.deadlineAt = result.threads.deadlineAt || null; } catch (error) { result.threadError = error.message; } }
     if (onAdvanced) {
       try { await onAdvanced({ guild, leagueId, seasonId: view.seasonId, result }); }

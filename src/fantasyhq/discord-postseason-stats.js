@@ -3,8 +3,8 @@ const {statsPayload}=require('./discord-league-feeds');
 function payload(repository,leagueId,scope='PLAYOFFS') {
   const context=repository.loadLeague(leagueId);
   const players=require('./player-stats-service').createPlayerStatsService({repository,scope}).getSeasonPlayerStats(leagueId,context.seasonId);
-  const result=statsPayload(players,context);
-  result.embeds[0].setTitle(scope==='PLAY_IN'?'📊 PLAY-IN STAT LEADERS':'📊 PLAYOFF STAT LEADERS').setDescription('Top 5 per category · Official approved games only · Play-In and Playoff statistics are separate.').setFooter({text:`Season ${context.league.seasonNumber} · ${scope.replaceAll('_',' ')}`});
+  const result=statsPayload(players,context,scope);
+  result.embeds[0].setTitle(scope==='PLAY_IN'?'📊 PLAY-IN STAT LEADERS':'📊 PLAYOFF STAT LEADERS').setDescription('Top 5 per category · Official approved games only · Play-In and Playoff statistics are separate. Shooting leaders require 8 attempts per player game in this scope.').setFooter({text:`Season ${context.league.seasonNumber} · ${scope.replaceAll('_',' ')}`});
   result.components=[new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('poststats:PLAY_IN').setLabel('Play-In Stats').setStyle(ButtonStyle.Secondary),new ButtonBuilder().setCustomId('poststats:PLAYOFFS').setLabel('Playoff Stats').setStyle(ButtonStyle.Primary))];return result;
 }
 function createDiscordPostseasonStats({repository}) {

@@ -43,6 +43,8 @@ function gamePayload(game, activity) {
   const label = game.seriesId ? `${game.stage.replaceAll('_',' ')} · GAME ${game.seriesGameNumber}` : `WEEK ${game.weekNumber}`;
   const approved = game.status === "FINAL" && !!game.finalizedAt && !!game.result?.scores;
   const dateRow = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`gamedate:${game.gameId}`).setLabel(game.inGameDate ? "Edit game date" : "Set game date").setStyle(ButtonStyle.Primary).setDisabled(game.status === 'FINAL'));
+  const streamRow = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`gamestream:${game.gameId}`).setLabel(game.streamlink?.url ? "Update Streamlink" : "Streamlink").setEmoji('📺').setStyle(ButtonStyle.Primary));
+  dateRow.addComponents(...streamRow.components);
   const forfeit = (teamId, name) => {
     const b = new ButtonBuilder().setCustomId(`gamedecision:forfeit:${game.gameId}:${teamId}`).setLabel(`Forfeit → ${name}`.slice(0, 80)).setStyle(ButtonStyle.Secondary).setDisabled(game.status === 'FINAL');
     const emoji = require('../shared/team-emojis').teamEmoji(name).match(/^<(a?):([^:]+):(\d+)>$/);
@@ -52,6 +54,7 @@ function gamePayload(game, activity) {
     content: [...new Set([...(game.teamRoleIds || []), ...(game.staffRoleIds || [])])].map(id => `<@&${id}>`).join(" "), embeds: [new EmbedBuilder().setColor(approved ? 0x35a76f : 0xffdc21)
       .setTitle(approved ? `✅ GAME APPROVED · ${label}` : `${label} MATCHUP`)
       .addFields({ name: "NBA 2K GAME DATE", value: game.inGameDate ? `**${require("./game-date").formatGameDate(game.inGameDate)}**` : "**Not set — click Set game date to unlock the game buttons.**" })
+      .addFields({ name: "📺 STREAMING", value: `**The home team is required to stream.** Use the Streamlink button to post your link.${game.streamlink?.url ? `\n[Watch stream](<${game.streamlink.url}>)` : ''}` })
       .setDescription(`**${teamLabel(game.team1Name)}**\nvs\n**${teamLabel(game.team2Name)}**\n\n${(game.coachUserIds || []).map(id => `<@${id}>`).join(' · ')}${game.deadlineAt ? `\n\n${label} Deadline: <t:${Math.floor(Date.parse(game.deadlineAt) / 1000)}:F>\nTime Remaining: <t:${Math.floor(Date.parse(game.deadlineAt) / 1000)}:R>` : ''}\n\nUse this thread to schedule your game. Coaches submit their own box score; Staff tools contains submission and recovery controls. Fair Sim requires both coaches or staff approval. Forfeit buttons name the team receiving the win. Staff-approved forfeits record wins and losses without player statistics.\n\n${game.matchupType ? 'Matchup: ' + game.matchupType.replaceAll('_', ' ') + '\n' : ''}${game.matchupDecision ? 'Decision: ' + game.matchupDecision.type.replaceAll('_', ' ') + (game.matchupDecision.confirmed ? ' confirmed' : ' pending') + '\n' : ''}Status: **${approved ? "✅ APPROVED — OFFICIAL FINAL" : activity?.status || (game.status === 'FINAL' ? 'FINAL' : 'NOT PLAYED')}**${activity ? '\n\n' + require('./game-activity').activityLines(activity) : ''}`)],
     components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`gamesubmit:${game.gameId}`)
       .setLabel("Submit Score").setStyle(ButtonStyle.Primary).setDisabled(game.status === "FINAL"),
