@@ -30,7 +30,7 @@ function createGameActivityService({submissions=require('./game-submissions').cr
  }
  async function refresh(channel,record,force=false){
   if(!record.game.discordMessageId)return;
-  const view=activityView(record,now()),signature=JSON.stringify(["approved-game-v5",record.game.staffRoleIds,record.game.testMode,record.game.matchupType,record.game.inGameDate,view.status,view.submissionStatus,view.screenshots,view.pastDeadline,view.teams.map(t=>t.participated)]);
+  const view=activityView(record,now()),signature=JSON.stringify(["approved-game-v7",record.game.staffRoleIds,record.game.testMode,record.game.matchupType,record.game.inGameDate,view.status,view.submissionStatus,view.screenshots,view.pastDeadline,view.teams.map(t=>t.participated)]);
   const card=record.game.activityCard;
   if(!force&&card?.signature===signature)return;
   try{
@@ -45,6 +45,7 @@ function createGameActivityService({submissions=require('./game-submissions').cr
   if(changed){const r=submissions.findThread(message.guildId,message.channelId);await refresh(message.channel,r,now()-Date.parse(r.game.activityCard?.updatedAt || 0)>15*60*1000);}
  }
  async function button(interaction){
+  if(interaction.customId.startsWith("gametools:"))return;
   const gameId=interaction.customId.split(':')[1],record=submissions.findThread(interaction.guildId,interaction.channelId);
   if(record?.game.gameId!==gameId)return;
   await recordActivity({guildId:interaction.guildId,threadId:interaction.channelId,userId:interaction.user.id,bot:interaction.user.bot,privateThread:interaction.channel?.type===ChannelType.PrivateThread,eventId:interaction.id});
@@ -65,7 +66,9 @@ function createGameActivityService({submissions=require('./game-submissions').cr
     if (channel?.type === ChannelType.PrivateThread) { await approvals.publish(channel, game.gameId); await refresh(channel, submissions.load(game.gameId)); }
     continue;
    }
-   const schedule=submissions.repository.loadSchedule(game.leagueId,game.seasonId),week=schedule.weeks.find(w=>w.weekId===game.weekId);
+   if (game.previousApprovalNotice && saved.resultRevisions?.at(-1)?.action === 'REVERSED') { const channel=await guild.channels.fetch(game.discordThreadId); if(channel?.type===ChannelType.PrivateThread){await approvals.publish(channel,game.gameId);await refresh(channel,submissions.load(game.gameId));} }
+   const postseason = game.seriesId && submissions.repository.loadPlayoffs(game.leagueId);
+   const schedule = game.seriesId ? null : submissions.repository.loadSchedule(game.leagueId,game.seasonId), week = game.seriesId ? {...postseason?.rounds?.find(r => r.stage === game.stage),status:postseason?.stage === game.stage && !postseason?.conflicts?.length ? 'ACTIVE' : 'COMPLETED'} : schedule.weeks.find(w=>w.weekId===game.weekId);
    if(week?.status!=='ACTIVE'){ if(staffChanged){const channel=await guild.channels.fetch(game.discordThreadId);if(channel?.type===ChannelType.PrivateThread)await refresh(channel,submissions.load(game.gameId));} continue; }
    const deadline=Date.parse(week.deadlineAt);if(!Number.isFinite(deadline))continue;
    if(game.deadlineAt!==week.deadlineAt || game.startedAt!==week.startedAt)await submissions.mutate(game.gameId,r=>{r.game.startedAt=week.startedAt;r.game.deadlineAt=week.deadlineAt;});
@@ -81,7 +84,7 @@ function createGameActivityService({submissions=require('./game-submissions').cr
    if(!stage || (stage!=='deadline'&&view.submitted) || (stage==='24h'&&view.teams.every(t=>t.participated)))continue;
    const claimed=await submissions.mutate(game.gameId,r=>{
     const current=activityView(r,now());if(current.complete||(stage!=='deadline'&&current.submitted))return false;
-    r.game.activityReminders ||= {};if(r.game.activityReminders[stage])return false;
+    r.game.activityReminders ||= {};const prior=r.game.activityReminders[stage];if(prior?.sentAt || prior && now()-Date.parse(prior.claimedAt)<600000)return false;
     r.game.activityReminders[stage]={claimedAt:new Date(now()).toISOString()};return true;
    });if(!claimed)continue;
    try{
@@ -89,7 +92,7 @@ function createGameActivityService({submissions=require('./game-submissions').cr
     const owners=submissions.repository.loadOwners(game.leagueId);
     const ids=stage==='deadline'?[]:current.teams.filter(t=>stage==='6h'||!t.participated).map(t=>owners.find(o=>o.teamId===t.teamId)?.userId).filter(Boolean);
     const embed=new EmbedBuilder().setColor(0xffdc21).setTitle(stage==='deadline'?'DEADLINE REACHED':stage==='6h'?'6 HOURS REMAINING':'GAME REMINDER')
-     .setDescription(`**Week ${game.weekNumber} · ${game.team1Name} vs ${game.team2Name}**\n\n${activityLines(current)}\n\nStatus: ${current.status}\nDeadline: <t:${Math.floor(deadline/1000)}:F> (<t:${Math.floor(deadline/1000)}:R>)\n\n${stage==='deadline'?'Commissioner review required.':ids.map(id=>`<@${id}>`).join(' ')+' Please coordinate your game.'}`);
+     .setDescription(`**${game.seriesId ? game.stage.replaceAll('_',' ') + ' · Game ' + game.seriesGameNumber : 'Week ' + game.weekNumber} · ${game.team1Name} vs ${game.team2Name}**\n\n${activityLines(current)}\n\nStatus: ${current.status}\nDeadline: <t:${Math.floor(deadline/1000)}:F> (<t:${Math.floor(deadline/1000)}:R>)\n\n${stage==='deadline'?'Commissioner review required.':ids.map(id=>`<@${id}>`).join(' ')+' Please coordinate your game.'}`);
     if(channel.archived)await channel.setArchived(false);
     await channel.send({embeds:[embed],allowedMentions:{parse:[],users:ids}});
     await submissions.mutate(game.gameId,r=>{r.game.activityReminders[stage].sentAt=new Date(now()).toISOString();});

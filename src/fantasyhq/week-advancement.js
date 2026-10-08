@@ -1,5 +1,4 @@
 const { randomUUID } = require('crypto');
-const { officialRegularGame } = require('./official-game');
 const confirmations = new Map(), jobs = new Map();
 function createWeekAdvancementService({ submissions = require('./game-submissions').createGameSubmissionService(), threads, now = () => Date.now(), onAdvanced = null } = {}) {
   const repository = submissions.repository;
@@ -12,15 +11,7 @@ function createWeekAdvancementService({ submissions = require('./game-submission
     if ((seasonComplete ? active.length !== 0 : active.length !== 1) || !week || week.week !== league.currentWeek || schedule.weeks.length !== 15 || new Set(schedule.weeks.map(w => w.week)).size !== 15 || schedule.weeks.some(w => !Number.isInteger(w.week) || w.week < 1 || w.week > 15)) throw Error('Invalid regular-season week state.');
     if (week.games.length !== 14 || week.byes.length !== 2) throw Error('Expected 14 scheduled games and two bye teams.');
     if (schedule.weeks.some(w => w.status !== (seasonComplete || w.week < week.week ? 'COMPLETED' : w.week === week.week ? 'ACTIVE' : 'UPCOMING'))) throw Error('Week states are inconsistent.');
-    const records = submissions.records();
-    const games = week.games.map(match => {
-      const found = records.filter(r => r.game.leagueId === league.leagueId && r.game.seasonId === context.seasonId && r.game.weekId === week.weekId && r.game.team1Id === match.team1Id && r.game.team2Id === match.team2Id), r = found.length === 1 ? found[0] : null;
-      const latest = r?.submissions.at(-1);
-      return {
-        team1Id: match.team1Id, team2Id: match.team2Id, team1Name: context.teams.find(t => t.teamId === match.team1Id)?.teamName, team2Name: context.teams.find(t => t.teamId === match.team2Id)?.teamName, gameId: r?.game.gameId || null, final: !!r && officialRegularGame(r, { leagueId: league.leagueId, seasonId: context.seasonId, schedule }), activity: r ? require('./game-activity').activityView(r) : null,
-        threadUrl: r?.game.discordThreadId && !r.game.discordThreadCleanedAt ? `https://discord.com/channels/${guildId}/${r.game.discordThreadId}` : null, reviewUrl: latest ? `/games/${r.game.gameId}/submissions/${latest.submissionId}/review` : null
-      };
-    });
+    const games = require('./weekly-dashboard-service').weekGames(context, schedule, week, submissions.records(), guildId, now());
     return { seasonComplete, week: week.week, weekId: week.weekId, seasonId: context.seasonId, leagueId: league.leagueId, deadlineAt: week.deadlineAt, total: 14, final: games.filter(g => g.final).length, unresolved: games.filter(g => !g.final), games };
   }
   function prepare(guildId, actor, force = false) {
@@ -49,12 +40,14 @@ function createWeekAdvancementService({ submissions = require('./game-submission
     if (c.force && JSON.stringify(view.unresolved.map(g => [g.team1Id, g.team2Id, g.gameId])) !== JSON.stringify(c.view.unresolved.map(g => [g.team1Id, g.team2Id, g.gameId]))) throw Error('Unresolved games changed. Review and confirm again.');
     const schedule = repository.loadSchedule(leagueId, view.seasonId), current = schedule.weeks.find(w => w.week === view.week), next = schedule.weeks.find(w => w.week === view.week + 1), timestamp = new Date(now()).toISOString();
     current.status = 'COMPLETED'; current.completedAt = timestamp;
-    schedule.statsPublication = { throughWeek: view.week, publishedAt: timestamp, gameIds: require('./official-game').officialRegularGames(submissions.records(), { leagueId, seasonId: view.seasonId, schedule }).games.filter(r => r.game.weekNumber <= view.week).map(r => r.game.gameId) };
+    const publicationGames = require('./official-game').officialRegularGames(submissions.records(), { leagueId, seasonId: view.seasonId, schedule }).games.filter(r => r.game.weekNumber <= view.week);
+    schedule.statsPublication = { throughWeek: view.week, publishedAt: timestamp, gameIds: publicationGames.map(r => r.game.gameId), snapshots: require('./official-game').publicationSnapshot(publicationGames) };
     if (c.force) current.unresolvedAtCompletion = view.unresolved.map(g => ({ gameId: g.gameId, team1Id: g.team1Id, team2Id: g.team2Id }));
     const league = { ...context.league, updatedAt: timestamp };
     if (next) { next.status = 'ACTIVE'; delete next.startedAt; delete next.deadlineAt; delete next.threadsStartedAt; league.currentWeek = next.week; }
     else { league.regularSeasonStatus = 'COMPLETED'; league.regularSeasonCompletedAt = timestamp; }
     const result = { previousWeek: view.week, currentWeek: next?.week || 15, seasonComplete: !next, deadlineAt: next?.deadlineAt || null, games: next?.games.length || 0, forced: c.force, unresolved: view.unresolved };
+    require('./storage-safety').createStorageBackup(repository.dataRoot, { label: `before-week-${view.week}-advance` });
     repository.commitWeekTransition({ leagueId, expectedWeek: view.week, schedule, league, auditEntry: { action: 'week.advanced', userId: actor.id, commissionerUserId: actor.commissionerUserId || null, operator: actor.operator || actor.id, timestamp, week: view.week, force: c.force, unresolved: view.unresolved, requestId: token, result } });
     if (next) { try { result.threads = await threads.create(guild); result.deadlineAt = result.threads.deadlineAt || null; } catch (error) { result.threadError = error.message; } }
     if (onAdvanced) {
@@ -63,6 +56,6 @@ function createWeekAdvancementService({ submissions = require('./game-submission
     }
     return result;
   }
-  return { inspect, prepare, advance, cancel };
+  return { inspect, prepare, advance, cancel, submissions };
 }
 module.exports = { createWeekAdvancementService };

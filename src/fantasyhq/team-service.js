@@ -1,13 +1,14 @@
+const { contractView, teamPayroll } = require('../shared/player-contract');
 const { activeMemberships } = require("./service-helpers");
 const { createFantasyHQRepository } = require("./repository");
 const { createPlayerStatsService } = require("./player-stats-service");
-const { leagueAge, playerTradeValue } = require("./asset-valuation");
+const { leagueAge, leagueSeasonStartYear, playerTradeValue } = require("./asset-valuation");
 const { PICK_PROTECTIONS } = require("./asset-valuation");
 const { createTradeService } = require("./trade-service");
 
 function createTeamService(options = {}) {
   const repository = options.repository || createFantasyHQRepository(options);
-  const playerStatsService = options.playerStatsService || createPlayerStatsService({ repository });
+  const playerStatsService = options.playerStatsService || createPlayerStatsService({ repository, publishedOnly: options.publishedOnly === true });
   const tradeService = options.tradeService || createTradeService({ repository });
 
   function teamSchedule(schedule, teamId, teamMap) {
@@ -45,6 +46,7 @@ function createTeamService(options = {}) {
         ...membership,
         player: players.has(membership.playerId) ? {
           ...players.get(membership.playerId),
+          contractView: contractView(players.get(membership.playerId), leagueSeasonStartYear(context.seasonId)),
           age: leagueAge(players.get(membership.playerId).birthdate, context.seasonId),
           tradeValue: playerTradeValue({ ...players.get(membership.playerId), position1: membership.position1 ?? players.get(membership.playerId).position1, position2: membership.position2 ?? players.get(membership.playerId).position2 }, context.seasonId),
         } : null,
@@ -66,6 +68,7 @@ function createTeamService(options = {}) {
       ...team,
       ownerUserId: owners.get(team.teamId)?.userId || null,
       ownerDisplayName: owners.get(team.teamId)?.displayName || owners.get(team.teamId)?.username || null,
+      payroll: teamPayroll((rosterByTeam.get(team.teamId) || []).map(entry => entry.player), leagueSeasonStartYear(context.seasonId)),
       rosterSize: rosterByTeam.get(team.teamId)?.length || 0,
       roster: (rosterByTeam.get(team.teamId) || []).sort((left, right) => {
         const overallDelta = Number(right.player?.overall || 0) - Number(left.player?.overall || 0);

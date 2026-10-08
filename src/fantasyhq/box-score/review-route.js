@@ -3,7 +3,7 @@ const path = require('path');
 const {editable,createReviewService}=require('./review-service');
 const { createGameSubmissionService } = require('../game-submissions');
 function handleBoxScoreReview(request,response,url,{ authorized, submissions = createGameSubmissionService() } = {}) {
-  const match = url.pathname.match(/^\/(api\/)?games\/([a-f0-9-]{36})\/submissions\/([a-f0-9-]{36})\/(review|correct|approve|media\/([a-f0-9-]{36}))$/);
+  const match = url.pathname.match(/^\/(api\/)?games\/([a-f0-9-]{36})\/submissions\/([a-f0-9-]{36})\/(review|correct|approve|reject|reverse|media\/([a-f0-9-]{36}))$/);
   if (!match) return false;
   if (!['GET','POST'].includes(request.method)) { response.writeHead(405); response.end(); return true; }
   const [,api,gameId,submissionId,action,mediaId] = match;
@@ -13,11 +13,11 @@ function handleBoxScoreReview(request,response,url,{ authorized, submissions = c
   }
   if (!api || !authorized) { response.writeHead(403,{'Content-Type':'application/json','Cache-Control':'no-store'}); response.end(JSON.stringify({error:'Commissioner website key required.'})); return true; }
   if (request.method === 'POST') {
-    if (!['correct','approve'].includes(action)) {response.writeHead(405);response.end();return true;}
+    if (!['correct','approve','reject','reverse'].includes(action)) {response.writeHead(405);response.end();return true;}
     (async()=>{
       try {
         let body=''; for await (const chunk of request) {body+=chunk;if(Buffer.byteLength(body)>512000)throw new Error('Review is too large.');}
-        const result=await createReviewService(submissions)[action](gameId,submissionId,JSON.parse(body));
+        const result=await createReviewService(submissions)[action](gameId,submissionId,require('../../shared/website-auth').bindWebsiteOperator(request, JSON.parse(body)));
         response.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});response.end(JSON.stringify(result));
       } catch(error) {response.writeHead(400,{'Content-Type':'application/json','Cache-Control':'no-store'});response.end(JSON.stringify({error:error.message}));}
     })();return true;

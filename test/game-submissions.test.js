@@ -255,9 +255,15 @@ test('Staff Submit and cancel controls enforce staff access; both forfeit button
   const sid = f.service.load(f.game.gameId).submissions.at(-1).submissionId;
   await adapter.button({ ...i, customId: `gamecancel:${f.game.gameId}:${sid}` }); assert.match(reply, /cancelled/);
   const decisions = require('../src/fantasyhq/game-decisions').createGameDecisionService(f.service);
-  for (const winner of ['a', 'b']) { await decisions.handle({ ...i, customId: `gamedecision:forfeit:${f.game.gameId}:${winner}` }); assert.equal(f.service.load(f.game.gameId).game.matchupDecision.winnerTeamId, winner); assert.match(reply, /Decision recorded/); }
+  await decisions.handle({ ...i, customId: `gamedecision:forfeit:${f.game.gameId}:a` });
+  assert.match(reply, /Staff-approved forfeit/);
+  await decisions.handle({ ...i, customId: `gamedecision:forfeit:${f.game.gameId}:b` });
+  assert.match(reply, /final/);
+  assert.equal(f.service.load(f.game.gameId).game.result.winnerTeamId, 'a');
   await decisions.handle({ ...i, customId: `gamedecision:cpu:${f.game.gameId}` }); assert.match(reply, /Staff Submit accepts both/);
-  assert.equal(f.service.load(f.game.gameId).game.result, undefined);
+  assert.equal(f.service.load(f.game.gameId).game.result.type, 'FORFEIT');
+  assert.deepEqual(f.service.load(f.game.gameId).playerGameStats, []);
+  assert.deepEqual(f.service.load(f.game.gameId).game.result.scores, {});
 });
 
 
@@ -285,7 +291,7 @@ test('solo staff collects two genuine team sides; mode and ownership are recheck
   assert.notEqual(record.game.status, 'FINAL');
 });
 
-test('vacant online leagues do not implicitly enable test mode; only test cards show solo buttons', t => {
+test('vacant online leagues do not implicitly enable test mode; public cards keep test controls private', t => {
   const f = fixture(t);
   f.repository.saveOwners('league', [{ teamId: 'a', userId: 'gm' }]);
   f.repository.saveSettings('league', { requireAllOwners: false });
@@ -293,7 +299,8 @@ test('vacant online leagues do not implicitly enable test mode; only test cards 
   assert.equal(cpuState(f.repository, f.game).matchupType, 'HUMAN_VS_CPU');
   const ids = game => gamePayload(game).components.flatMap(r => r.components.map(c => c.data.custom_id));
   assert.equal(ids(f.game).some(id => id.startsWith('gametest:')), false);
-  assert.equal(ids({ ...f.game, testMode: true }).filter(id => id.startsWith('gametest:')).length, 2);
+  assert.equal(ids({ ...f.game, testMode: true }).filter(id => id.startsWith('gametest:')).length, 0);
+  assert.equal(ids(f.game).filter(id => id.startsWith('gametools:')).length, 1);
 });
 
 
@@ -310,4 +317,32 @@ test('Discord solo side buttons and message uploads preserve current staff check
   assert.equal(service.load(game.gameId).submissions[0].status, 'RECEIVED');
   assert.equal(service.load(game.gameId).media.length, 2);
   assert.equal(replies.at(-1).embeds[0].data.title, 'BOX SCORES RECEIVED');
+});
+
+test('Staff tools stay private and reject unauthorized, wrong-thread and finalized access', async t => {
+ const {service,game}=fixture(t);
+ const adapter=createDiscordGameSubmissions(service,{extractor:null});
+ let reply,flags;
+ const source={guildId:'guild',channelId:'thread',channel:{type:ChannelType.PrivateThread},user:{id:'gm'},customId:`gametools:${game.gameId}`,
+  memberPermissions:{has:()=>true},deferReply:async options=>{flags=options.flags;},editReply:async payload=>{reply=payload;}};
+ await adapter.button({...source,memberPermissions:{has:()=>false}});
+ assert.equal(reply.components.length,0);
+ await adapter.button({...source,channelId:'other'});
+ assert.match(reply.content,/private thread/);
+ await service.mutate(game.gameId,record=>{record.game.testMode=true;});
+ await adapter.button({...source,memberPermissions:{has:()=>false},member:{roles:{cache:{some:predicate=>predicate({name:"LEAGUEbuddy Assistant Commish"})}}}});
+ assert.equal(flags,64);
+ assert.equal(reply.components.flatMap(row=>row.components).filter(button=>button.data.custom_id.startsWith('gametest:')).length,2);
+ assert.equal(service.load(game.gameId).submissions.length,0);
+ await service.mutate(game.gameId,record=>{record.game.status='FINAL';});
+ await adapter.button(source);
+ assert.equal(reply.components.length,0);
+ assert.match(reply.content,/private thread/);
+});
+
+test('archived game controls cannot submit or extract against a reset season',async t=>{
+ const f=fixture(t);f.repository.saveLeague('league',{currentSeasonId:'1-reset-new',currentPhase:'PRESEASON'});
+ await assert.rejects(f.service.beginSide(f.game.gameId,f.actor),/archived season/);
+ assert.throws(()=>f.service.authorizeExtraction(f.game.gameId,{...f.actor,staff:true},true),/archived season/);
+ assert.equal(f.service.load(f.game.gameId).submissions.length,0);
 });

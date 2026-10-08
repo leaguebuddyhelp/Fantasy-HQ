@@ -44,18 +44,20 @@ function createRosterService(options = {}) {
 
   function movePlayer({ leagueId, seasonId, playerId, fromTeamId, toTeamId, actingUserId, operator }) {
     const memberships = repository.loadRosterMemberships(leagueId);
+    const players = repository.loadPlayers(leagueId);
     const membership = memberships.find((entry) => entry.playerId === playerId
       && entry.active !== false
       && !entry.endedAt
       && String(entry.seasonId) === String(seasonId)
       && (!fromTeamId || entry.teamId === fromTeamId));
     if (!membership) throw new Error("Active roster membership not found for that player.");
+    if (!repository.loadLeague(leagueId, seasonId).teams.some(t => t.teamId === toTeamId)) throw Error('Choose a valid league team.');
+    const lock = require('./transaction-locks').playerTransactionLock(repository, leagueId, String(seasonId), playerId); if (lock) throw Error(lock);
     const previousTeamId = membership.teamId;
     membership.teamId = toTeamId;
     membership.updatedAt = new Date().toISOString();
-    repository.saveRosterMemberships(leagueId, memberships);
-    if (previousTeamId !== toTeamId) notifyRosterMovement({ leagueId, seasonId: String(seasonId), playerIds: [playerId], reason: "PLAYER_NO_LONGER_ON_ROSTER" });
-    repository.appendAuditLog(leagueId, {
+    const player = players.find(p => p.playerId === playerId); if (player) player.teamId = toTeamId;
+    repository.commitRosterTransaction({ leagueId, players, rosterMemberships: memberships, auditEntry: {
       action: "roster.player.moved",
       userId: String(actingUserId || "system"),
       ...(operator ? { operator: String(operator) } : {}),
@@ -66,25 +68,27 @@ function createRosterService(options = {}) {
         fromTeamId: previousTeamId,
         toTeamId,
       },
-    });
+    } });
+    if (previousTeamId !== toTeamId) notifyRosterMovement({ leagueId, seasonId: String(seasonId), playerIds: [playerId], reason: "PLAYER_NO_LONGER_ON_ROSTER" });
     return membership;
   }
 
   function removePlayer({ leagueId, seasonId, playerId, teamId, actingUserId, operator }) {
     const memberships = repository.loadRosterMemberships(leagueId);
+    const players = repository.loadPlayers(leagueId);
     const membership = memberships.find((entry) => entry.playerId === playerId
       && entry.active !== false
       && !entry.endedAt
       && String(entry.seasonId) === String(seasonId)
       && (!teamId || entry.teamId === teamId));
     if (!membership) throw new Error("Active roster membership not found for that player.");
+    const lock = require('./transaction-locks').playerTransactionLock(repository, leagueId, String(seasonId), playerId); if (lock) throw Error(lock);
     membership.active = false;
     membership.endedAt = new Date().toISOString();
     membership.endedReason = "ADMIN_REMOVAL";
     membership.updatedAt = membership.endedAt;
-    repository.saveRosterMemberships(leagueId, memberships);
-    notifyRosterMovement({ leagueId, seasonId: String(seasonId), playerIds: [playerId], reason: "PLAYER_NO_LONGER_ON_ROSTER" });
-    repository.appendAuditLog(leagueId, {
+    const player = players.find(p => p.playerId === playerId); if (player) { player.teamId = null; delete player.contract; }
+    repository.commitRosterTransaction({ leagueId, players, rosterMemberships: memberships, auditEntry: {
       action: "roster.player.removed",
       userId: String(actingUserId || "system"),
       ...(operator ? { operator: String(operator) } : {}),
@@ -94,7 +98,8 @@ function createRosterService(options = {}) {
         playerId,
         teamId: membership.teamId,
       },
-    });
+    } });
+    notifyRosterMovement({ leagueId, seasonId: String(seasonId), playerIds: [playerId], reason: "PLAYER_NO_LONGER_ON_ROSTER" });
     return membership;
   }
 
@@ -104,13 +109,15 @@ function createRosterService(options = {}) {
     const playerMap = new Map(players.map((player) => [player.playerId, player]));
     const auditChanges = [];
 
-    for (const update of updates || []) {
+    for (const raw of updates || []) {
+      const update = { playerId: raw.playerId, ...require('./player-service').validatePlayerPatch(raw) };
       const membership = memberships.find((entry) => entry.playerId === update.playerId
         && entry.active !== false
         && !entry.endedAt
         && entry.teamId === teamId
         && String(entry.seasonId) === String(seasonId));
       if (!membership) continue;
+      if ('position1' in update || 'position2' in update || 'overall' in update) { const lock = require('./transaction-locks').playerTransactionLock(repository,leagueId,String(seasonId),update.playerId); if (lock) throw Error(lock); }
       const before = {
         jerseyNumber: membership.jerseyNumber,
         position1: membership.position1,
@@ -141,16 +148,14 @@ function createRosterService(options = {}) {
       }
     }
 
-    repository.saveRosterMemberships(leagueId, memberships);
-    repository.savePlayers(leagueId, [...playerMap.values()]);
-    repository.appendAuditLog(leagueId, {
+    repository.commitRosterTransaction({ leagueId, players: [...playerMap.values()], rosterMemberships: memberships, auditEntry: {
       action: "roster.bulk-updated",
       userId: String(actingUserId || "system"),
       ...(operator ? { operator: String(operator) } : {}),
       leagueId,
       timestamp: new Date().toISOString(),
       metadata: { teamId, updates: auditChanges },
-    });
+    } });
     return auditChanges;
   }
 
@@ -249,49 +254,28 @@ function createRosterService(options = {}) {
       throw new Error("Cannot apply roster import while unresolved player identity matches remain.");
     }
 
+    const players = repository.loadPlayers(leagueId), memberships = repository.loadRosterMemberships(leagueId);
     for (const change of preview.changes) {
-      const players = repository.loadPlayers(leagueId);
-      const memberships = repository.loadRosterMemberships(leagueId);
-      const player = players.find((entry) => entry.playerId === change.playerId);
-      const membership = memberships.find((entry) => entry.playerId === change.playerId
-        && entry.active !== false
-        && !entry.endedAt
-        && String(entry.seasonId) === String(seasonId));
-      if (!player || !membership) continue;
-      for (const item of change.changes) {
-        if (["teamId", "jerseyNumber", "position1", "position2"].includes(item.field)) membership[item.field] = item.after;
-        else player[item.field] = item.after;
-      }
-      player.updatedAt = new Date().toISOString();
-      membership.updatedAt = player.updatedAt;
-      repository.savePlayers(leagueId, players);
-      repository.saveRosterMemberships(leagueId, memberships);
+      const player = players.find(p => p.playerId === change.playerId), membership = activeMemberships(memberships, seasonId).find(m => m.playerId === change.playerId);
+      if (!player || !membership) throw Error('Import roster changed; preview again.');
+      for (const item of change.changes) { if (['teamId', 'jerseyNumber', 'position1', 'position2'].includes(item.field)) membership[item.field] = item.after; player[item.field] = item.after; }
+      player.updatedAt = membership.updatedAt = new Date().toISOString();
     }
-
-    for (const removedPlayer of preview.removed) {
-      removePlayer({
-        leagueId,
-        seasonId,
-        playerId: removedPlayer.playerId,
-        teamId,
-        actingUserId,
-        operator,
-      });
+    for (const removed of preview.removed) {
+      const lock = require('./transaction-locks').playerTransactionLock(repository, leagueId, String(seasonId), removed.playerId); if (lock) throw Error(lock);
+      const membership = activeMemberships(memberships, seasonId).find(m => m.playerId === removed.playerId && m.teamId === teamId);
+      if (!membership) throw Error('Import roster changed; preview again.');
+      membership.active = false; membership.endedAt = new Date().toISOString(); membership.endedReason = 'IMPORT_REMOVAL';
+      const player = players.find(p => p.playerId === removed.playerId); player.teamId = null;
     }
-
-    repository.appendAuditLog(leagueId, {
-      action: "roster.import.applied",
-      userId: String(actingUserId || "system"),
-      ...(operator ? { operator: String(operator) } : {}),
-      leagueId,
-      timestamp: new Date().toISOString(),
-      metadata: {
-        teamId,
-        added: preview.added.length,
-        removed: preview.removed.length,
-        changed: preview.changes.length,
-      },
-    });
+    for (const imported of preview.added) {
+      if (players.some(p => p.profileUrl && p.profileUrl === imported.profileUrl || normalizeText(p.name) === normalizeText(imported.name))) throw Error('Imported player already exists in the league; resolve their ownership before importing.');
+      const playerId = `ply_${randomUUID().replaceAll('-', '').slice(0, 12)}`, stamp = new Date().toISOString();
+      players.push({ ...imported, playerId, leagueId, teamId, createdAt: stamp, updatedAt: stamp });
+      memberships.push({ playerId, leagueId, seasonId: String(seasonId), teamId, active: true, position1: imported.position1, position2: imported.position2, importedAt: stamp, source: 'roster-import' });
+    }
+    repository.commitRosterTransaction({ leagueId, players, rosterMemberships: memberships, auditEntry: { action: 'roster.import.applied', userId: String(actingUserId || 'system'), operator, leagueId, timestamp: new Date().toISOString(), metadata: { teamId, added: preview.added.length, removed: preview.removed.length, changed: preview.changes.length } } });
+    notifyRosterMovement({ leagueId, seasonId: String(seasonId), playerIds: preview.removed.map(p => p.playerId), reason: 'PLAYER_NO_LONGER_ON_ROSTER' });
     return preview;
   }
 

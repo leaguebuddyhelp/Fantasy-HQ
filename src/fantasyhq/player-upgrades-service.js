@@ -65,6 +65,34 @@ function createPlayerUpgradeService(options = {}) {
     const now = options.now || (() => Date.now());
     let onUpgradeAvailable = options.onUpgradeAvailable || (() => { });
 
+    const deliveryJobs = new Map();
+    function queueNotification(notice) {
+        const state = loadState(notice.leagueId); state.notificationOutbox ||= [];
+        const id = [notice.kind,notice.seasonId,notice.teamId,notice.coachUserId,notice.kind === 'GAME_EARNED' ? Math.floor(notice.qualifyingGames / 4) : 'new'].join(':');
+        if (!state.notificationOutbox.some(n => n.id === id)) { state.notificationOutbox.push({ id, notice, attempts: 0, status: 'PENDING' }); saveState(notice.leagueId, state); }
+        flushNotifications(notice.leagueId).catch(error => console.error('Upgrade notification recovery:', error.message));
+    }
+    function flushNotifications(leagueId) {
+        const state = loadState(leagueId), jobs = [];
+        for (const row of state.notificationOutbox || []) {
+            if (row.status === 'DELIVERED' || row.status === 'CANCELLED' || row.nextAttemptAt > now()) continue;
+            if (!repository.loadOwners(leagueId).some(o => o.teamId === row.notice.teamId && String(o.userId) === row.notice.coachUserId)) { row.status = 'CANCELLED'; saveState(leagueId, state); continue; }
+            const deliveryKey = `${leagueId}:${row.id}`;
+            if (deliveryJobs.has(deliveryKey)) { jobs.push(deliveryJobs.get(deliveryKey)); continue; }
+            // Persist intent before sending; failed delivery never counts as a receipt.
+            row.attempts++; row.lastAttemptAt = now(); row.nextAttemptAt = now() + Math.min(3600000, 15000 * 2 ** Math.min(row.attempts - 1, 8)); saveState(leagueId, state);
+            let delivery; try { delivery = onUpgradeAvailable(row.notice); } catch (error) { delivery = Promise.reject(error); }
+            const job = Promise.resolve(delivery).then(() => {
+                const fresh = loadState(leagueId), saved = fresh.notificationOutbox.find(n => n.id === row.id);
+                saved.status = 'DELIVERED'; saved.deliveredAt = now(); delete saved.lastError; saveState(leagueId, fresh);
+            }, error => {
+                const fresh = loadState(leagueId), saved = fresh.notificationOutbox.find(n => n.id === row.id);
+                saved.status = 'FAILED'; saved.lastError = error.message; saveState(leagueId, fresh);
+            }).finally(() => deliveryJobs.delete(deliveryKey));
+            deliveryJobs.set(deliveryKey, job); jobs.push(job);
+        }
+        return Promise.all(jobs);
+    }
     function exclusive(leagueId, action) {
         const key = `${repository.dataRoot}:${leagueId}`;
         if (serviceLocks.has(key)) throw new Error("An upgrade action is already processing. Try again shortly.");
@@ -190,8 +218,7 @@ function createPlayerUpgradeService(options = {}) {
             }
             saveState(leagueId, state);
             for (const notification of notifications) {
-                try { Promise.resolve(onUpgradeAvailable(notification)).catch(error => console.error("Player upgrade DM failed:", error.message)); }
-                catch (error) { console.error("Player upgrade DM failed:", error.message); }
+                queueNotification(notification);
             }
             return state;
         });
@@ -241,8 +268,7 @@ function createPlayerUpgradeService(options = {}) {
             current.phases[seasonId] = phase;
             saveState(leagueId, current);
             for (const notification of notifications) {
-                try { Promise.resolve(onUpgradeAvailable(notification)).catch(error => console.error("Player upgrade DM failed:", error.message)); }
-                catch (error) { console.error("Player upgrade DM failed:", error.message); }
+                queueNotification(notification);
             }
             return current;
         });
@@ -263,17 +289,24 @@ function createPlayerUpgradeService(options = {}) {
             if (!schedule) return { gamesCounted: 0, awards: [] };
             const state = loadState(leagueId), { officialRegularGames } = require("./official-game");
             const awards = [], records = submissions.records();
+            const validGames = new Set();
+            let changed = false;
             let gamesCounted = 0;
             const official = officialRegularGames(records, { leagueId, seasonId: String(seasonId), schedule });
             for (const record of official.games) {
                 const resultSubmission = record.submissions.find(entry => entry.submissionId === record.game.result.submissionId);
-                if (resultSubmission?.mode !== "TEAM_SIDES") continue;
+                if (resultSubmission?.mode !== "TEAM_SIDES") {
+                    if(resultSubmission?.mode!=='SIMULATION'||record.game.simulationId!==repository.loadSettings(leagueId)?.simulationId)continue;
+                    require('./simulation-guard').requireSimulationRepository(repository,leagueId,record.game.simulationId);
+                }
                 for (const teamId of [record.game.team1Id, record.game.team2Id]) {
                     const coachUserId = resultSubmission.participants?.[teamId];
                     const played = (record.playerGameStats || []).some(row => row.teamId === teamId && row.playerId && !row.dnp);
                     if (!coachUserId || !played) continue;
                     const tenure = gameTenure(state, seasonId, teamId, coachUserId, resultSubmission.createdAt);
-                    if (!tenure || tenure.qualifyingGames.includes(record.game.gameId)) continue;
+                    if (!tenure) continue;
+                    validGames.add(`${tenure.tenureId}:${record.game.gameId}`);
+                    if (tenure.qualifyingGames.includes(record.game.gameId)) continue;
                     const previousThreshold = Math.floor(tenure.qualifyingGames.length / 4);
                     tenure.qualifyingGames.push(record.game.gameId);
                     gamesCounted += 1;
@@ -285,10 +318,14 @@ function createPlayerUpgradeService(options = {}) {
                     }
                 }
             }
-            if (gamesCounted > 0) saveState(leagueId, state);
+            for (const tenure of state.tenures.filter(t => String(t.seasonId) === String(seasonId))) {
+                const filtered = tenure.qualifyingGames.filter(id => validGames.has(`${tenure.tenureId}:${id}`));
+                if (filtered.length !== tenure.qualifyingGames.length) { tenure.qualifyingGames = filtered; changed = true; }
+                tenure.upgradeDebt = Math.max(0, tenure.spentGameUpgrades - Math.floor(filtered.length / 4));
+            }
+            if (gamesCounted > 0 || changed) saveState(leagueId, state);
             for (const award of awards) {
-                try { Promise.resolve(onUpgradeAvailable(award)).catch(error => console.error("Player upgrade DM failed:", error.message)); }
-                catch (error) { console.error("Player upgrade DM failed:", error.message); }
+                queueNotification(award);
             }
             return { gamesCounted, awards };
         });
@@ -307,13 +344,15 @@ function createPlayerUpgradeService(options = {}) {
         const entitlement = state.newUserEntitlements.find(entry => entry.coachUserId === String(coachUserId) && entry.teamId === teamId && entry.status !== "EXPIRED");
         const team = teamSeason(state, seasonId, teamId);
         const qualifyingGames = tenure?.qualifyingGames.length || 0;
+        const open = phase === PHASES.REGULAR_SEASON && repository.loadLeague(leagueId).league.regularSeasonStatus !== 'COMPLETED';
         return {
             teamId, coachUserId: String(coachUserId), seasonId: String(seasonId), phase,
             qualifyingGames, gamesToNextUpgrade: qualifyingGames % 4 === 0 && qualifyingGames > 0 ? 0 : 4 - (qualifyingGames % 4),
-            gameEarnedAvailable: phase === PHASES.REGULAR_SEASON ? availableGameUpgrades(tenure) : 0,
-            newUserStatus: !entitlement ? "NOT_ELIGIBLE" : entitlement.status === "AVAILABLE" && entitlement.eligibleSeasonId === String(seasonId) && phase === PHASES.REGULAR_SEASON ? "AVAILABLE" : entitlement.status === "USED" ? "USED" : "LOCKED_UNTIL_REGULAR_SEASON",
-            special: team.specialUsed ? { status: "USED", type: team.specialType, playerId: team.specialPlayerId } : qualifyingGames >= 4 && phase === PHASES.REGULAR_SEASON ? { status: "AVAILABLE" } : { status: "LOCKED_UNTIL_FOUR_GAMES" },
-            requestsAllowed: phase === PHASES.REGULAR_SEASON,
+            upgradeDebt: tenure?.upgradeDebt || 0,
+            gameEarnedAvailable: open ? availableGameUpgrades(tenure) : 0,
+            newUserStatus: !entitlement ? "NOT_ELIGIBLE" : entitlement.status === "AVAILABLE" && entitlement.eligibleSeasonId === String(seasonId) && open ? "AVAILABLE" : entitlement.status === "USED" ? "USED" : "LOCKED_UNTIL_REGULAR_SEASON",
+            special: team.specialUsed ? { status: "USED", type: team.specialType, playerId: team.specialPlayerId } : qualifyingGames >= 4 && open ? { status: "AVAILABLE" } : { status: "LOCKED_UNTIL_FOUR_GAMES" },
+            requestsAllowed: open,
         };
     }
 
@@ -349,6 +388,8 @@ function createPlayerUpgradeService(options = {}) {
                 let reason = null;
                 if (request.seasonId !== activeLeague.seasonId) reason = "SEASON_CHANGED";
                 else if (activeLeague.league.currentPhase !== PHASES.REGULAR_SEASON) reason = "PLAYOFFS_STARTED";
+                else if (activeLeague.league.regularSeasonStatus === 'COMPLETED') reason = 'REGULAR_SEASON_COMPLETED';
+                else if (request.source === 'GAME_EARNED' && !availableGameUpgrades(state.tenures.find(t => t.tenureId === request.coachTenureId))) reason = 'GAME_CREDIT_REVERSED';
                 else if (owners.get(request.teamId) !== request.coachUserId || state.currentOwners[request.teamId] !== request.coachUserId) reason = "COACH_CHANGED";
                 else if (!memberships.some(entry => entry.playerId === request.playerId && entry.teamId === request.teamId)) {
                     reason = memberships.some(entry => entry.playerId === request.playerId) ? "PLAYER_TRADED" : "PLAYER_NO_LONGER_ON_ROSTER";
@@ -395,7 +436,7 @@ function createPlayerUpgradeService(options = {}) {
         return exclusive(leagueId, () => {
             const state = loadState(leagueId);
             const activeLeague = repository.loadLeague(leagueId);
-            if (activeLeague.seasonId !== String(seasonId) || activeLeague.league.currentPhase !== PHASES.REGULAR_SEASON || phase !== PHASES.REGULAR_SEASON) throw new Error("Player upgrades can only be requested for the active season during the regular season.");
+            if (activeLeague.seasonId !== String(seasonId) || (activeLeague.league.currentPhase !== PHASES.REGULAR_SEASON || activeLeague.league.regularSeasonStatus === 'COMPLETED') || phase !== PHASES.REGULAR_SEASON) throw new Error("Player upgrades can only be requested for the active season during the regular season.");
             if (state.currentOwners[teamId] !== String(coachUserId)) throw new Error("You no longer control this team's Coach role.");
             const team = teamSeason(state, seasonId, teamId);
             if (team.activeRequestId) throw new Error("Your team already has an active upgrade request.");
@@ -460,7 +501,7 @@ function createPlayerUpgradeService(options = {}) {
             const state = loadState(leagueId), request = state.requests.find(entry => entry.requestId === requestId);
             if (!request || request.status !== "PENDING_STAFF") throw new Error("This upgrade request is no longer pending.");
             const activeLeague = repository.loadLeague(leagueId);
-            if (activeLeague.seasonId !== request.seasonId || activeLeague.league.currentPhase !== PHASES.REGULAR_SEASON || phase !== PHASES.REGULAR_SEASON) {
+            if (activeLeague.seasonId !== request.seasonId || (activeLeague.league.currentPhase !== PHASES.REGULAR_SEASON || activeLeague.league.regularSeasonStatus === 'COMPLETED') || phase !== PHASES.REGULAR_SEASON) {
                 expireRequest(state, request, activeLeague.seasonId !== request.seasonId ? "SEASON_CHANGED" : "PLAYOFFS_STARTED");
                 saveState(leagueId, state);
                 throw new Error("Player upgrades cannot be completed outside the active regular season.");
@@ -524,6 +565,7 @@ function createPlayerUpgradeService(options = {}) {
     }
 
     return {
+        flushNotifications,
         completeRequest,
         createRequest,
         expireRequestById,

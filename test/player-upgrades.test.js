@@ -407,3 +407,12 @@ test("pending requests expire on playoffs or player movement without consuming b
     assert.equal(state.requests.find(entry => entry.requestId === request.requestId).expirationReason, "PLAYOFFS_STARTED");
     assert.equal(state.tenures.find(tenure => tenure.teamId === "bos" && tenure.seasonId === "2026").spentGameUpgrades, 0);
 });
+
+test('reversal removes earned progress and completed upgrades create a visible credit debt', t => {
+ const f=fixture(t); for(let n=1;n<=4;n++)f.addGame('g'+n,n);
+ f.service.reconcileFinalizedGames({leagueId:'league',seasonId:'2026'});
+ const state=f.repository.loadPlayerUpgradeState('league'); state.tenures.find(t=>t.teamId==='bos').spentGameUpgrades=1; f.repository.savePlayerUpgradeState('league',state);
+ f.records.pop(); f.service.reconcileFinalizedGames({leagueId:'league',seasonId:'2026'});
+ const status=f.service.getStatus({leagueId:'league',seasonId:'2026',teamId:'bos',coachUserId:'coach-bos',phase:'REGULAR_SEASON'});
+ assert.equal(status.qualifyingGames,3); assert.equal(status.gameEarnedAvailable,0); assert.equal(status.upgradeDebt,1);
+});

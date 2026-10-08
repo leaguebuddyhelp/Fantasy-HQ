@@ -23,12 +23,14 @@
       aria-expanded="false">Sections</button>
     <nav id="primary-nav" aria-label="Primary navigation">
       <a href="#league-home">Home</a>
+      <a href="#my-week">My Week</a>
       <a href="#teams">Teams</a>
       <a href="#players">Players</a>
       <a href="#league-stats">Stats</a>
       <a href="#team-stats">Team Stats</a>
       <a href="#schedule-hub">Schedule</a>
       <a href="#standings">Standings</a>
+      <a href="#playoffs">Playoffs</a>
       <a href="#board">Draft</a>
       <a href="#league-admin">Admin</a>
       <span class="live-pill"><i></i> Board live</span>
@@ -56,6 +58,15 @@
       </div>
     </section>
 
+    <section class="league-schedule-section" id="my-week">
+      <div class="section-heading"><div><p class="eyebrow">Coach dashboard</p><h2>My Week</h2>
+        <p>Choose your team to see this week’s matchup and next step. Your private trades, offers and waivers are in Discord /myteam → MY WEEK.</p></div>
+        <button id="coach-week-refresh" type="button">Reload my week</button></div>
+      <label class="sort-picker"><span>Team</span><select id="coach-week-team"><option value="">Choose team</option></select></label>
+      <p id="coach-week-status" role="status">Choose your team.</p>
+      <div id="coach-week-output" class="admin-output"></div>
+    </section>
+
     <section class="league-directory" id="teams">
       <div class="section-heading">
         <div>
@@ -74,17 +85,23 @@
           <p class="eyebrow">Regular season</p>
           <h2>Standings</h2><p>Results publish when the commissioner advances the week.</p>
           <p id="standings-week" role="status"></p>
-        </div><button id="standings-refresh" type="button">Refresh standings</button>
+        </div><button id="standings-refresh" type="button">Reload published standings</button>
       </div>
       <div id="standings-tables"></div>
     </section>
+    <section class="league-schedule-section" id="playoffs">
+      <div class="section-heading"><div><p class="eyebrow">Postseason</p><h2>Playoffs</h2></div><button id="playoffs-refresh" type="button">Reload bracket</button></div>
+      <label class="sort-picker"><span>Season</span><select id="playoffs-season"><option value="">Current season</option></select></label>
+      <p id="playoffs-status" role="status">Open Playoffs to load the official bracket.</p><div id="playoffs-bracket"></div>
+    </section>
     <section class="league-stats-section" id="team-stats">
+      <div class="stats-scope-controls"><label class="sort-picker"><span>Statistics</span><select id="team-stats-scope"><option value="REGULAR_SEASON">Regular Season</option><option value="PLAY_IN">Play-In</option><option value="PLAYOFFS">Playoffs</option></select></label><label class="sort-picker"><span>Season</span><select id="team-stats-season"><option value="">Current season</option></select></label></div>
       <div class="section-heading">
         <div>
           <p class="eyebrow">Regular season</p>
           <h2>Team Stats</h2>
         </div>
-        <button id="team-stats-refresh" type="button">Refresh team stats</button>
+        <button id="team-stats-refresh" type="button">Reload published team stats</button>
       </div>
       <label class="sort-picker team-stats-conference-filter">
         <span>Conference</span>
@@ -190,12 +207,13 @@
     </section>
 
     <section class="league-stats-section" id="league-stats">
+      <div class="stats-scope-controls"><label class="sort-picker"><span>Statistics</span><select id="player-stats-scope"><option value="REGULAR_SEASON">Regular Season</option><option value="PLAY_IN">Play-In</option><option value="PLAYOFFS">Playoffs</option></select></label><label class="sort-picker"><span>Season</span><select id="player-stats-season"><option value="">Current season</option></select></label></div>
       <div class="section-heading">
         <div>
           <p class="eyebrow">Regular season</p>
           <h2>Player Stats</h2>
         </div>
-        <button id="league-stats-refresh" type="button">Refresh stats</button>
+        <button id="league-stats-refresh" type="button">Reload published stats</button>
       </div>
       <div class="player-filters">
         <label class="search-box">
@@ -252,7 +270,7 @@
         <div>
           <p class="eyebrow">Admin</p>
           <h2>Commissioner view</h2>
-          <p class="section-summary">The website is the visual control center for setup and preseason review. Discord
+          <p class="section-summary">The website is the visual control center for setup, weekly closeout and game review. Discord
             stays great for quick commands and notifications.</p>
         </div>
       </div>
@@ -268,6 +286,13 @@
         <label class="review-operator">Commissioner name <input id="admin-operator" maxlength="100"
             placeholder="Your name"></label>
         <small id="admin-key-status">Admin tools are currently locked.</small>
+      </div>
+      <div class="admin-panel" id="staff-weekly" hidden>
+        <div class="section-heading"><div><p class="eyebrow">Regular season</p><h3>Weekly Staff checklist</h3>
+          <p>Live game progress and pending work. Stats and standings publish when the week advances.</p></div>
+          <button id="staff-week-refresh" type="button">Reload checklist</button></div>
+        <p id="staff-week-status" role="status">Unlock Staff access to load the checklist.</p>
+        <div id="staff-week-output" class="admin-output"></div>
       </div>
       <div class="summary-grid admin-grid">
         <article class="summary-card"><span>Rosters Imported</span><strong id="admin-rosters">—</strong><small>League
@@ -292,6 +317,18 @@
             <button id="apply-import-button" type="button" disabled>Apply import</button>
           </div>
           <div id="import-preview-output" class="admin-output"></div>
+        </div>
+        <div class="admin-panel" id="backups-panel">
+          <h3>League backup</h3>
+          <p>Backups include league records and original game images. Restore into a new data directory using the documented recovery command.</p>
+          <button id="backup-create" type="button">Create backup</button>
+          <div id="backup-output" aria-live="polite"></div>
+        </div>
+        <div class="admin-panel" id="playoffs-panel">
+          <h3>Playoff handoff</h3>
+          <p>After Week 15, resolve every game and review eight seeds per conference before changing phase.</p>
+          <button id="playoffs-review" type="button">Review playoff seeding</button>
+          <div id="playoffs-output" aria-live="polite"></div>
         </div>
         <div class="admin-panel" id="season-start-panel">
           <h3>Start regular season</h3>

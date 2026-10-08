@@ -20,6 +20,12 @@ function createGameDecisionService(submissions){
     await i.editReply(state.testMode?'Test matchup: unowned teams are not automatically marked CPU. Staff Submit can collect both screenshots.':`${state.matchupType.replaceAll('_',' ')}. Staff Submit accepts both screenshots; validated box scores determine the result.`);return;
    }
    if(!['fair','forfeit'].includes(action))throw Error('Unknown matchup action.');
+   if (g.seriesId && action==='forfeit' && staff) {
+    const manager=require('./discord-postseason').createDiscordPostseason({submissions});
+    const p=manager.service.prepareGameForfeit(g.leagueId,{id:i.user.id,staffAuthorized:true},gameId,winner,'Staff-confirmed postseason game forfeit');
+    const {ActionRowBuilder,ButtonBuilder,ButtonStyle}=require('discord.js');
+    await i.editReply({content:`Confirm game forfeit to ${winner}? No player statistics will be recorded.`,components:[new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('post:game-forfeit-confirm:'+p.token).setLabel('Confirm Game Forfeit').setStyle(ButtonStyle.Danger))]});return;
+   }
    await submissions.mutate(gameId,r=>{
     if(r.game.finalizedAt||r.game.locked||r.game.status==='FINAL')throw Error('This game is final.');
     r.game.decisionHistory ||= [];
@@ -35,9 +41,11 @@ function createGameDecisionService(submissions){
      decision={type:'FORFEIT',winnerTeamId:winner,confirmed:true,by:i.user.id,at};
     }
     r.game.matchupDecision=decision;r.game.decisionHistory.push(decision);
+    if (action === 'forfeit' && staff) require('./administrative-results').recordForfeit(r, { winnerTeamId: winner, actorUserId: i.user.id, staffAuthorized: true });
    });
    const fresh=submissions.load(gameId);
    if(fresh.game.discordMessageId){try{const message=await i.channel.messages.fetch(fresh.game.discordMessageId);await message.edit(require('./discord-game-submissions').gamePayload(fresh.game,require('./game-activity').activityView(fresh)));}catch(error){await i.editReply('Decision saved; matchup card refresh failed. Run /games create to refresh it.');return;}}
+   if (fresh.game.result?.type === 'FORFEIT') { await i.editReply('Staff-approved forfeit recorded: win/loss only; no player stats or scoring averages.'); return; }
    await i.editReply(`${fresh.game.matchupDecision.confirmed?'Decision recorded.':'Fair Sim requested; the other coach must also confirm.'} Scores, player stats and standings still require validated screenshots.`);
   }catch(error){await i.editReply(error.message);}
  }

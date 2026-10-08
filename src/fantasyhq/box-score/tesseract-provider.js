@@ -154,24 +154,56 @@ async function readScreenshot(worker, suppliedImage) {
   raw.recognitionCalls = recognitionCalls;
   return {raw,screen:{mediaId:image.mediaId,confidence:'HIGH',scoreboard,tableTeamName,players,totals,uncertainFields}};
 }
-function createTesseractProvider() {
-  return {name:'tesseract',model:'tesseract.js-eng-association-v2',extract(images) {
-    if (queued >= 8) return Promise.reject(new Error('The screenshot processor is busy. Originals are stored; retry shortly.'));
-    queued += 1;
-    const job=queue.catch(()=>{}).then(async()=>{
-      const worker=await createWorker('eng',1,{langPath:english.langPath,gzip:true,cacheMethod:'none'});
-      const raw=[],screens=[];
-      const startedAt=Date.now();
-      let timer;
-      try {
-        await Promise.race([(async()=>{for(const image of images){const result=await readScreenshot(worker,image);raw.push(result.raw);screens.push(result.screen);}})(),
-          new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('OCR processing timed out. Retry with clear photos or screenshots.')),180000);})]);
-        return {raw:JSON.stringify({engine:'tesseract',durationMs:Date.now()-startedAt,screenshots:raw,parsed:{screenshots:screens}})};
-      } catch(error) {if(error.ocrRaw) raw.push(error.ocrRaw);return {raw:JSON.stringify({engine:'tesseract',screenshots:raw,error:error.message}),error:error.message};}
-      finally {clearTimeout(timer);await worker.terminate();}
-    });
-    queue=job;
-    return job.finally(()=>{queued -= 1;});
-  },parse(result) {if(result.error)throw new Error(result.error);return JSON.parse(result.raw).parsed;}};
+// Both box scores and contracts share this bounded worker queue and offline language data.
+function withOcrWorker(work) {
+  if (queued >= 8) return Promise.reject(new Error('The screenshot processor is busy. Retry shortly.'));
+  queued++;
+  const job = queue.catch(() => {}).then(async () => {
+    let worker, timer;
+    try {
+      worker = await createWorker('eng', 1, { langPath: english.langPath, gzip: true, cacheMethod: 'none' });
+      return await Promise.race([work(worker), new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('OCR processing timed out. Retry with a clear screenshot.')), 180000); })]);
+    } finally { clearTimeout(timer); if (worker) await worker.terminate(); }
+  });
+  queue = job;
+  return job.finally(() => { queued--; });
 }
-module.exports={createTesseractProvider,readScreenshot,detectLayout};
+function createTesseractProvider() {
+  return { name: 'tesseract', model: 'tesseract.js-eng-association-v2', extract(images) {
+    const raw = [], screens = [], startedAt = Date.now();
+    return withOcrWorker(async worker => {
+      for (const image of images) { const result = await readScreenshot(worker, image); raw.push(result.raw); screens.push(result.screen); }
+      return { raw: JSON.stringify({ engine: 'tesseract', durationMs: Date.now() - startedAt, screenshots: raw, parsed: { screenshots: screens } }) };
+    }).catch(error => { if (error.ocrRaw) raw.push(error.ocrRaw); return { raw: JSON.stringify({ engine: 'tesseract', screenshots: raw, error: error.message }), error: error.message }; });
+  }, parse(result) { if (result.error) throw new Error(result.error); return JSON.parse(result.raw).parsed; } };
+}
+function recognizeContractText(bytes) {
+  return withOcrWorker(async worker => {
+    const oriented = await sharp(bytes, { limitInputPixels: 40000000 }).rotate().png().toBuffer();
+    const image = await sharp(oriented).resize({ width: 2000, withoutEnlargement: true }).grayscale().normalize().png().toBuffer();
+    await worker.setParameters({ tessedit_pageseg_mode: '11', tessedit_char_whitelist: '' });
+    const text = (await worker.recognize(image, {}, { text: true })).data.text;
+    const { width, height } = await sharp(oriented).metadata();
+    // Verified Association Sign Contract layout. Cropping the value cells keeps
+    // the finance panel and personality text out of contract recognition.
+    if (!/Sign\s+Contract/i.test(text) || !/Offer\s+Details/i.test(text) || Math.abs(width / height - 16 / 9) > 0.04) return text;
+    await worker.setParameters({ tessedit_pageseg_mode: '7', tessedit_char_whitelist: '' });
+    const fields = [];
+    for (const [label, top] of [['Salary', .471], ['Years', .537], ['Contract Type', .598], ['Option', .661]]) {
+      const cell = await sharp(oriented).extract({ left: Math.round(width * .773), top: Math.round(height * top), width: Math.round(width * .148), height: Math.round(height * (label === 'Years' ? .030 : .039)) }).resize({ width: 750 }).grayscale().png().toBuffer();
+      let prepared = sharp(cell);
+      if (label === 'Years') {
+        // A lone white 1 on the inactive gray row needs a white background.
+        const stats = await sharp(cell).stats();
+        if (stats.channels[0].mean < 128) prepared = prepared.negate();
+        prepared = prepared.normalize().threshold(150);
+      } else prepared = prepared.normalize();
+      await worker.setParameters({ tessedit_char_whitelist: label === 'Years' ? '0123456789+' : '' });
+      const value = (await worker.recognize(await prepared.png().toBuffer(), {}, { text: true })).data.text.trim();
+      fields.push(`${label}: ${value}`);
+    }
+    return fields.join('\n');
+  });
+}
+
+module.exports = { createTesseractProvider, readScreenshot, detectLayout, recognizeContractText, withOcrWorker };

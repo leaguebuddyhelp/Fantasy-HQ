@@ -86,8 +86,8 @@ function createDiscordMockDraft({ repository, simulations, live, client = null }
     const actor = interaction => ({ id: interaction.user.id, staff: canManageLeague(interaction) });
     async function validateCoach(guild, leagueId, userId, interactionMember = null) {
         const coach = live.coach(leagueId, userId), member = interactionMember?.roles?.cache ? interactionMember : await guild.members.fetch(userId);
-        const roleId = repository.loadRoleOwnership(leagueId).roleIds?.[coach.teamId];
-        if (!roleId || member.user.bot || !member.roles.cache.has(roleId)) throw Error('Your configured team Coach role is required. Sync league owners first.');
+        const identity = require('./coach-identity').requireCoachIdentity(repository, repository.loadLeague(leagueId), member, userId);
+        if (identity.teamId !== coach.teamId) throw Error('Your team changed. Restart this mock draft.');
         return coach;
     }
     async function ensurePin(guild, leagueId) {
@@ -283,7 +283,7 @@ function createDiscordMockDraft({ repository, simulations, live, client = null }
         const needs = teamPositionNeeds(m.input, slot.currentOwnerTeamId, m.selections);
         const team = m.input.teams.find(team => team.teamId === slot.currentOwnerTeamId);
         info.addFields({ name: `🎯 ${safe(team.teamName)} · Position needs`, value: needs.rosterAvailable
-            ? `${needs.positions.map(position => `${position.priority === 'High' ? '🔴' : position.priority === 'Moderate' ? '🟡' : '🟢'} **${position.position} · ${position.priority} need** — ${position.primaryCount} primary / ${position.secondaryCount} secondary · Rotation depth ${position.rotationDepth.toFixed(1)}${position.bestOverall == null ? '' : ` · Best ${position.bestOverall} OVR`}`).join('\n')}\n\n**Target:** ${needs.targets.length ? needs.targets.join(' → ') : 'Best player available'}\nBased on rotation quality, starter/backup strength and starter age. Fringe depth is discounted. Updates with your mock picks.`
+            ? `${needs.positions.map(position => `${position.priority === 'High' ? '🔴' : position.priority === 'Moderate' ? '🟡' : '🟢'} **${position.position} · ${position.priority} need** — ${position.primaryCount} primary · Rotation depth ${position.rotationDepth.toFixed(1)}${position.bestOverall == null ? '' : ` · Best ${position.bestOverall} OVR`}${position.contractReason ? `\n↳ ${position.contractReason}` : ''}`).join('\n')}\n\n**Target:** ${needs.targets.length ? needs.targets.join(' → ') : 'Best player available'}\nPrimary positions only. Based on rotation quality, starter/backup strength, age and contract expiry/options. Fringe depth is discounted. Updates with your mock picks.`
             : 'Roster data is unavailable. Import the team roster to see position targets.' });
         if (result.pool.length) info.setFooter({ text: `Portrait: ${safe(result.pool[0].name)}` });
         const payload = { embeds: [info], components, allowedMentions: { parse: [] } };
@@ -383,7 +383,7 @@ function createDiscordMockDraft({ repository, simulations, live, client = null }
                 } else if (action === 'select') {
                     const p = live.available(m).find(p => p.board_number === Number(interaction.values[0])); if (!p) throw Error('Prospect is no longer available.');
                     const market = simulations.byId(leagueId, m.simulationSnapshotId).prospectAggregates[p.prospectId];
-                    const payload = portrait({ embeds: [embed(`🎯 Confirm ${safe(p.name)}`, `${ownerIcon(m.input, m.lockedDraftOrder[m.currentPick - 1])} **Pick #${m.currentPick} · ${ownership(m.input, m.lockedDraftOrder[m.currentPick - 1])}**\n${safe(p.position_1)} · ${safe(p.team || p.nationality)}\nBoard #${p.board_number} | AVP ${market.avp?.toFixed(1) || 'Unselected'}\n${market.earliest ? `Range #${market.earliest}–#${market.latest} · Available at this pick in ${Math.round(market.availabilityByPick[m.currentPick - 1] * 100)}% of simulations` : 'Not selected in the saved first-round sample'}\n\n${String(p.about || p.build || '').slice(0, 1800)}\n\n**Confirmation is final.**`)], components: [row(button(`mock:${id}:confirm:${m.currentPick}:${p.board_number}`, 'CONFIRM PICK', ButtonStyle.Success))] }, p);
+                    const payload = portrait({ embeds: [embed(`🎯 Confirm ${safe(p.name)}`, `${ownerIcon(m.input, m.lockedDraftOrder[m.currentPick - 1])} **Pick #${m.currentPick} · ${ownership(m.input, m.lockedDraftOrder[m.currentPick - 1])}**\n${safe(p.position_1)} · ${safe(p.team || p.nationality)}\nBoard #${p.board_number} | AVP ${market.avp?.toFixed(1) || 'Unselected'}\n${market.earliest ? `Range #${market.earliest}–#${market.latest} · Available at this pick in ${Math.round(market.availabilityByPick[m.currentPick - 1] * 100)}% of simulations` : 'Not selected in the saved first-round sample'}\n\n${String(p.about || p.build || '').slice(0, 1800)}\n\n**Confirmation is final.**`)], components: [row(button(`mock:${id}:confirm:${m.currentPick}:${p.board_number}`, 'CONFIRM PICK', ButtonStyle.Success), button(`mock:${id}:available:${m.currentPick}`, 'BACK TO PLAYERS'))] }, p);
                     await interaction.editReply(payload); return;
                 } else if (action === 'confirm') {
                     // Recheck after queued Discord work, immediately before atomic commit.

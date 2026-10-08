@@ -11,9 +11,17 @@ function normalizeConference(value) {
 
 function readJson(filePath, fallback = null) {
   try {
-    return JSON.parse(fs.readFileSync(filePath, "utf8"));
-  } catch {
-    return fallback;
+    const value = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    const name = path.basename(filePath);
+    if (['players.json','roster-memberships.json','draft-picks.json','trades.json','audit-log.json','owners.json'].includes(name) && !Array.isArray(value)) throw Error('Invalid schema: expected an array.');
+    if (['league.json','settings.json','free-agency.json','player-upgrades.json','guild-leagues.json','role-ownership.json'].includes(name) && (!value || typeof value !== 'object' || Array.isArray(value))) throw Error('Expected an object.');
+    if (name === 'free-agency.json' && ['windows','offers','waivers'].some(k => !Array.isArray(value[k])) || (name === 'free-agency.json' && ['drafts','deliveries'].some(k => k in value && !Array.isArray(value[k])))) throw Error('Invalid free agency collections.');
+    if ((path.basename(path.dirname(filePath)) === 'schedules' || name === 'current-schedule.json') && (!value || !Array.isArray(value.weeks))) throw Error('Expected schedule weeks.');
+    if (name === 'player-upgrades.json' && ['tenures','requests','newUserEntitlements'].some(k => k in value && !Array.isArray(value[k]))) throw Error('Invalid upgrade collections.');
+    return value;
+  } catch (error) {
+    if (error.code === 'ENOENT') return structuredClone(fallback);
+    throw new Error(`Cannot read league storage ${filePath}: ${error.message}. Existing data was preserved; restore or repair this file before continuing.`, { cause: error });
   }
 }
 
@@ -22,6 +30,9 @@ function ensureDir(directoryPath) {
 }
 
 function writeJson(filePath, value) {
+  require('./storage-safety').assertWriterLease(filePath);
+  // Never replace unreadable canonical storage with an empty/default state.
+  if (fs.existsSync(filePath)) readJson(filePath);
   ensureDir(path.dirname(filePath));
   const temporary = `${filePath}.${randomUUID()}.tmp`;
   try {
@@ -117,7 +128,9 @@ function normalizeLeagueRecord(leagueId, leagueRecord = {}) {
 
 function loadListFile(filePath) {
   const payload = readJson(filePath, []);
-  return Array.isArray(payload) ? payload : [];
+  if (!Array.isArray(payload)) throw new Error(`Invalid league storage ${filePath}: expected an array. Existing data was preserved.`);
+  if (payload.some(entry => !entry || typeof entry !== 'object' || Array.isArray(entry))) throw Error(`Invalid league storage ${filePath}: expected object records. Existing data was preserved.`);
+  return payload;
 }
 
 function createFantasyHQRepository(options = {}) {
@@ -125,7 +138,9 @@ function createFantasyHQRepository(options = {}) {
   const guildLeaguesPath = path.join(dataRoot, "guild-leagues.json");
 
   function readGuildLeagueMap() {
-    return readJson(guildLeaguesPath, {});
+    const value = readJson(guildLeaguesPath, {});
+    if (!value || Array.isArray(value) || typeof value !== 'object') throw Error('Invalid guild league bindings; repair storage before continuing.');
+    return value;
   }
 
   function writeGuildLeagueMap(map) {
@@ -140,7 +155,8 @@ function createFantasyHQRepository(options = {}) {
       };
     }
 
-    const guildMap = readGuildLeagueMap();
+    let guildMap = readGuildLeagueMap();
+    if(guildId && guildMap[String(guildId)]?.leagueId){recoverLeagueTransactions(guildMap[String(guildId)].leagueId);guildMap=readGuildLeagueMap();}
     const guildBinding = guildId ? guildMap[String(guildId)] : null;
     const resolvedLeagueId = String(
       guildBinding?.leagueId
@@ -179,9 +195,9 @@ function createFantasyHQRepository(options = {}) {
     if (!fs.existsSync(journal)) return;
     const transaction = JSON.parse(fs.readFileSync(journal, "utf8"));
     if (transaction.leagueId !== leagueId || !Array.isArray(transaction.files)) throw new Error("Trade transaction journal is invalid; league data was not loaded.");
-    const allowed = new Set(["players.json", "roster-memberships.json", "draft-picks.json", "trades.json", "audit-log.json"]);
+    const allowed = new Set(["players.json", "roster-memberships.json", "draft-picks.json", "trades.json", "free-agency.json", "audit-log.json", "league.json", "playoffs.json", "player-upgrades.json", "awards.json", "championships.json"]);
     for (const entry of transaction.files) {
-      if (!allowed.has(entry.name) || !entry.name || !entry.value) throw new Error("Trade transaction journal contains an invalid file entry.");
+      if ((!allowed.has(entry.name) && ! /^(schedules|postseason)\/[a-zA-Z0-9_-]+\.json$/.test(entry.name) && entry.name !== 'current-schedule.json') || !entry.name || !entry.value) throw new Error("Trade transaction journal contains an invalid file entry.");
     }
     for (const entry of transaction.files) writeJson(path.join(paths.leagueRoot, entry.name), entry.value);
     enqueueMockRefresh(leagueId, transaction.files.find(entry => entry.name === 'audit-log.json')?.value.at(-1));
@@ -212,12 +228,21 @@ function createFantasyHQRepository(options = {}) {
     if (eventId) try { require('./mock-storage').requestRefresh({ dataRoot, buildLeaguePaths }, leagueId, event.action, eventId); }
       catch (error) { console.error('Mock refresh enqueue (recoverable from audit):', error.message); }
   }
+  function recoverResetTransaction(leagueId) {
+    const paths=buildLeaguePaths(dataRoot,leagueId),file=path.join(paths.leagueRoot,'reset-transaction.json');if(!fs.existsSync(file))return;
+    const tx=readJson(file),allowed=new Set(['league.json','players.json','roster-memberships.json','draft-picks.json','trades.json','free-agency.json','player-upgrades.json','audit-log.json','current-schedule.json']);
+    if(tx.leagueId!==leagueId||!Array.isArray(tx.files)||!tx.seasonId)throw Error('Invalid reset journal.');
+    for(const entry of tx.files)if(!allowed.has(entry.name)&&!/^schedules\/[a-zA-Z0-9_-]+\.json$/.test(entry.name))throw Error('Unsafe reset path.');
+    for(const entry of tx.files)writeJson(path.join(paths.leagueRoot,entry.name),entry.value);
+    const map=readGuildLeagueMap();for(const binding of Object.values(map))if(binding.leagueId===leagueId)binding.seasonId=tx.seasonId;writeGuildLeagueMap(map);fs.unlinkSync(file);
+  }
   function recoverLeagueTransactions(leagueId) {
+    recoverResetTransaction(leagueId);
     recoverWeekTransaction(leagueId);
     recoverTradeTransaction(leagueId);
     recoverPlayerUpgradeTransaction(leagueId);
   }
-  function commitTradeTransaction({ leagueId, players, rosterMemberships, draftPicks, trades, auditEntry }) {
+  function commitTradeTransaction({ leagueId, players, rosterMemberships, draftPicks, trades, auditEntry, auditEntries = [], freeAgencyState = null }) {
     recoverLeagueTransactions(leagueId);
     const paths = buildLeaguePaths(dataRoot, leagueId);
     const transaction = {
@@ -228,7 +253,8 @@ function createFantasyHQRepository(options = {}) {
         { name: "roster-memberships.json", value: rosterMemberships },
         { name: "draft-picks.json", value: draftPicks },
         { name: "trades.json", value: trades },
-        { name: "audit-log.json", value: [...loadAuditLog(leagueId), auditEntry] },
+        ...(freeAgencyState ? [{ name: "free-agency.json", value: freeAgencyState }] : []),
+        { name: "audit-log.json", value: [...loadAuditLog(leagueId), ...auditEntries, auditEntry] },
       ],
     };
     const journal = path.join(paths.leagueRoot, "trade-transaction.json");
@@ -484,6 +510,41 @@ function createFantasyHQRepository(options = {}) {
   }
 
   return {
+    commitRosterTransaction({ leagueId, players, rosterMemberships, auditEntry }) {
+      return commitTradeTransaction({ leagueId, players, rosterMemberships, draftPicks: loadListFile(buildLeaguePaths(dataRoot, leagueId).draftPicksFile), trades: loadListFile(buildLeaguePaths(dataRoot, leagueId).tradesFile), auditEntry });
+    },
+    loadFreeAgencyState(leagueId) { recoverLeagueTransactions(leagueId); return { drafts: [], deliveries: [], ...readJson(path.join(buildLeaguePaths(dataRoot, leagueId).leagueRoot, 'free-agency.json'), { version: 1, windows: [], offers: [], waivers: [], drafts: [], deliveries: [] }) }; },
+    saveFreeAgencyState(leagueId, state) { recoverLeagueTransactions(leagueId); writeJson(path.join(buildLeaguePaths(dataRoot, leagueId).leagueRoot, 'free-agency.json'), state); return state; },
+    commitSeasonTransition({ leagueId, league, playoffs, upgradeState, schedule, auditEntry }) {
+      recoverLeagueTransactions(leagueId);
+      if (!/^[a-zA-Z0-9_-]+$/.test(playoffs.seasonId)) throw Error('Invalid postseason season ID.');
+      const files = [{ name: 'league.json', value: normalizeLeagueRecord(leagueId, league) }, { name: 'playoffs.json', value: playoffs }, { name: `postseason/${playoffs.seasonId}.json`, value: playoffs }, { name: 'audit-log.json', value: [...loadAuditLog(leagueId), auditEntry] }];
+      if (upgradeState) files.push({ name: 'player-upgrades.json', value: upgradeState });
+      if (schedule) files.push({ name: 'current-schedule.json', value: schedule }, { name: `schedules/${schedule.seasonId}.json`, value: schedule });
+      writeJson(path.join(buildLeaguePaths(dataRoot, leagueId).leagueRoot, 'trade-transaction.json'), { leagueId, files, committedAt: new Date().toISOString() });
+      recoverTradeTransaction(leagueId);
+    },
+    commitReset({leagueId,seasonId,files}) {recoverLeagueTransactions(leagueId);writeJson(path.join(buildLeaguePaths(dataRoot,leagueId).leagueRoot,'reset-transaction.json'),{leagueId,seasonId,files});recoverResetTransaction(leagueId);return loadLeague(leagueId);},
+    loadChampionships(leagueId) { recoverLeagueTransactions(leagueId); return readJson(path.join(buildLeaguePaths(dataRoot,leagueId).leagueRoot,'championships.json'),{version:1,seasons:{}}); },
+    loadAwards(leagueId) { recoverLeagueTransactions(leagueId); return readJson(path.join(buildLeaguePaths(dataRoot,leagueId).leagueRoot,'awards.json'),{version:1,seasons:{}}); },
+    commitAwards({leagueId,awards,auditEntry}) {
+      recoverLeagueTransactions(leagueId);
+      if(awards?.version!==1 || !awards.seasons || typeof awards.seasons!=='object' || Array.isArray(awards.seasons))throw Error('Invalid awards state.');
+      const files=[{name:'awards.json',value:awards},{name:'audit-log.json',value:[...loadAuditLog(leagueId),auditEntry]}];
+      writeJson(path.join(buildLeaguePaths(dataRoot,leagueId).leagueRoot,'trade-transaction.json'),{leagueId,files,committedAt:new Date().toISOString()});recoverTradeTransaction(leagueId);return awards;
+    },
+    commitPostseason({ leagueId, playoffs, auditEntry, league = null, championships = null }) {
+      require('./postseason-state').validatePostseason(playoffs);
+      recoverLeagueTransactions(leagueId);
+      if (!/^[a-zA-Z0-9_-]+$/.test(playoffs.seasonId)) throw Error('Invalid postseason season ID.');
+      const files = [{ name: 'playoffs.json', value: playoffs }, { name: `postseason/${playoffs.seasonId}.json`, value: playoffs }, { name: 'audit-log.json', value: [...loadAuditLog(leagueId), auditEntry] }];
+      if (championships) files.push({name:'championships.json',value:championships});
+      if (league) files.push({ name: 'league.json', value: normalizeLeagueRecord(leagueId, league) });
+      writeJson(path.join(buildLeaguePaths(dataRoot, leagueId).leagueRoot, 'trade-transaction.json'), { leagueId, files, committedAt: new Date().toISOString() });
+      recoverTradeTransaction(leagueId);
+      return playoffs;
+    },
+    loadPlayoffs(leagueId, seasonId = null) { recoverLeagueTransactions(leagueId); const root = buildLeaguePaths(dataRoot,leagueId).leagueRoot; if (seasonId != null && !/^[a-zA-Z0-9_-]+$/.test(String(seasonId))) throw Error('Invalid season ID.'); const current = readJson(path.join(root,'playoffs.json'),null); return seasonId == null ? current : readJson(path.join(root,'postseason',`${seasonId}.json`),null) || (current?.seasonId === String(seasonId) ? current : null); },
     commitWeekTransition,
     commitTradeTransaction,
     commitPlayerUpgradeTransaction,
@@ -501,6 +562,7 @@ function createFantasyHQRepository(options = {}) {
     loadSettings,
     loadOwners,
     loadRoleOwnership,
+    saveRoleOwnership(leagueId,state) { writeJson(path.join(buildLeaguePaths(dataRoot,leagueId).leagueRoot,'role-ownership.json'),state); return state; },
     loadPlayers,
     loadRosterMemberships,
     loadAuditLog,

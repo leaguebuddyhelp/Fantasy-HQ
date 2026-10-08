@@ -1,10 +1,11 @@
+const { contractView, contractValue } = require('../shared/player-contract');
 const { createHash } = require('crypto');
 const POSITIONS = ['PG', 'SG', 'SF', 'PF', 'C'];
 function seededRandom(seed) {
     let state = createHash('sha256').update(String(seed)).digest().readUInt32LE(0);
     return () => { state += 0x6D2B79F5; let t = state; t = Math.imul(t ^ t >>> 15, t | 1); t ^= t + Math.imul(t ^ t >>> 7, t | 61); return ((t ^ t >>> 14) >>> 0) / 4294967296; };
 }
-const ENGINE_VERSION = 4;
+const ENGINE_VERSION = 6;
 const clamp = (value, low = 0, high = 1) => Math.max(low, Math.min(high, value));
 function numeric(value) { if (value == null || value === '' || typeof value === 'boolean') return null; const n = Number(value); return Number.isFinite(n) ? n : null; }
 function traitsFor(p) { return [p.archetype, p.build, p.strength_1, p.strength_2, p.strength_3].filter(Boolean).join(' ').toLowerCase(); }
@@ -27,23 +28,29 @@ function teamProfile(input, teamId, selections = []) {
     const roster = teamRoster(input, teamId, selections), rotation = roster.slice().sort((a, b) => (numeric(b.overall) ?? 70) - (numeric(a.overall) ?? 70)).slice(0, 8);
     const average = rotation.length ? rotation.reduce((n, p) => n + (numeric(p.overall) ?? 75), 0) / rotation.length : 75;
     const spacing = rotation.length ? rotation.reduce((n, p) => n + shootingFor(p), 0) / rotation.length : 0;
-    return { roster, contender: clamp((average - 77) / 10), shootingNeed: clamp(0.65 - spacing), traits: rotation.map(traitsFor).join(' ') };
+    const financialPressure = rotation.length ? rotation.reduce((sum,p) => sum + Math.max(0, 1 - contractValue(p, input.draftYear - 1).modifier), 0) / rotation.length : 0;
+    return { financialPressure, roster, contender: clamp((average - 77) / 10), shootingNeed: clamp(0.65 - spacing), traits: rotation.map(traitsFor).join(' ') };
 }
+function primaryPosition(player) {return String(player.position1 || player.position_1 || '').split('/')[0].trim().toUpperCase();}
 function positionAssessment(input, position, profile) {
-    const matches = profile.roster.filter(player => player.position1 === position || player.position2 === position)
-        .map(player => ({ player, effectiveOverall: (numeric(player.overall) ?? 70) - (player.position1 === position ? 0 : 4) }))
+    const matches = profile.roster.filter(player => primaryPosition(player) === position)
+        .map(player => ({ player, effectiveOverall: numeric(player.overall) ?? 70 }))
         .sort((a, b) => b.effectiveOverall - a.effectiveOverall);
     // Only the best three options supply depth, and fringe players supply little or none.
     const rotationDepth = matches.slice(0, 3).reduce((sum, entry) => sum
-        + clamp((entry.effectiveOverall - 68) / 12) * (entry.player.position1 === position ? 1 : 0.5), 0);
+        + clamp((entry.effectiveOverall - 68) / 12) , 0);
     const starterStrength = matches[0]?.effectiveOverall ?? 60;
     const backupStrength = matches[1]?.effectiveOverall ?? 60;
     const age = matches[0] && playerAge(matches[0].player, input.draftYear);
     const succession = age != null ? clamp((age - 29) / 10) * 0.2 : 0;
+    const starterContract = matches[0] ? contractView(matches[0].player, input.draftYear - 1) : null;
+    const backupContract = matches[1] ? contractView(matches[1].player, input.draftYear - 1) : null;
+    const contractNeed = (starterContract?.expiring ? 0.18 : starterContract?.nextPlayerOption ? 0.1 : 0) + (backupContract?.expiring ? 0.05 : 0);
+    const contractReason = starterContract?.expiring ? 'Starter contract expires before the next season' : starterContract?.nextPlayerOption ? 'Starter has a player option next season' : null;
     const score = clamp(0.5 * clamp((86 - starterStrength) / 16)
         + 0.25 * clamp((78 - backupStrength) / 14)
-        + 0.25 * clamp((2.2 - rotationDepth) / 2.2) + succession);
-    return { score, rotationDepth, starterStrength, backupStrength };
+        + 0.25 * clamp((2.2 - rotationDepth) / 2.2) + succession + contractNeed);
+    return { score, rotationDepth, starterStrength, backupStrength, contractNeed, contractReason };
 }
 function positionalNeed(input, prospect, profile) {
     const positions = [...new Set([prospect.position_1, prospect.position_2].filter(p => POSITIONS.includes(p)))];
@@ -53,17 +60,17 @@ function needFor(input, teamId, prospect, selections = []) { return positionalNe
 function teamPositionNeeds(input, teamId, selections = []) {
     const profile = teamProfile(input, teamId, selections);
     const positions = POSITIONS.map(position => {
-        const matches = profile.roster.filter(player => player.position1 === position || player.position2 === position);
+        const matches = profile.roster.filter(player => primaryPosition(player) === position);
         const assessment = positionAssessment(input, position, profile);
         const score = assessment.score;
         const ratings = matches.map(player => numeric(player.overall)).filter(rating => rating != null);
         return { position, ...assessment, priority: score >= 0.65 ? 'High' : score >= 0.35 ? 'Moderate' : 'Low',
-            primaryCount: matches.filter(player => player.position1 === position).length,
-            secondaryCount: matches.filter(player => player.position1 !== position).length,
+            primaryCount: matches.length,
+            secondaryCount: 0,
             bestOverall: ratings.length ? Math.max(...ratings) : null };
     });
-    return { rosterAvailable: profile.roster.length > 0, positions, targets: positions.filter(position => position.priority !== 'Low')
-        .sort((a, b) => b.score - a.score).slice(0, 2).map(position => position.position) };
+    return { rosterAvailable: profile.roster.length > 0, positions, targets: positions.slice()
+        .sort((a, b) => b.score - a.score || a.starterStrength - b.starterStrength || POSITIONS.indexOf(a.position) - POSITIONS.indexOf(b.position)).slice(0, 2).map(position => position.position) };
 }
 function fitWith(prospect, profile) {
     const traits = traitsFor(prospect);
@@ -73,7 +80,7 @@ function fitFor(input, teamId, prospect, selections = []) { return fitWith(prosp
 function selectionFactors(input, teamId, prospect, selections = [], profile = teamProfile(input, teamId, selections)) {
     const age = playerAge(prospect, input.draftYear);
     const youth = age == null ? 0.5 : clamp((25 - age) / 7);
-    return { need: positionalNeed(input, prospect, profile), fit: fitWith(prospect, profile), shooting: shootingFor(prospect) * (0.25 + profile.shootingNeed * 0.75), age: youth * (1 - profile.contender * 0.55), readiness: clamp(((numeric(prospect.overall) ?? 70) - 65) / 20) * profile.contender, upside: clamp(((numeric(prospect.potential) ?? 80) - (numeric(prospect.overall) ?? 70)) / 25) * (1 - profile.contender * 0.5) };
+    return { need: positionalNeed(input, prospect, profile), fit: fitWith(prospect, profile), shooting: shootingFor(prospect) * (0.25 + profile.shootingNeed * 0.75), age: youth * (1 - profile.contender * 0.55), readiness: clamp(((numeric(prospect.overall) ?? 70) - 65) / 20) * profile.contender, contractPlan: profile.financialPressure * (youth + clamp(((numeric(prospect.overall) ?? 70) - 65) / 20)) / 2, upside: numeric(prospect.potential) == null ? 0 : clamp((numeric(prospect.potential) - (numeric(prospect.overall) ?? 70)) / 25) * (1 - profile.contender * 0.5) };
 }
 function candidateWeight(input, slot, prospect, best, selections = [], snapshot = null, profile = teamProfile(input, slot.currentOwnerTeamId, selections)) {
     const scale = 1.8 + slot.pickNumber * 0.15, market = snapshot?.prospectAggregates[prospect.prospectId], f = selectionFactors(input, slot.currentOwnerTeamId, prospect, selections, profile);
@@ -81,7 +88,7 @@ function candidateWeight(input, slot, prospect, best, selections = [], snapshot 
     const distribution = market && snapshot.simulationCount > 0 ? (market.frequencyByPick[slot.pickNumber - 1] || 0) / snapshot.simulationCount : 0;
     const avpFit = market?.avp != null ? Math.exp(-Math.abs(market.avp - slot.pickNumber) / (scale + 2)) : 0.5;
     // Board talent anchors the pick; bounded team factors break close evaluations.
-    return Math.exp(-(prospect.board_number - best) / scale) * Math.exp(f.need * 0.9 + f.fit * 0.5 + f.shooting * 0.55 + f.age * 0.35 + f.readiness * 0.3 + f.upside * 0.25 + quality * 0.4) * (0.7 + avpFit * 0.45 + distribution * 2);
+    return Math.exp(-(prospect.board_number - best) / scale) * Math.exp(f.need * 0.9 + f.fit * 0.5 + f.shooting * 0.55 + f.age * 0.35 + f.readiness * 0.3 + f.upside * 0.25 + f.contractPlan * 0.35 + quality * 0.4) * (0.7 + avpFit * 0.45 + distribution * 2);
 }
 function chooseProspect(input, slot, selections = [], snapshot = null, rng = Math.random) {
     const drafted = new Set(selections.map(s => s.prospectId)), remaining = input.prospects.filter(p => !drafted.has(p.prospectId));
@@ -113,7 +120,7 @@ const GRADES = ['F', 'D-', 'D', 'D+', 'C-', 'C', 'C+', 'B-', 'B', 'B+', 'A-', 'A
 function evaluate(input, slot, p, selections, market) {
     const expected = market?.avp ?? p.board_number, need = needFor(input, slot.currentOwnerTeamId, p, selections), fit = fitFor(input, slot.currentOwnerTeamId, p, selections);
     const value = (slot.pickNumber - (expected * 0.65 + p.board_number * 0.35)) / Math.max(4, slot.pickNumber * 0.4);
-    const upside = Number(p.potential || 80) - Number(p.overall || 70);
+    const upside = numeric(p.potential) == null ? 0 : numeric(p.potential) - (numeric(p.overall) ?? 70);
     const alternatives = input.prospects.filter(a => !selections.some(s => s.prospectId === a.prospectId) && a.prospectId !== p.prospectId).sort((a,b) => a.board_number - b.board_number);
     const opportunity = alternatives[0] ? Math.max(0, p.board_number - alternatives[0].board_number) / 30 : 0;
     const roster = input.rosters[slot.currentOwnerTeamId] || [], averageOverall = roster.length ? roster.reduce((sum, r) => sum + (Number(r.overall) || 70), 0) / roster.length : 75;
@@ -136,7 +143,7 @@ function evaluate(input, slot, p, selections, market) {
     if (need < 0.15 && fit < 0.15 && factors.shooting < 0.15 && upside < 10) candidates.push({ label: 'Luxury pick', weight: 0.5 });
     for (const c of candidates) c.weight -= Math.min(0.6, selections.filter(s => s.storyline === c.label).length * 0.12);
     const storyline = value > 1 ? 'Steal' : value > 0.5 ? 'The slide ends' : value < -0.7 ? 'Developmental swing' : candidates.sort((a, b) => b.weight - a.weight)[0].label;
-    return { grade: GRADES[score], score, value, need, fit, upside, prior, storyline, quality, production, development, direction, opportunity, shooting: factors.shooting, ageFit: factors.age };
+    return { contractReason: teamPositionNeeds(input, slot.currentOwnerTeamId, selections).positions.filter(position => [p.position_1, p.position_2].includes(position.position) && position.contractReason).map(position => `${position.position}: ${position.contractReason}`).join("; "), financialPressure: factors.contractPlan, grade: GRADES[score], score, value, need, fit, upside, prior, storyline, quality, production, development, direction, opportunity, shooting: factors.shooting, ageFit: factors.age };
 }
 function reaction(input, slot, p, selections, market) {
     const metrics = evaluate(input, slot, p, selections, market), team = input.teams.find(t => t.teamId === slot.currentOwnerTeamId).teamName, name = p.name, pick = slot.pickNumber;
@@ -152,7 +159,8 @@ function reaction(input, slot, p, selections, market) {
     const skill = String(p.strength_1 || p.build || 'positional flexibility').replace(/[.!?]/g, '').toLowerCase();
     const fit = metrics.prior ? `After ${metrics.prior} earlier selection${metrics.prior > 1 ? 's' : ''}, ${team} gets ${metrics.need > 0.6 ? 'complementary depth' : 'another option in an increasingly competitive rotation'} through his ${skill}` : metrics.need > 0.65 ? `His ${skill} gives the ${p.position_1 || 'rotation'} group a needed lift${p.height ? `, with a ${p.height} frame adding to the appeal` : ''}` : `The appeal is his ${skill}, although rotation minutes will need to be earned rather than assumed`;
     const risk = String(p.weakness_1 || 'consistency').replace(/[.!?]/g, '').toLowerCase();
+    const contractAnalysis = metrics.contractReason ? `The roster planning case includes ${metrics.contractReason.toLowerCase()}` : metrics.financialPressure > 0.05 ? 'Existing salary burdens increase the appeal of developing another rotation option, although his rookie salary is not yet known' : null;
     const endings = [`Improvement in ${risk} will determine how far this pick can outperform its slot`, `The next step is turning that promise into reliable minutes while addressing ${risk}`, `His ceiling stays compelling, but ${risk} remains the development priority`, `A patient plan for ${risk} gives this bet its best chance to pay off`, `The payoff depends on whether ${risk} becomes a manageable concern rather than a limiting factor`];
-    return { ...metrics, analysis: [openings[(pick - 1) % openings.length], value[pick % value.length], fit, endings[(pick + p.board_number) % endings.length]].map(s => `${s}.`).join(' ') };
+    return { ...metrics, analysis: [openings[(pick - 1) % openings.length], value[pick % value.length], fit, contractAnalysis, endings[(pick + p.board_number) % endings.length]].filter(Boolean).map(s => `${s}.`).join(' ') };
 }
 module.exports = { ENGINE_VERSION, candidateWeight, selectionFactors, shootingFor, playerAge, seededRandom, needFor, teamPositionNeeds, fitFor, chooseProspect, project, evaluate, reaction, GRADES };

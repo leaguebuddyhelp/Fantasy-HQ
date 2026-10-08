@@ -21,7 +21,8 @@ function percentage(makes, attempts) {
     return attempts > 0 ? (makes / attempts) * 100 : null;
 }
 
-function createPlayerStatsService({ repository, submissions, publishedOnly = false } = {}) {
+function createPlayerStatsService({ repository, submissions, publishedOnly = false, scope = 'REGULAR_SEASON' } = {}) {
+    require('./stat-scope').normalizeStatScope(scope);
     submissions ||= createGameSubmissionService(repository ? { repository } : {});
     repository ||= submissions.repository || createFantasyHQRepository();
 
@@ -59,9 +60,11 @@ function createPlayerStatsService({ repository, submissions, publishedOnly = fal
             if (memberships.length === 1 && playersById.has(playerId)) ensurePlayer(playerId);
         }
 
-        for (const record of submissions.records()) {
+        const scopeRecords = publishedOnly && scope==='REGULAR_SEASON' && schedule?.statsPublication?.snapshots ? schedule.statsPublication.snapshots : submissions.records();
+        const eligible = scope==='REGULAR_SEASON' ? {games:scopeRecords.filter(record=>(publishedOnly ? publishedRegularGame : officialRegularGame)(record,{leagueId,seasonId:resolvedSeasonId,schedule}))} : require('./stat-scope').officialScopeGames(scopeRecords,{repository,leagueId,seasonId:resolvedSeasonId,schedule,publishedOnly,scope});
+        for (const record of eligible.games) {
             const game = record.game || {};
-            if (!(publishedOnly ? publishedRegularGame : officialRegularGame)(record, { leagueId, seasonId: resolvedSeasonId, schedule })) continue;
+
             const gameTeamIds = [String(game.team1Id || ''), String(game.team2Id || '')];
             const seen = new Map();
             const duplicates = new Set();
@@ -121,7 +124,8 @@ function createPlayerStatsService({ repository, submissions, publishedOnly = fal
                 const log = {
                     gameId: game.gameId,
                     submissionId: game.result.submissionId || null,
-                    week: Number(game.weekNumber),
+                    week: Number(game.weekNumber || game.seriesGameNumber),
+                    stage: game.stage || null,
                     date: game.inGameDate || null,
                     teamId,
                     teamName: teamNames[teamId],
@@ -203,7 +207,7 @@ function createPlayerStatsService({ repository, submissions, publishedOnly = fal
 
     function getSeasonSnapshot(leagueId, seasonId) {
         const { leagueId: resolvedLeague, seasonId: resolvedSeason, players, warnings, publishedThroughWeek } = buildSnapshot(leagueId, seasonId);
-        return { leagueId: resolvedLeague, seasonId: resolvedSeason, players, warnings, publishedThroughWeek };
+        return { leagueId: resolvedLeague, seasonId: resolvedSeason, scope, players, warnings, publishedThroughWeek };
     }
 
     function getPlayerSeasonStats(leagueId, seasonId, playerId) {

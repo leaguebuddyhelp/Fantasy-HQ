@@ -37,7 +37,7 @@ function fixture(t, testMode = false, logger = { error() { } }) {
     ];
     const roleCache = [...roleEntries];
     roleCache.find = predicate => Array.prototype.find.call(roleCache, predicate);
-    const guild = { id: "guild", roles: { cache: roleCache }, channels: { fetch: async () => null } };
+    const guild = { id: "guild", members: { fetch: async userId => ({ user: { id: userId, bot: false }, roles: { cache: new Set([`team-${userId.replace("coach-", "")}`]) } }) }, roles: { cache: roleCache }, channels: { fetch: async () => null } };
     const workflow = createDiscordTradeWorkflow({ repository, tradeService: service, logger });
     function interaction(customId, { kind = "button", userId = "coach-alpha", selected = [], roles = ["coach", "team-alpha"], guildContext = guild, manageGuild = false } = {}) {
         const result = {
@@ -213,4 +213,29 @@ test('solo committee fallback handles an involved tester role while preserving i
         assert.deepEqual(updated.currentVersion.committee.eligibleVoterIds, independent ? ['independent'] : Array.from({ length: 5 }, (_, i) => `test-committee:coach-alpha:${i + 1}`));
         assert.equal(posted.components.length, independent ? 1 : 5);
     }
+});
+
+test('a configured team role identifies the acting coach without the generic Coach badge', async t => {
+    const f = fixture(t);
+    const actor = f.interaction('trade:build', { roles: ['team-alpha'] });
+    await f.workflow.handleTradeInteraction(actor);
+    assert.match(actor.payload.content, /alpha team/);
+    const stale = f.interaction('trade:build', { roles: ['team-bravo'] });
+    await f.workflow.handleTradeInteraction(stale);
+    assert.match(stale.payload.content, /must match/);
+});
+
+test('trade team selection and saved builders cannot act for a different team', async t => {
+    const f = fixture(t);
+    const tampered = f.interaction('trade:select-other:bravo:0', { kind: 'select', selected: ['charlie'] });
+    await f.workflow.handleTradeInteraction(tampered);
+    assert.match(tampered.payload.content, /current team only/);
+    const draft = f.service.createDraft({ leagueId: 'league', seasonId: '1', initiatingUserId: 'coach-alpha', initiatingTeamId: 'alpha', secondTeamId: 'bravo' });
+    f.repository.saveOwners('league', [{ userId: 'coach-alpha', teamId: 'charlie' }, { userId: 'coach-bravo', teamId: 'bravo' }]);
+    for (const customId of [`trade:add:PLAYER:${draft.tradeId}`, `trade:submit:${draft.tradeId}`]) {
+        const moved = f.interaction(customId, { roles: ['team-charlie'] });
+        await f.workflow.handleTradeInteraction(moved);
+        assert.match(moved.payload.content, /team changed/);
+    }
+    assert.equal(f.service.getTrade('league', draft.tradeId).status, 'DRAFT');
 });

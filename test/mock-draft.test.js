@@ -119,6 +119,8 @@ test('human UI top ten, modal search, preview and irrevocable confirmation', asy
     const search = d.interaction(`mock:${m.id}:search:1`, userId, m.threadId); await d.workflow.handle(search); assert.ok(search.modal);
     const submit = d.interaction(`mock:${m.id}:searchsubmit:1`, userId, m.threadId); submit.fields = { getTextInputValue: () => 'Prospect 70' }; await d.workflow.handle(submit); assert.equal(submit.replies[0].components[0].toJSON().components[0].options[0].value, '70');
     const preview = d.interaction(`mock:${m.id}:select:1`, userId, m.threadId); preview.values = ['25']; await d.workflow.handle(preview); const confirm = preview.replies[0].components[0].toJSON().components[0].custom_id; assert.match(confirm, /:confirm:1:25$/);
+    const backId = preview.replies[0].components[0].toJSON().components[1].custom_id; assert.equal(backId, `mock:${m.id}:available:1`); const back = d.interaction(backId, userId, m.threadId); await d.workflow.handle(back); assert.equal(f.live.get('l', m.id).selections.length, 0); assert.ok(back.replies[0].components.length);
+
     await d.workflow.handle(d.interaction(confirm, userId, m.threadId)); assert.equal(f.live.get('l', m.id).selections.length, 1); await d.workflow.handle(d.interaction(confirm, userId, m.threadId)); assert.equal(f.live.get('l', m.id).selections.length, 1);
 });
 test('CPU immediately advances, completion preserves 30 picks, DMs fail independently and cleanup retries', async t => { const f = fixture(t), d = discordFixture(f); await d.start(); let m = f.live.all('l')[0]; f.live.invite('l', m.id, { id: 'u0' }, ['u1']); f.live.lottery('l', m.id, { id: 'u0' }); f.live.lock('l', m.id, { id: 'u0' }); f.live.setAvailable('l', m.id, 'u0', false); f.live.setAvailable('l', m.id, 'u1', false); f.live.start('l', m.id, { id: 'u0' }); d.failDM.add('u0'); d.failDelete(true); await d.workflow.pump(d.guild, 'l', m.id); m = f.live.get('l', m.id); assert.equal(m.selections.length, 30); assert.equal(m.status, 'CLEANUP_PENDING'); assert.equal(m.dmDelivery.u0.delivered, false); assert.equal(m.dmDelivery.u1.delivered, true); assert.equal(d.dmChannels.get('u1')._messages.size, 1); assert.equal(boardEmbeds(m.input, m.selections).length, 3); assert.ok(m.cleanup.error); d.failDelete(false); await d.workflow.pump(d.guild, 'l', m.id); m = f.live.get('l', m.id); assert.equal(m.status, 'CLEANED'); assert.equal(m.recap.selections.length, 30); assert.equal(d.dmChannels.get('u1')._messages.size, 1); assert.equal(d.deleted(), true); assert.equal(fs.existsSync(path.join(f.root, 'live.json')), true); });
@@ -669,12 +671,12 @@ test('live best-available panel shows needs for the pick owner and includes earl
     assert.equal(first.fields.length, 1);
     assert.match(first.fields[0].value, /PG · Low need/);
     assert.match(first.fields[0].value, /C · High need/);
-    assert.match(first.fields[0].value, /3 primary \/ 0 secondary/);
+    assert.match(first.fields[0].value, /3 primary/);
     assert.match(first.fields[0].name, new RegExp(active.input.teams.find(team => team.teamId === teamId).teamName));
     active.selections.push({ currentOwnerTeamId: teamId, prospect: { position_1: 'C', overall: 85, age: 19 } });
     const after = d.workflow.selectionPayload(active, 1).embeds[0].toJSON().fields[0].value;
     assert.match(after, /C · Moderate need/);
-    assert.match(after, /1 primary \/ 0 secondary · Rotation depth 1.0 · Best 85 OVR/);
+    assert.match(after, /1 primary · Rotation depth 1.0 · Best 85 OVR/);
     active.selections = [];
     active.input.rosters[teamId] = [];
     assert.match(d.workflow.selectionPayload(active, 1).embeds[0].toJSON().fields[0].value, /Roster data is unavailable/);
@@ -730,4 +732,14 @@ test('all four real draft classes keep top talent within bounded slides across r
             if (classNumber === 4) assert.equal(round[1].prospectId, 'cus4:2');
         }
     }
+});
+
+
+test('mock needs count primary positions only and identify two needs even for complete elite rosters',()=>{
+ const {teamPositionNeeds}=require('../src/fantasyhq/mock-engine'),input=inputFixture();
+ input.rosters.t0=[{position1:'PG/SG',position2:'SG',overall:90,age:25},{position1:'PG',position2:'C',overall:88,age:25}];
+ let needs=teamPositionNeeds(input,'t0');assert.equal(needs.positions.find(p=>p.position==='PG').primaryCount,2);assert.equal(needs.positions.find(p=>p.position==='SG').primaryCount,0);assert.equal(needs.positions.find(p=>p.position==='C').primaryCount,0);assert.equal(needs.targets.length,2);
+ input.rosters.t0=['PG','SG','SF','PF','C'].flatMap(position1=>Array.from({length:3},()=>({position1,overall:99,age:24})));
+ needs=teamPositionNeeds(input,'t0');assert.equal(needs.targets.length,2);assert.equal(new Set(needs.targets).size,2);
+ input.rosters.t0.filter(p=>p.position1==='C').forEach(p=>p.overall=68);assert.equal(teamPositionNeeds(input,'t0').targets[0],'C');
 });

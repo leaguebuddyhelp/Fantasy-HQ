@@ -1,3 +1,4 @@
+const { contractView } = require('../shared/player-contract');
 const { randomUUID } = require("crypto");
 const { activeMemberships } = require("./service-helpers");
 const { createFantasyHQRepository } = require("./repository");
@@ -134,6 +135,7 @@ function createTradeService(options = {}) {
             ...player,
             age: leagueAge(player.birthdate, state.context.seasonId),
             tradeValue: playerTradeValue(player, state.context.seasonId),
+            contractView: contractView(player, leagueSeasonStartYear(state.context.seasonId)),
         }));
         const picks = state.picks.filter(pick => pick.draftYear > currentYear && pick.draftYear <= currentYear + 5).map(pick => ({
             ...pick,
@@ -207,6 +209,8 @@ function createTradeService(options = {}) {
                 if (!player || !membership) { errors.push(`Player ${assetId} no longer exists on an active roster.`); continue; }
                 if ((state.membershipsByPlayer.get(assetId) || []).length !== 1) { errors.push(`${player.name} does not have exactly one active team owner.`); continue; }
                 if (membership.teamId !== fromTeamId) { errors.push(`${player.name} is no longer on ${state.context.teams.find(team => team.teamId === fromTeamId)?.teamName || fromTeamId}.`); continue; }
+                const lock = require('./transaction-locks').playerTransactionLock(repository, state.context.league.leagueId, state.context.seasonId, assetId, { includeTrades: false });
+                if (lock) { errors.push(`${player.name}: ${lock}`); continue; }
                 value = playerTradeValue({ ...player, position1: membership.position1 ?? player.position1, position2: membership.position2 ?? player.position2 }, state.context.seasonId);
                 playersOut.set(fromTeamId, playersOut.get(fromTeamId) + 1);
                 playersIn.set(toTeamId, playersIn.get(toTeamId) + 1);
@@ -279,7 +283,7 @@ function createTradeService(options = {}) {
                 }
                 return record;
             }),
-            teams: preview.teams.map(team => ({ ...team, snapshotSentValue: team.sent, snapshotReceivedValue: team.received, snapshotDifference: team.difference, coachUserId: ownersByTeam.get(team.teamId)?.userId || String(actorUserId), tradeCountAtSubmission: team.tradeCount })),
+            teams: preview.teams.map(team => ({ ...team, snapshotSentValue: team.sent, snapshotReceivedValue: team.received, snapshotDifference: team.difference, coachUserId: ownersByTeam.get(team.teamId)?.userId || String(actorUserId), staffTestAuthorized: !ownersByTeam.has(team.teamId) && state.settings.testMode === true, tradeCountAtSubmission: team.tradeCount })),
             gmDecisions,
             committee: null,
             proof: { channelId: null, threadId: null, submissions: [], rejections: [], staffDecision: null },
@@ -405,6 +409,10 @@ function createTradeService(options = {}) {
         const draft = { ...trade, participatingTeams: snapshot.participatingTeams, transfers: snapshot.transfers };
         const preview = thisPreview(trade.leagueId, draft, { skipValueRule: true });
         const ownershipErrors = preview.errors.filter(message => !/trade-value points outside/.test(message));
+        for (const team of snapshot.teams) {
+            const owner = state.owners.find(o => o.teamId === team.teamId);
+            if ((owner ? owner.userId !== team.coachUserId || (owner.assignedAt && !(Date.parse(owner.assignedAt) <= Date.parse(snapshot.submittedAt))) : !state.settings.testMode || team.staffTestAuthorized !== true)) ownershipErrors.push('Coach ownership changed; a new proposal is required.');
+        }
         const duplicates = new Set();
         for (const transfer of snapshot.transfers) {
             const key = `${transfer.assetType}:${transfer.assetId}`;
@@ -436,12 +444,14 @@ function createTradeService(options = {}) {
         return finalizeTrade(leagueId, trade, actorUserId);
     }
 
-    function finalizeTrade(leagueId, trade, actorUserId) {
+    function finalizeTrade(leagueId, trade, actorUserId, simulation = false) {
+        if(simulation)require('./simulation-guard').requireSimulationRepository(repository,leagueId);
         if (trade.status === "COMPLETED") return { status: trade.status, alreadyProcessed: true, invalidatedTrades: [] };
-        if (trade.status !== "PENDING_PROOF_REVIEW" || trade.currentVersion.proof.latestSubmission == null) throw new Error("Approved proof is required before processing.");
+        if (!simulation && (trade.status !== "PENDING_PROOF_REVIEW" || trade.currentVersion.proof.latestSubmission == null)) throw new Error("Approved proof is required before processing.");
         const validation = revalidateSnapshot(currentContext(leagueId, trade.seasonId), trade);
         if (!validation.valid) throw new Error(`Trade is no longer valid: ${validation.errors.join(" ")}`);
         const current = repository.loadTrades(leagueId);
+        if(simulation && !current.some(t=>t.tradeId===trade.tradeId))current.push(trade);
         const playerRows = repository.loadPlayers(leagueId);
         const players = new Map(playerRows.map(player => [player.playerId, player]));
         const memberships = repository.loadRosterMemberships(leagueId);
@@ -510,7 +520,28 @@ function createTradeService(options = {}) {
         return trade;
     }
 
+    function reconcileOwnership(leagueId) {
+        const owners = repository.loadOwners(leagueId), testMode = repository.loadSettings(leagueId)?.testMode === true;
+        const invalidated = [];
+        for (const trade of repository.loadTrades(leagueId)) {
+            if (!ACTIVE_STATUSES.has(trade.status)) continue;
+            if ((trade.currentVersion?.teams || []).some(team => { const owner = owners.find(o => o.teamId === team.teamId); return owner ? owner.userId !== team.coachUserId || (owner.assignedAt && !(Date.parse(owner.assignedAt) <= Date.parse(trade.submittedAt))) : !testMode || team.staffTestAuthorized !== true; })) {
+                transition(leagueId, trade, 'INVALIDATED', 'system', 'Coach ownership changed.'); invalidated.push(trade.tradeId);
+            }
+        }
+        return invalidated;
+    }
+    function cancelTrade({ leagueId, tradeId, actorUserId, staffAuthorized = false, reason = 'Proposal withdrawn' }) {
+        const trade = repository.loadTrades(leagueId).find(t => t.tradeId === tradeId);
+        if (!trade) throw Error('Trade not found.');
+        if (!actorUserId) throw Error('An authorized actor is required.');
+        if (!staffAuthorized) responseTeam(currentContext(leagueId, trade.seasonId), trade, trade.initiatingTeamId, actorUserId);
+        if (trade.status === 'CANCELLED') return trade;
+        if (!ACTIVE_STATUSES.has(trade.status) && trade.status !== 'DRAFT') throw Error('This trade is already closed.');
+        transition(leagueId, trade, 'CANCELLED', actorUserId, String(reason).slice(0, 500)); return trade;
+    }
     function expireDue(leagueId, seasonId) {
+        reconcileOwnership(leagueId);
         const expired = [];
         for (const trade of repository.loadTrades(leagueId)) {
             if (!ACTIVE_STATUSES.has(trade.status) || trade.status === "PENDING_PROOF_REVIEW" || !trade.expiresAt || Date.parse(trade.expiresAt) > now()) continue;
@@ -522,8 +553,19 @@ function createTradeService(options = {}) {
         return expired;
     }
 
+    function completeSimulatedTrade({leagueId,transfers,participatingTeams,actorUserId}) {
+      const simulationId=require('./simulation-guard').requireSimulationRepository(repository,leagueId);
+      const state=currentContext(leagueId),seasonId=state.context.seasonId;
+      const trade={tradeId:randomUUID(),leagueId,seasonId,version:1,status:'SIMULATION_READY',simulationId,initiatingUserId:actorUserId,initiatingTeamId:participatingTeams[0],participatingTeams,transfers,originSubmittedAt:null,history:[],versions:[]};
+      const preview=thisPreview(leagueId,trade);if(!preview.valid)throw Error(preview.errors.join(' '));
+      const submittedAt=timestamp();trade.currentVersion={participatingTeams,transfers:preview.transfers,submittedAt,teams:participatingTeams.map(teamId=>({teamId,coachUserId:state.owners.find(o=>o.teamId===teamId)?.userId,staffTestAuthorized:true})),proof:{latestSubmission:null,rejections:[]}};
+      return {...finalizeTrade(leagueId,trade,actorUserId,true),tradeId:trade.tradeId};
+    }
     return {
+        completeSimulatedTrade,
         createDraft,
+        reconcileOwnership,
+        cancelTrade,
         counterTrade,
         decideGM,
         expireDue,

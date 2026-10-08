@@ -3,7 +3,7 @@ localStorage.removeItem('leaguebuddyAdminKey');
 const key = document.querySelector('#key'); key.value = sessionStorage.getItem('leaguebuddyAdminKey') || '';
 const endpoint = `/api${location.pathname}`;
 let data, draft, latest, dirty = false, busy = false, objectUrls = [];
-let highlightedRow, highlightedIssueCard;
+let highlightedRow, highlightedIssueCard, revisionMode = false, revisionReason = '';
 const fields = ['MIN', 'PTS', 'REB', 'AST', 'STL', 'BLK', 'TO', 'FG', '3PT', 'FT', 'OR', 'FLS'];
 const reviewed = new Set();
 const imageCache = new Map();
@@ -105,6 +105,19 @@ async function render() {
     }); history.append(d);
   } summary.append(history);
   if (!draft) {
+    if (data.game.status === 'FINAL') {
+      const operator = el('input'); operator.placeholder = 'Commissioner name'; operator.maxLength = 100; operator.setAttribute('aria-label', 'Commissioner name');
+      const reason = el('input'); reason.placeholder = 'Reason for reversing this result'; reason.maxLength = 1000; reason.setAttribute('aria-label', 'Reversal reason');
+      const button = el('button', 'Reverse approved result'); let confirmed = false;
+      button.onclick = async () => {
+        if (busy) return;
+        if (!operator.value.trim() || reason.value.trim().length < 5) { status.textContent = 'Enter your commissioner name and a reason of at least five characters.'; return; }
+        if (!confirmed) { confirmed = true; button.textContent = 'Confirm reversal — remove official result'; return; }
+        busy = true; button.disabled = true;
+        try { await api(endpoint.replace(/review$/, 'reverse'), { extractionId: latest.extractionId, operator: operator.value.trim(), revisionReason: reason.value.trim() }); await load(); }
+        catch(error) { status.textContent = error.message; button.disabled = false; } finally { busy = false; }
+      }; summary.append(operator,reason,button);
+    }
     summary.append(el('p', latest?.error || 'No extracted data yet.'));
     for (const [i, media] of (data.media || []).entries()) {
       const card = el('section', null, 'review-card'), original = el('div', null, 'review-original'); card.append(el('h3', `Original screenshot ${i + 1}`)); card.append(original); summary.append(card);
@@ -112,8 +125,17 @@ async function render() {
     }
     return;
   }
-  const locked = !!data.game.locked || data.game.status === 'FINAL';
+  const final = data.game.status === 'FINAL';
+  if (final && latest.revisesExtractionId === data.game.result?.extractionId) { revisionMode = true; revisionReason ||= latest.revisionReason; }
+  const locked = (!!data.game.locked || final) && !revisionMode;
   const operator = el('label', 'Commissioner name'); operator.className = 'review-operator'; const name = el('input'); name.id = 'operator'; name.maxLength = 100; name.required = true; name.placeholder = 'Your name'; name.value = sessionStorage.getItem('leaguebuddyReviewOperator') || ''; operator.append(name, el('small', 'Required so corrections and approval are recorded under your name.')); summary.append(operator);
+  const reasonLabel = el('label', 'Reason for correction, rejection or reversal'), reasonInput = el('input'); reasonInput.maxLength = 1000; reasonInput.value = revisionReason; reasonInput.setAttribute('aria-label', 'Review decision reason'); reasonInput.oninput = () => { revisionReason = reasonInput.value.trim(); }; reasonLabel.append(reasonInput); summary.append(reasonLabel);
+  if (final && locked) {
+    const beginCorrection = el('button', 'Correct approved result'); beginCorrection.type = 'button';
+    beginCorrection.onclick = () => { if (revisionReason.length < 5) { feedback('Enter a reason of at least five characters.', true); reasonInput.focus(); return; } revisionMode = true; render(); };
+    summary.append(beginCorrection);
+  }
+  if (final && revisionMode) summary.append(el('p', 'Correction in progress. The original result remains official until you save, revalidate and approve this correction.'));
   const warningBox = el('section', null, 'review-warnings'); warningBox.id = 'review-issues';
   const issues = latest.issues || [], checks = issues.filter(i => ['UNCERTAIN_FIELD', 'CONFIDENCE'].includes(i.code)).length;
   warningBox.append(el('h3', locked ? 'Game approved' : issues.length ? `${issues.length} items to review` : 'All validation checks passed'));
@@ -202,8 +224,8 @@ async function render() {
     let accepted = false;
     try {
       sessionStorage.setItem('leaguebuddyReviewOperator', name.value.trim());
-      const response = await api(endpoint.replace(/review$/, action), { extractionId: latest.extractionId, operator: name.value.trim(), ...(action === 'correct' ? { input: draft, reviewedPaths: [...reviewed] } : {}) });
-      if (action === 'approve') { const game = await response.json(); accepted = true; dirty = false; approve.textContent = 'APPROVED ✓'; approvalConfirmation(game); }
+      const response = await api(endpoint.replace(/review$/, action), { extractionId: latest.extractionId, operator: name.value.trim(), revisionReason, ...(action === 'correct' ? { input: draft, reviewedPaths: [...reviewed] } : {}) });
+      if (action === 'approve') { const game = await response.json(); accepted = true; dirty = false; revisionMode = false; revisionReason = ''; approve.textContent = 'APPROVED ✓'; approvalConfirmation(game); }
       await load();
       feedback(action === 'approve' ? 'Game approved. Stats and standings are saved.' : latest.issues.length ? `Saved successfully. ${latest.issues.length} items still need review above before approval.` : 'Saved successfully. All checks passed — you can now approve the game.');
       document.querySelector('#action-status')?.scrollIntoView({ block: 'center' });
@@ -211,6 +233,17 @@ async function render() {
     finally { busy = false; }
   }
   save.onclick = () => act('correct'); approve.onclick = () => act('approve'); actions.append(save, approve); actionPanel.append(actions);
+  const decision = el('button', final ? 'Reverse approved result' : 'Reject this submission'); decision.type = 'button';
+  let confirmDecision = false;
+  decision.onclick = async () => {
+    if (busy) return;
+    if (!name.value.trim() || revisionReason.length < 5) { feedback('Enter your commissioner name and a reason of at least five characters.', true); return; }
+    if (!confirmDecision) { confirmDecision = true; decision.textContent = final ? 'Confirm reversal — remove official result' : 'Confirm rejection'; return; }
+    busy = true; decision.disabled = true;
+    try { await api(endpoint.replace(/review$/, final ? 'reverse' : 'reject'), { extractionId: latest.extractionId, operator: name.value.trim(), revisionReason }); revisionMode = false; dirty = false; await load(); feedback(final ? 'Approval reversed. The original result is retained in the audit history; review or resubmit the correct scores.' : 'Submission rejected. Coaches can submit new box scores.'); }
+    catch (error) { feedback(error.message, true); decision.disabled = false; } finally { busy = false; }
+  };
+  actionPanel.append(decision);
   const back = el('a', 'Back to review items'); back.href = '#review-issues'; actionPanel.append(back); summary.append(actionPanel);
   feedback(locked ? 'Game approved.' : issues.length ? 'Approval is unavailable until the review items above are resolved.' : latest.correctedInput ? 'Ready to approve.' : 'Save and revalidate to enable approval.');
   if (locked) summary.append(el('p', 'Final score and stats are saved. Originals and revision history remain preserved.'));

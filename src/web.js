@@ -174,15 +174,16 @@ function sendFile(response, filePath, cacheControl = "no-cache") {
 
 function parseJsonBody(request) {
   return new Promise((resolve, reject) => {
-    const chunks = [];
-    request.on("data", (chunk) => chunks.push(chunk));
+    const chunks = []; let bytes = 0, oversized = false;
+    request.on('data', chunk => { bytes += Buffer.byteLength(chunk); if (bytes > 512000) { oversized = true; reject(new Error('Request body must be 512 KB or smaller.')); } else if (!oversized) chunks.push(chunk); });
     request.on("end", () => {
+      if (oversized) return;
       if (!chunks.length) {
         resolve({});
         return;
       }
       try {
-        resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+        resolve(require('./shared/website-auth').bindWebsiteOperator(request, JSON.parse(Buffer.concat(chunks).toString('utf8'))));
       } catch (error) {
         reject(new Error("Invalid JSON request body."));
       }
@@ -201,13 +202,7 @@ function websiteOperator(body = {}) {
   return operator;
 }
 
-function isAdminRequest(request, url) {
-  const configured = adminKeyValue();
-  if (!configured) return false;
-  const headerValue = String(request.headers["x-leaguebuddy-admin-key"] || "").trim();
-  const queryValue = String(url.searchParams.get("adminKey") || "").trim();
-  return headerValue === configured || queryValue === configured;
-}
+function isAdminRequest(request) { return !!require('./shared/website-auth').websitePrincipal(request); }
 
 function leagueSitePayload() {
   const guildId = process.env.GUILD_ID;
@@ -304,12 +299,26 @@ function boundLeagueContext() {
 let gameThreadRuntime;
 function setGameThreadRuntime(runtime) { gameThreadRuntime = runtime; }
 function setPlayerUpgradeRuntime(runtime) { playerUpgradeRuntime = runtime; }
-function requestHandler(request, response) {
+function unsafeRequestHandler(request, response) {
   const url = new URL(request.url, "http://localhost");
   if (require("./fantasyhq/box-score/review-route").handleBoxScoreReview(request, response, url, {
-    authorized: Boolean(adminKeyValue()) && request.headers["x-leaguebuddy-admin-key"] === adminKeyValue(),
+    authorized: isAdminRequest(request),
     ...(playerUpgradeRuntime?.submissions ? { submissions: playerUpgradeRuntime.submissions } : {}),
   })) return;
+
+  const weeklyTeamMatch = url.pathname.match(/^\/api\/league\/weekly\/([^/]+)$/);
+  if (url.pathname === '/api/league/admin/weekly' || weeklyTeamMatch) {
+    const staff = !weeklyTeamMatch;
+    if (staff && !isAdminRequest(request, url)) { sendJson(response, 403, { error: 'Admin authorization required.' }); return; }
+    if (request.method !== 'GET') { sendJson(response, 405, { error: 'Method not allowed.' }); return; }
+    try {
+      const repository = gameThreadRuntime?.repository || setupService.repository;
+      const service = require('./fantasyhq/weekly-dashboard-service').createWeeklyDashboardService({ repository, ...(playerUpgradeRuntime?.submissions ? { submissions: playerUpgradeRuntime.submissions } : {}) });
+      const guildId = process.env.GUILD_ID;
+      sendJson(response, 200, staff ? service.report(guildId) : service.teamDashboard(guildId, decodeURIComponent(weeklyTeamMatch[1]), false));
+    } catch (error) { sendJson(response, 400, { error: error.message }); }
+    return;
+  }
 
   if (url.pathname === "/api/league/admin/game-cleanup") {
     if (!isAdminRequest(request, url)) { sendJson(response, 403, { error: 'Admin authorization required.' }); return; }
@@ -329,6 +338,30 @@ function requestHandler(request, response) {
         else throw Error('Unknown action.');
       } catch (error) { sendJson(response, 400, { error: error.message }); }
     })(); return;
+  }
+
+  if (url.pathname === '/api/league/admin/backups') {
+    if (!isAdminRequest(request)) { sendJson(response, 403, { error: 'Commissioner website key required.' }); return; }
+    if (request.method !== 'POST') { sendJson(response, 405, { error: 'Use POST to create a backup.' }); return; }
+    (async () => { try {
+      const body = await parseJsonBody(request); websiteOperator(body);
+      const repository = playerUpgradeRuntime?.repository || leagueService.repository;
+      sendJson(response, 200, require('./fantasyhq/storage-safety').createStorageBackup(repository.dataRoot));
+    } catch(error) { sendJson(response, 400, { error: error.message }); } })(); return;
+  }
+  if (url.pathname === '/api/league/admin/playoffs') {
+    if (!isAdminRequest(request, url)) { sendJson(response, 403, { error: 'Admin authorization required.' }); return; }
+    (async () => { try {
+      const service = require('./fantasyhq/season-transition').createSeasonTransitionService({ submissions: gameThreadRuntime?.weekService?.submissions || playerUpgradeRuntime.submissions });
+      if (request.method === 'GET') { sendJson(response,200,service.inspect(process.env.GUILD_ID)); return; }
+      if (request.method !== 'POST') { sendJson(response,405,{error:'Method not allowed.'}); return; }
+      const body = await parseJsonBody(request), operator=websiteOperator(body), context=boundLeagueContext(),principal=require('./shared/website-auth').websitePrincipal(request);
+      if(principal?.operator && principal.operator!==context.league.commissionerUserId)throw Error('Confirm playoffs using the commissioner Discord control. Individual website credentials must be keyed by the commissioner Discord user ID for this action.');
+      const actor = {authorized:true,id:context.league.commissionerUserId,operator};
+      if (body.action === 'prepare') sendJson(response,200,service.prepare(process.env.GUILD_ID,actor));
+      else if (body.action === 'confirm') sendJson(response,200,service.confirm(process.env.GUILD_ID,actor,body.token));
+      else throw Error('Choose prepare or confirm.');
+    } catch(error) { sendJson(response,400,{error:error.message}); } })(); return;
   }
 
   if (url.pathname === "/api/league/admin/week") {
@@ -434,6 +467,20 @@ function requestHandler(request, response) {
     return;
   }
 
+  if (url.pathname === '/api/league/playoffs' && request.method === 'GET') {
+    try {
+      const context=boundLeagueContext(),repository=leagueService.repository;
+      const seasonId=String(url.searchParams.get('season') || context.seasonId);
+      let playoffs=repository.loadPlayoffs(context.league.leagueId,seasonId);
+      const records=require('./fantasyhq/game-submissions').createGameSubmissionService({repository}).records();
+      if(playoffs?.version===2)playoffs=require('./fantasyhq/postseason-service').recalculate(playoffs,records);
+      const games=playoffs?.version===2 ? records.filter(r=>r.game.leagueId===context.league.leagueId&&r.game.seasonId===seasonId&&playoffs.series.some(s=>s.gameIds.includes(r.game.gameId)&&require('./fantasyhq/postseason-service').approvedPostseasonGame(r,playoffs,s))).map(r=>({gameId:r.game.gameId,seriesId:r.game.seriesId,gameNumber:r.game.seriesGameNumber,result:r.game.result,finalizedAt:r.game.finalizedAt})) : [];
+      const archiveRoot=require('path').join(context.paths.leagueRoot,'postseason');
+      const seasons=[...new Set([context.seasonId,...(fs.existsSync(archiveRoot)?fs.readdirSync(archiveRoot).filter(n=>/^[a-zA-Z0-9_-]+\.json$/.test(n)).map(n=>n.slice(0,-5)):[])])];
+      sendJson(response,200,{playoffs,games,seasons,seasonId,championships:repository.loadChampionships(context.league.leagueId).seasons,testMode:repository.loadSettings(context.league.leagueId)?.testMode===true});
+    }catch(error){sendJson(response,400,{error:error.message});}return;
+  }
+
   if (url.pathname === "/api/league/standings" && request.method === "GET") {
     try { const context = boundLeagueContext(); sendJson(response, 200, require('./fantasyhq/standings-service').createStandingsService({ repository: leagueService.repository, publishedOnly: true }).getStandings(context.league.leagueId, context.seasonId)); }
     catch (error) { sendJson(response, 400, { error: error.message }); } return;
@@ -442,7 +489,7 @@ function requestHandler(request, response) {
   if (url.pathname === "/api/league/stats" && request.method === "GET") {
     try {
       const context = boundLeagueContext();
-      sendJson(response, 200, playerStatsService.getSeasonSnapshot(context.league.leagueId, context.seasonId));
+      sendJson(response, 200, createPlayerStatsService({repository:leagueService.repository,publishedOnly:true,scope:require('./fantasyhq/stat-scope').normalizeStatScope(url.searchParams.get('scope') || undefined)}).getSeasonSnapshot(context.league.leagueId,url.searchParams.get('season') || context.seasonId));
     } catch (error) { sendJson(response, 400, { error: error.message || "Unable to load player statistics" }); }
     return;
   }
@@ -450,7 +497,7 @@ function requestHandler(request, response) {
   if (url.pathname === "/api/league/team-stats" && request.method === "GET") {
     try {
       const context = boundLeagueContext();
-      sendJson(response, 200, teamStatsService.getSeasonSnapshot(context.league.leagueId, context.seasonId));
+      sendJson(response, 200, createTeamStatsService({repository:leagueService.repository,publishedOnly:true,scope:require('./fantasyhq/stat-scope').normalizeStatScope(url.searchParams.get('scope') || undefined)}).getSeasonSnapshot(context.league.leagueId,url.searchParams.get('season') || context.seasonId));
     } catch (error) { sendJson(response, 400, { error: error.message || "Unable to load team statistics" }); }
     return;
   }
@@ -459,7 +506,7 @@ function requestHandler(request, response) {
   if (teamStatsGameMatch && request.method === "GET") {
     try {
       const context = boundLeagueContext();
-      const data = teamStatsService.getTeamStatsAndGameLog(context.league.leagueId, context.seasonId, decodeURIComponent(teamStatsGameMatch[1]));
+      const data = createTeamStatsService({repository:leagueService.repository,publishedOnly:true,scope:require('./fantasyhq/stat-scope').normalizeStatScope(url.searchParams.get('scope') || undefined)}).getTeamStatsAndGameLog(context.league.leagueId,url.searchParams.get('season') || context.seasonId, decodeURIComponent(teamStatsGameMatch[1]));
       if (!data) { sendJson(response, 404, { error: "Team not found." }); return; }
       sendJson(response, 200, data);
     } catch (error) { sendJson(response, 400, { error: error.message || "Unable to load team game log" }); }
@@ -471,7 +518,7 @@ function requestHandler(request, response) {
     try {
       const context = boundLeagueContext(), playerId = decodeURIComponent(playerStatsGameMatch[1]);
       const player = playerService.getPlayer(context.league.leagueId, context.seasonId, playerId);
-      const data = playerStatsService.getPlayerStatsAndGameLog(context.league.leagueId, context.seasonId, playerId);
+      const data = createPlayerStatsService({repository:leagueService.repository,publishedOnly:true,scope:require('./fantasyhq/stat-scope').normalizeStatScope(url.searchParams.get('scope') || undefined)}).getPlayerStatsAndGameLog(context.league.leagueId,url.searchParams.get('season') || context.seasonId, playerId);
       sendJson(response, 200, { player: { playerId: player.playerId, name: player.name }, stats: data.stats, games: data.games, warnings: data.warnings });
     } catch (error) { sendJson(response, 404, { error: error.message || "Player game log not found" }); }
     return;
@@ -819,6 +866,15 @@ function requestHandler(request, response) {
   sendFile(response, path.join(WEB_DIR, "index.html"));
 }
 
+function requestHandler(request, response) {
+  try { return unsafeRequestHandler(request, response); }
+  catch (error) {
+    if (!response.headersSent) sendJson(response, error instanceof URIError ? 400 : 500, { error: error instanceof URIError ? 'Invalid URL encoding.' : 'Request could not be completed.' });
+    else response.destroy?.();
+    if (!(error instanceof URIError)) console.error('Website request failed:', error.message);
+  }
+}
+
 function startWebsite({ port = Number(process.env.PORT || 3000), host = "0.0.0.0" } = {}) {
   const server = http.createServer(requestHandler);
   server.on("error", (error) => console.error("Website server error:", error));
@@ -831,5 +887,6 @@ function startWebsite({ port = Number(process.env.PORT || 3000), host = "0.0.0.0
 module.exports = { requestHandler, startWebsite, setGameThreadRuntime, setPlayerUpgradeRuntime };
 
 if (require.main === module) {
+  require('./fantasyhq/storage-safety').acquireWriterLease(require('./fantasyhq/repository').createFantasyHQRepository().dataRoot);
   startWebsite();
 }

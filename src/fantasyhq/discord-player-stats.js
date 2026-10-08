@@ -20,7 +20,7 @@ function createDiscordPlayerStatsHandlers({ repository, playerService, statsServ
             return;
         }
         const embed = new EmbedBuilder().setColor(0xffdc21).setTitle(player.name)
-            .setDescription(`${player.teamName || 'Free Agent'} · Age ${player.age ?? '—'} · Trade Value ${Number(player.tradeValue || 1).toLocaleString('en-US')}\n\nREGULAR SEASON`)
+            .setDescription(`${player.teamName || 'Free Agent'} · Age ${player.age ?? '—'} · Trade Value ${Number(player.tradeValue || 1).toLocaleString('en-US')}\n💵 ${player.contractView?.short || "Contract unavailable"}\n\nREGULAR SEASON`)
             .addFields(
                 { name: 'Games', value: String(stats.GP), inline: true },
                 { name: 'MPG', value: rate(stats.MPG), inline: true },

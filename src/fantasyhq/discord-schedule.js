@@ -123,12 +123,8 @@ async function handleScheduleTeam(interaction) {
 
 async function handleScheduleMine(interaction) {
   const context = setupService.repository.loadLeagueContext({ guildId: interaction.guildId });
-  const owner = setupService.repository.loadOwners(context.league.leagueId)
-    .find((entry) => entry.userId === interaction.user.id);
-  if (!owner) {
-    throw new Error("You do not currently own a team in this league.");
-  }
-  const team = context.teams.find((entry) => entry.teamId === owner.teamId);
+  const identity = require('./coach-identity').requireCoachIdentity(setupService.repository, context, interaction.member, interaction.user.id);
+  const team = identity.team;
   if (!team) {
     throw new Error("Your assigned team could not be found.");
   }

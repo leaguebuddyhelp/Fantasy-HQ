@@ -46,7 +46,7 @@ function dashboardEmbed(dashboard) {
     });
     if (validator.errors.length) embed.addFields({ name: "Needs attention", value: validator.errors.slice(0, 5).join("\n").slice(0, 1024) });
   }
-  embed.addFields({ name: "Discord channel setup", value: "Create / repair channels sets up 17 lb- channels and league roles, repairs the Submit Trade, Trade Counts, Live Mock Draft, Player Upgrades, Standings and Stats pins, and applies coach/GM/staff/committee access. The old schedule channel becomes lb-stats. Other existing channels keep their names and locations." });
+  embed.addFields({ name: "Discord channel setup", value: "Create / repair channels sets up 18 league channels, including Free Agency, and repairs the trade, live mock, upgrades, standings, stats and Free Agency pins. Staff reviews offers and waivers privately. Existing channel names and locations are preserved." });
   return embed;
 }
 
@@ -137,6 +137,7 @@ async function handleLeagueStatus(interaction) {
     row.addComponents(new ButtonBuilder().setCustomId(`setupflow:activate:${context.league.leagueId}`).setLabel("Enter preseason").setStyle(ButtonStyle.Primary).setDisabled(!dashboard.validator.ready));
   }
   if (context.league.currentPhase === PHASES.PRESEASON && canManageLeague(interaction)) row.addComponents(new ButtonBuilder().setCustomId(`setupflow:startseason:${context.league.leagueId}`).setLabel("Start regular season").setStyle(ButtonStyle.Success));
+  if (context.league.currentPhase === PHASES.REGULAR_SEASON && canManageLeague(interaction)) row.addComponents(new ButtonBuilder().setCustomId(`setupflow:week:${context.league.leagueId}`).setLabel('Review week advancement').setStyle(ButtonStyle.Primary));
   await interaction.editReply({ embeds: [dashboardEmbed(dashboard)], components: [row] });
 }
 
@@ -149,8 +150,8 @@ async function handleLeagueSettings(interaction) {
   const requireAllOwners = interaction.options.getBoolean("require_all_owners");
   const playoffTeams = interaction.options.getInteger("playoff_teams");
   const gameDeadlineHours = interaction.options.getInteger("game_deadline_hours");
-  const resultConfirmationRequired = interaction.options.getBoolean("result_confirmation_required");
-  const commissionerApprovalRequired = interaction.options.getBoolean("commissioner_approval_required");
+  const resultConfirmationRequired = null;
+  const commissionerApprovalRequired = null;
 
   if (testMode != null) { updates.testMode = testMode; if (requireAllOwners == null) updates.requireAllOwners = !testMode; }
   if (requireAllOwners != null) updates.requireAllOwners = requireAllOwners;
@@ -175,9 +176,9 @@ async function handleLeagueSettings(interaction) {
         .addFields(
           { name: "Mode", value: settings.testMode === true ? "🧪 Test Mode — staff solo controls enabled" : "Online league — normal permissions", inline: true },
           { name: "Owners", value: settings.requireAllOwners ? "All teams must be claimed" : "Vacant teams allowed", inline: true },
-          { name: "Playoffs", value: `${settings.playoffTeams} teams`, inline: true },
-          { name: "Game deadline", value: `${settings.gameDeadlineHours} hours`, inline: true },
-          { name: "Result checks", value: [settings.resultConfirmationRequired ? "Opponent confirmation required" : "No opponent confirmation", settings.commissionerApprovalRequired ? "Commissioner approval required" : "No commissioner approval"].join("\n") },
+          { name: "Playoffs", value: "8 teams per conference", inline: true },
+          { name: "Game deadline", value: "48 hours", inline: true },
+          { name: "Result checks", value: "Each coach submits their own side. Validated box scores become official; flagged scores require Staff review." },
         ),
     ],
   });
@@ -250,7 +251,7 @@ async function handleTeamRoster(interaction) {
     const player = playerMap.get(membership.playerId);
     const stats = statsByPlayerId.get(membership.playerId);
     const averageLine = stats?.GP ? `${stats.GP} GP · ${stats.PPG.toFixed(1)} PPG · ${stats.RPG.toFixed(1)} RPG · ${stats.APG.toFixed(1)} APG` : "0 GP";
-    return `**${player?.name || "Unknown player"}** · ${player?.overall ?? "—"} OVR · ${[membership.position1, membership.position2].filter(Boolean).join("/") || "—"}${membership.jerseyNumber != null ? ` · #${membership.jerseyNumber}` : ""}\nAge ${player?.age ?? "—"} · Trade Value ${Number(player?.tradeValue || 1).toLocaleString("en-US")} · ${averageLine}`;
+    return `**${player?.name || "Unknown player"}** · ${player?.overall ?? "—"} OVR · ${[membership.position1, membership.position2].filter(Boolean).join("/") || "—"}${membership.jerseyNumber != null ? ` · #${membership.jerseyNumber}` : ""}\nAge ${player?.age ?? "—"} · Trade Value ${Number(player?.tradeValue || 1).toLocaleString("en-US")} · ${averageLine}\n💵 ${player?.contractView?.short || 'Contract unavailable'}`;
   });
   const embed = new EmbedBuilder().setTitle(`${team.teamName} Roster`).setColor(0xffdc21);
   addListFields(embed, "Players", lines.length ? lines : ["No players found."]);

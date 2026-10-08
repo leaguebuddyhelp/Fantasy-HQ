@@ -1,3 +1,4 @@
+const { Collection } = require('discord.js');
 const test = require('node:test'), assert = require('node:assert/strict');
 const { createDiscordTradeBlock } = require('../src/fantasyhq/discord-trade-block');
 function fixture() {
@@ -10,10 +11,10 @@ function fixture() {
     const guild = { id: 'g', channels: { fetch: async id => id === 'parent' ? parent : threads.get(id) }, roles: { fetch: async () => new Map([['r', { id: 'r', name: 'LEAGUEbuddy Coach', managed: false }]]) } };
     const repository = {
         loadLeagueContext: () => ({ league: { leagueId: 'l' }, seasonId: '1', teams: [{ teamId: 'bos', teamName: 'Boston Celtics' }, { teamId: 'nyk', teamName: 'New York Knicks' }] }),
-        loadSettings: () => settings, saveSettings: (_, s) => { settings = s; }, loadOwners: () => [{ teamId: 'bos', userId: 'u1' }],
+        loadRoleOwnership: () => ({ roleIds: { bos: "bos-role", nyk: "nyk-role" } }), loadSettings: () => settings, saveSettings: (_, s) => { settings = s; }, loadOwners: () => [{ teamId: 'bos', userId: 'u1' }],
     };
     const service = createDiscordTradeBlock({ repository, playerService: { listPlayers: () => players } });
-    const replies = [], act = (sub, player, user = 'u1', perms = false) => ({ guild, guildId: 'g', user: { id: user }, member: { displayName: 'Coach', roles: { cache: { some: () => false } } }, memberPermissions: { has: () => perms },
+    const replies = [], act = (sub, player, user = 'u1', perms = false) => ({ guild, guildId: 'g', user: { id: user }, member: { displayName: 'Coach', roles: { cache: new Collection(user === "u1" ? [["bos-role", { id: "bos-role", name: "Boston Celtics" }]] : []) } }, memberPermissions: { has: () => perms },
         options: { getSubcommand: () => sub, getString: () => player, getFocused: () => '' }, editReply: async m => replies.push(m), respond: async c => replies.push(c) });
     return { service, act, sent, deleted, created, replies, guild, setPlayers: v => { players = v; }, settings: () => settings };
 }
@@ -36,7 +37,7 @@ test('autocomplete offers roster players to add and block players to remove; una
     const remove = f.act('remove'); await f.service.handleTradeBlockAutocomplete(remove);
     const [, , , , a, r] = [0, 0, 0, 0, ...f.replies.slice(-2)];
     assert.deepEqual(a.map(c => c.value), ['p2']); assert.deepEqual(r.map(c => c.value), ['p1']);
-    await assert.rejects(() => f.service.handleTradeBlockCommand(f.act('add', 'p1', 'nobody')), /not assigned to a team/);
+    await assert.rejects(() => f.service.handleTradeBlockCommand(f.act('add', 'p1', 'nobody')), /team Coach role/);
 });
 test('setup creates one thread per team (staff only) and the sweep removes traded players', async () => {
     const f = fixture();

@@ -7,7 +7,8 @@ const commands = [
   new SlashCommandBuilder().setName("mockdraft").setDescription("View a private first-round projection for any draft class.")
     .addIntegerOption(option => option.setName("draft_class").setDescription("Choose a draft class; defaults to the current league class.").addChoices(...[1, 2, 3, 4].map(value => ({ name: `2K27 CUS${String(value).padStart(2, '0')}`, value })))),
   new SlashCommandBuilder().setName("week").setDescription("Manage regular-season week advancement.")
-    .addSubcommand(sub => sub.setName("advance").setDescription("Review and confirm completion of the active week.").addBooleanOption(option => option.setName("force").setDescription("Request confirmation to close the week with unresolved games."))),
+    .addSubcommand(sub => sub.setName("advance").setDescription("Review and confirm completion of the active week.").addBooleanOption(option => option.setName("force").setDescription("Request confirmation to close the week with unresolved games.")))
+    .addSubcommand(sub => sub.setName("playoffs").setDescription("Review final standings and confirm playoff seeding after Week 15.")),
   new SlashCommandBuilder().setName("activitycheck").setDescription("Post a 24-hour activity check in the activity check channel."),
   new SlashCommandBuilder().setName("tradeblock").setDescription("Manage your team's trade block.")
     .addSubcommand(sub => sub.setName("add").setDescription("Add a player from your roster to your trade block.").addStringOption(option => option.setName("player").setDescription("Player on your roster.").setRequired(true).setAutocomplete(true)))
@@ -268,17 +269,12 @@ const commands = [
           option.setName("require_all_owners").setDescription("Require all 30 teams to have owners before activation.").setRequired(false),
         )
         .addIntegerOption((option) =>
-          option.setName("playoff_teams").setDescription("Number of playoff teams.").setRequired(false).setMinValue(2).setMaxValue(30),
+          option.setName("playoff_teams").setDescription("Playoff teams per conference (8).").setRequired(false).setMinValue(8).setMaxValue(8),
         )
         .addIntegerOption((option) =>
-          option.setName("game_deadline_hours").setDescription("Game deadline window in hours.").setRequired(false).setMinValue(1),
+          option.setName("game_deadline_hours").setDescription("Regular-season game deadline (48 hours).").setRequired(false).setMinValue(48).setMaxValue(48),
         )
-        .addBooleanOption((option) =>
-          option.setName("result_confirmation_required").setDescription("Require result confirmation.").setRequired(false),
-        )
-        .addBooleanOption((option) =>
-          option.setName("commissioner_approval_required").setDescription("Require commissioner approval.").setRequired(false),
-        ),
+,
     ),
   new SlashCommandBuilder()
     .setName("roster")

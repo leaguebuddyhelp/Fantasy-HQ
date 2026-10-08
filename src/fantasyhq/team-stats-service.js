@@ -21,25 +21,25 @@ function percentage(makes, attempts) {
     return attempts > 0 ? 100 * makes / attempts : null;
 }
 
-function createTeamStatsService({ repository, submissions, standingsService, publishedOnly = false } = {}) {
+function createTeamStatsService({ repository, submissions, standingsService, publishedOnly = false, scope = 'REGULAR_SEASON' } = {}) {
     submissions ||= createGameSubmissionService(repository ? { repository } : {});
     repository ||= submissions.repository || createFantasyHQRepository();
-    standingsService ||= createStandingsService({ repository, submissions, publishedOnly });
+    standingsService ||= createStandingsService({ repository, submissions, publishedOnly, scope });
 
     function buildSnapshot(leagueId, seasonId) {
         const context = repository.loadLeague(leagueId, seasonId), resolvedSeason = context.seasonId;
         const records = submissions.records();
         const schedule = repository.scheduleExists(leagueId, resolvedSeason) ? repository.loadSchedule(leagueId, resolvedSeason) : null;
-        const official = (publishedOnly ? publishedRegularGames : officialRegularGames)(records, { leagueId, seasonId: resolvedSeason, schedule });
+        const official = require('./stat-scope').officialScopeGames(records,{repository,leagueId,seasonId:resolvedSeason,schedule,publishedOnly,scope});
         const standings = standingsService.getStandings(leagueId, resolvedSeason, records, schedule);
         const teams = Object.values(standings.conferences).flat().map(team => ({
             ...team,
             PTS: team.PF,
             PTS_ALLOWED: team.PA,
-            PPG: team.GP ? team.PF / team.GP : 0,
-            OPP_PPG: team.GP ? team.PA / team.GP : 0,
+            PPG: team.scoringGP ? team.PF / team.scoringGP : 0,
+            OPP_PPG: team.scoringGP ? team.PA / team.scoringGP : 0,
             TOTAL_DIFF: team.DIFF,
-            AVG_DIFF: team.GP ? (team.PF - team.PA) / team.GP : 0,
+            AVG_DIFF: team.scoringGP ? (team.PF - team.PA) / team.scoringGP : 0,
             totals: { ...emptyTeamTotals(), PTS: team.PF, PTS_ALLOWED: team.PA },
         }));
         const totalsByTeam = new Map(teams.map(team => [team.teamId, team.totals]));
@@ -77,6 +77,7 @@ function createTeamStatsService({ repository, submissions, standingsService, pub
             }
             for (const teamId of teamIds) {
                 const totals = totalsByTeam.get(teamId);
+                if (game.result?.type === 'FORFEIT') { logsByTeam.get(teamId).push({ gameId: game.gameId, submissionId: game.result.submissionId, week: game.weekNumber, date: game.inGameDate || null, teamId, opponentId: teamIds.find(id => id !== teamId), opponent: context.teams.find(t => t.teamId !== teamId && teamIds.includes(t.teamId))?.teamName, result: game.result.winnerTeamId === teamId ? 'W' : 'L', score: 'Forfeit', administrative: true }); continue; }
                 const opponentId = teamIds.find(id => id !== teamId), scores = game.result?.scores || {};
                 const points = numeric(scores[teamId], true), allowed = numeric(scores[opponentId], true);
                 if (points === null || allowed === null || points === allowed) continue;
@@ -86,7 +87,8 @@ function createTeamStatsService({ repository, submissions, standingsService, pub
                 const log = {
                     gameId: game.gameId,
                     submissionId: game.result?.submissionId || null,
-                    week: Number(game.weekNumber),
+                    week: Number(game.weekNumber || game.seriesGameNumber),
+                    stage: game.stage || null,
                     date: game.inGameDate || null,
                     teamId,
                     teamName,
@@ -123,11 +125,11 @@ function createTeamStatsService({ repository, submissions, standingsService, pub
             team.PTS = team.PF;
             team.PTS_ALLOWED = team.PA;
             team.OREB = totals.OR;
-            team.RPG = team.GP ? totals.REB / team.GP : 0;
-            team.APG = team.GP ? totals.AST / team.GP : 0;
-            team.SPG = team.GP ? totals.STL / team.GP : 0;
-            team.BPG = team.GP ? totals.BLK / team.GP : 0;
-            team.TOV = team.GP ? totals.TO / team.GP : 0;
+            team.RPG = team.scoringGP ? totals.REB / team.scoringGP : 0;
+            team.APG = team.scoringGP ? totals.AST / team.scoringGP : 0;
+            team.SPG = team.scoringGP ? totals.STL / team.scoringGP : 0;
+            team.BPG = team.scoringGP ? totals.BLK / team.scoringGP : 0;
+            team.TOV = team.scoringGP ? totals.TO / team.scoringGP : 0;
             team.FGPercent = percentage(totals.FGM, totals.FGA);
             team.threePPercent = percentage(totals['3PM'], totals['3PA']);
             team.FTPercent = percentage(totals.FTM, totals.FTA);

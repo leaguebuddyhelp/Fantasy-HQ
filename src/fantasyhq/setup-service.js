@@ -38,7 +38,7 @@ function defaultSettings(league) {
       conferenceFinals: 7,
       finals: 7,
     },
-    gameDeadlineHours: 168,
+    gameDeadlineHours: 48,
     resultConfirmationRequired: true,
     commissionerApprovalRequired: false,
     requireAllOwners: true,
@@ -266,6 +266,9 @@ function createSetupService(options = {}) {
   function updateSettings({ leagueId, seasonId, actingUserId, updates }) {
     const context = repository.loadLeague(leagueId, seasonId);
     requirePhase(context.league, PHASES.SETUP);
+    if (updates.playoffTeams != null && updates.playoffTeams !== 8) throw Error('The league sends eight teams per conference to the playoffs.');
+    if (updates.gameDeadlineHours != null && updates.gameDeadlineHours !== 48) throw Error('The regular-season deadline is 48 hours.');
+    if ('resultConfirmationRequired' in updates) throw Error('Result confirmation settings are retired; both coach-submitted sides and box-score validation are required.');
     const current = repository.loadSettings(leagueId) || defaultSettings(context.league);
     const next = {
       ...current,
@@ -388,6 +391,8 @@ function createSetupService(options = {}) {
     if (!validation.ready) {
       throw new Error(`League is not ready to activate:\n${validation.errors.join("\n")}`);
     }
+    if(!repository.loadDraftPicks(leagueId).length)require('./trade-service').createTradeService({repository}).initializeDraftPicks({leagueId,seasonId:context.seasonId,actingUserId});
+    require('./league-reset-service').createLeagueResetService({repository}).saveBase(leagueId,{id:actingUserId,staffAuthorized:true},'Original roster at setup completion',true);
     const nextLeague = repository.saveLeague(leagueId, {
       ...context.league,
       currentPhase: PHASES.PRESEASON,

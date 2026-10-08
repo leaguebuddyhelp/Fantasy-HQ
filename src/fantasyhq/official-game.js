@@ -7,6 +7,7 @@ function officialRegularGame(record, { leagueId, seasonId, schedule }) {
     if (submission?.status !== 'FINAL' || extraction?.status !== 'READY_FOR_REVIEW' || !Array.isArray(extraction.issues) || extraction.issues.length) return false;
     const week = schedule?.weeks.find(w => w.week === g.weekNumber && w.weekId === g.weekId);
     if (!week || g.weekNumber < 1 || g.weekNumber > 15 || !week.games.some(m => m.team1Id === g.team1Id && m.team2Id === g.team2Id)) return false;
+    if (result.type === 'FORFEIT') return submission.mode === 'STAFF_ADMIN' && !!result.administrative?.approvedBy && [g.team1Id, g.team2Id].includes(result.winnerTeamId);
     const a = result.scores?.[g.team1Id], b = result.scores?.[g.team2Id];
     return g.team1Id !== g.team2Id && [a, b].every(n => Number.isInteger(n) && n >= 0) && a !== b;
 }
@@ -30,8 +31,11 @@ function publishedRegularGame(record, scope) {
     return publication ? publication.gameIds.includes(record.game.gameId) : scope.schedule.weeks.some(w => w.weekId === record.game.weekId && w.status === 'COMPLETED');
 }
 function publishedRegularGames(records, scope) {
-    const candidates = (records || []).filter(r => publishedRegularGame(r, scope));
+    const candidates = (scope.schedule?.statsPublication?.snapshots || records || []).filter(r => publishedRegularGame(r, scope));
     return officialRegularGames(candidates, scope);
+}
+function publicationSnapshot(records) {
+    return records.map(r => ({ game: structuredClone(r.game), submissions: r.submissions.filter(s => s.submissionId === r.game.result.submissionId).map(s => ({ submissionId: s.submissionId, status: s.status, mode: s.mode })), extractions: r.extractions.filter(e => e.extractionId === r.game.result.extractionId).map(e => ({ extractionId: e.extractionId, submissionId: e.submissionId, status: e.status, issues: e.issues })), playerGameStats: structuredClone(r.playerGameStats || []), teamGameStats: structuredClone(r.teamGameStats || []), dnpPlayers: structuredClone(r.dnpPlayers || []) }));
 }
 function initializeStatsPublication(repository, records, guildId) {
     const binding = repository.loadGuildLeagueBinding(guildId);
@@ -39,9 +43,10 @@ function initializeStatsPublication(repository, records, guildId) {
     const context = repository.loadLeagueContext({ guildId });
     if (!repository.scheduleExists(context.league.leagueId, context.seasonId)) return;
     const schedule = repository.loadSchedule(context.league.leagueId, context.seasonId);
-    if (schedule.statsPublication) return;
+    if (schedule.statsPublication?.snapshots) return;
     const scope = { leagueId: context.league.leagueId, seasonId: context.seasonId, schedule };
-    schedule.statsPublication = { throughWeek: publishedThroughWeek(schedule), publishedAt: new Date().toISOString(), gameIds: publishedRegularGames(records, scope).games.map(r => r.game.gameId) };
+    const games = publishedRegularGames(records, scope).games;
+    schedule.statsPublication = { snapshots: publicationSnapshot(games), throughWeek: publishedThroughWeek(schedule), publishedAt: new Date().toISOString(), gameIds: games.map(r => r.game.gameId) };
     repository.saveSchedule(schedule);
 }
-module.exports = { officialRegularGame, officialRegularGames, publishedRegularGame, publishedRegularGames, publishedThroughWeek, initializeStatsPublication };
+module.exports = { publicationSnapshot, officialRegularGame, officialRegularGames, publishedRegularGame, publishedRegularGames, publishedThroughWeek, initializeStatsPublication };

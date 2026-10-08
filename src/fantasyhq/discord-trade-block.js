@@ -14,11 +14,8 @@ function createDiscordTradeBlock({ repository, playerService }) {
     function save(leagueId, block) {
         repository.saveSettings(leagueId, { ...(repository.loadSettings(leagueId) || {}), tradeBlock: block });
     }
-    function coachTeam(ctx, userId) {
-        const owner = repository.loadOwners(ctx.leagueId).find(entry => entry.userId === String(userId));
-        const team = owner && ctx.teams.find(entry => entry.teamId === owner.teamId);
-        if (!team) throw Error('You are not assigned to a team.');
-        return team;
+    function coachTeam(ctx, interaction) {
+        return require('./coach-identity').requireCoachIdentity(repository, ctx, interaction.member, interaction.user.id).team;
     }
     async function parentChannel(guild, leagueId) {
         const id = repository.loadSettings(leagueId)?.discordChannels?.tradeBlock;
@@ -49,7 +46,7 @@ function createDiscordTradeBlock({ repository, playerService }) {
         return playerService.listPlayers(ctx.leagueId, ctx.seasonId).filter(player => player.teamId === teamId);
     }
     async function add(interaction) {
-        const ctx = context(interaction.guildId), team = coachTeam(ctx, interaction.user.id);
+        const ctx = context(interaction.guildId), team = coachTeam(ctx, interaction);
         const player = ownedPlayers(ctx, team.teamId).find(entry => entry.playerId === interaction.options.getString('player', true));
         if (!player) throw Error('That player is not on your roster.');
         if (load(ctx.leagueId).entries.some(entry => entry.teamId === team.teamId && entry.playerId === player.playerId)) throw Error(`${player.name} is already on your trade block.`);
@@ -70,7 +67,7 @@ function createDiscordTradeBlock({ repository, playerService }) {
         save(leagueId, { ...fresh, entries: fresh.entries.filter(item => !(item.teamId === entry.teamId && item.playerId === entry.playerId)) });
     }
     async function remove(interaction) {
-        const ctx = context(interaction.guildId), team = coachTeam(ctx, interaction.user.id), playerId = interaction.options.getString('player', true);
+        const ctx = context(interaction.guildId), team = coachTeam(ctx, interaction), playerId = interaction.options.getString('player', true);
         const entry = load(ctx.leagueId).entries.find(item => item.teamId === team.teamId && item.playerId === playerId);
         if (!entry) throw Error('That player is not on your trade block.');
         await dropEntry(interaction.guild, ctx.leagueId, entry);
@@ -86,7 +83,7 @@ function createDiscordTradeBlock({ repository, playerService }) {
     }
     async function handleTradeBlockAutocomplete(interaction) {
         try {
-            const ctx = context(interaction.guildId), team = coachTeam(ctx, interaction.user.id);
+            const ctx = context(interaction.guildId), team = coachTeam(ctx, interaction);
             const focused = String(interaction.options.getFocused() || '').toLowerCase(), sub = interaction.options.getSubcommand();
             const onBlock = new Set(load(ctx.leagueId).entries.filter(entry => entry.teamId === team.teamId).map(entry => entry.playerId));
             const choices = ownedPlayers(ctx, team.teamId).filter(player => (sub === 'remove') === onBlock.has(player.playerId) && (!focused || player.name.toLowerCase().includes(focused)))

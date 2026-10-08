@@ -40,6 +40,7 @@ function submissionPayload({ game, submission, media, teamId }) {
   };
 }
 function gamePayload(game, activity) {
+  const label = game.seriesId ? `${game.stage.replaceAll('_',' ')} · GAME ${game.seriesGameNumber}` : `WEEK ${game.weekNumber}`;
   const approved = game.status === "FINAL" && !!game.finalizedAt && !!game.result?.scores;
   const dateRow = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`gamedate:${game.gameId}`).setLabel(game.inGameDate ? "Edit game date" : "Set game date").setStyle(ButtonStyle.Primary).setDisabled(game.status === 'FINAL'));
   const forfeit = (teamId, name) => {
@@ -49,24 +50,21 @@ function gamePayload(game, activity) {
   };
   const payload = {
     content: [...new Set([...(game.teamRoleIds || []), ...(game.staffRoleIds || [])])].map(id => `<@&${id}>`).join(" "), embeds: [new EmbedBuilder().setColor(approved ? 0x35a76f : 0xffdc21)
-      .setTitle(approved ? `✅ GAME APPROVED · WEEK ${game.weekNumber}` : `WEEK ${game.weekNumber} MATCHUP`)
+      .setTitle(approved ? `✅ GAME APPROVED · ${label}` : `${label} MATCHUP`)
       .addFields({ name: "NBA 2K GAME DATE", value: game.inGameDate ? `**${require("./game-date").formatGameDate(game.inGameDate)}**` : "**Not set — click Set game date to unlock the game buttons.**" })
-      .setDescription(`**${teamLabel(game.team1Name)}**\nvs\n**${teamLabel(game.team2Name)}**\n\n${(game.coachUserIds || []).map(id => `<@${id}>`).join(' · ')}${game.deadlineAt ? `\n\nWeek ${game.weekNumber} Deadline: <t:${Math.floor(Date.parse(game.deadlineAt) / 1000)}:F>\nTime Remaining: <t:${Math.floor(Date.parse(game.deadlineAt) / 1000)}:R>` : ''}\n\nUse this thread to schedule your game. Coaches submit their own box score; Staff Submit accepts both screenshots. Fair Sim requires both coaches or staff approval. Forfeit buttons name the team receiving the win. Decisions never replace validated box scores.\n\n${game.matchupType ? 'Matchup: ' + game.matchupType.replaceAll('_', ' ') + '\n' : ''}${game.matchupDecision ? 'Decision: ' + game.matchupDecision.type.replaceAll('_', ' ') + (game.matchupDecision.confirmed ? ' confirmed' : ' pending') + '\n' : ''}Status: **${approved ? "✅ APPROVED — OFFICIAL FINAL" : activity?.status || (game.status === 'FINAL' ? 'FINAL' : 'NOT PLAYED')}**${activity ? '\n\n' + require('./game-activity').activityLines(activity) : ''}`)],
+      .setDescription(`**${teamLabel(game.team1Name)}**\nvs\n**${teamLabel(game.team2Name)}**\n\n${(game.coachUserIds || []).map(id => `<@${id}>`).join(' · ')}${game.deadlineAt ? `\n\n${label} Deadline: <t:${Math.floor(Date.parse(game.deadlineAt) / 1000)}:F>\nTime Remaining: <t:${Math.floor(Date.parse(game.deadlineAt) / 1000)}:R>` : ''}\n\nUse this thread to schedule your game. Coaches submit their own box score; Staff tools contains submission and recovery controls. Fair Sim requires both coaches or staff approval. Forfeit buttons name the team receiving the win. Staff-approved forfeits record wins and losses without player statistics.\n\n${game.matchupType ? 'Matchup: ' + game.matchupType.replaceAll('_', ' ') + '\n' : ''}${game.matchupDecision ? 'Decision: ' + game.matchupDecision.type.replaceAll('_', ' ') + (game.matchupDecision.confirmed ? ' confirmed' : ' pending') + '\n' : ''}Status: **${approved ? "✅ APPROVED — OFFICIAL FINAL" : activity?.status || (game.status === 'FINAL' ? 'FINAL' : 'NOT PLAYED')}**${activity ? '\n\n' + require('./game-activity').activityLines(activity) : ''}`)],
     components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`gamesubmit:${game.gameId}`)
       .setLabel("Submit Score").setStyle(ButtonStyle.Primary).setDisabled(game.status === "FINAL"),
-      new ButtonBuilder().setCustomId(`gamestaff:${game.gameId}`).setLabel("Staff Submit").setStyle(ButtonStyle.Secondary).setDisabled(game.status === "FINAL"),
-      new ButtonBuilder().setCustomId(`gameextract:${game.gameId}:latest`).setLabel("Process stored box scores").setStyle(ButtonStyle.Secondary).setDisabled(game.status === "FINAL")),
+      new ButtonBuilder().setCustomId(`gametools:${game.gameId}`).setLabel("Staff tools").setStyle(ButtonStyle.Secondary)),
     new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId(`gamedecision:fair:${game.gameId}`).setLabel('Fair Sim').setEmoji('⚖️').setStyle(ButtonStyle.Secondary).setDisabled(game.status === 'FINAL'),
       forfeit(game.team1Id, game.team1Name), forfeit(game.team2Id, game.team2Name),
       new ButtonBuilder().setCustomId(`gamedecision:cpu:${game.gameId}`).setLabel('CPU').setEmoji('🤖').setStyle(ButtonStyle.Secondary)
     )], allowedMentions: { parse: [] }
   };
-  if (game.testMode === true && game.status !== 'FINAL') payload.components.push(new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`gametest:${game.gameId}:${game.team1Id}`).setLabel(`🧪 Test as ${game.team1Name}`.slice(0, 80)).setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId(`gametest:${game.gameId}:${game.team2Id}`).setLabel(`🧪 Test as ${game.team2Name}`.slice(0, 80)).setStyle(ButtonStyle.Secondary)));
-  if (approved) payload.embeds[0].addFields({ name: "✅ APPROVED FINAL SCORE", value: `${teamLabel(game.team1Name)} **${game.result.scores[game.team1Id]}**\n${teamLabel(game.team2Name)} **${game.result.scores[game.team2Id]}**\n📊 Stats and standings recorded · 🔒 Submissions closed` });
-  payload.components = game.inGameDate ? [dateRow, ...payload.components] : [dateRow];
+  if (approved && game.result.type === 'FORFEIT') { payload.components = []; payload.embeds[0].addFields({ name: 'OFFICIAL FORFEIT', value: `${game.result.winnerTeamId === game.team1Id ? game.team1Name : game.team2Name} wins · no player statistics or scoring averages` }); return payload; }
+  if (approved) payload.embeds[0].addFields({ name: "✅ APPROVED FINAL SCORE", value: `${teamLabel(game.team1Name)} **${game.result.scores[game.team1Id]}**\n${teamLabel(game.team2Name)} **${game.result.scores[game.team2Id]}**\n${game.seriesId ? '📊 Official postseason statistics updated' : '📊 Result recorded · Stats and standings publish when the week advances'} · 🔒 Submissions closed` });
+  payload.components = game.status === 'FINAL' ? [] : game.inGameDate ? [dateRow, ...payload.components] : [dateRow];
   return payload;
 }
 function createDiscordGameSubmissions(service = createGameSubmissionService(), options = {}) {
@@ -103,7 +101,18 @@ function createDiscordGameSubmissions(service = createGameSubmissionService(), o
     try {
       const [action, gameId, submissionId] = interaction.customId.split(":");
       if (action !== "gamecancel" && !service.load(gameId).game.inGameDate) throw Error("Set the NBA 2K game date in the matchup message first.");
-      if (action === "gameextract") {
+      if (action === "gametools") {
+        requireLeagueStaff(interaction);
+        service.authorizeExtraction(gameId, actor(interaction, interaction.user.id), true);
+        const game = service.load(gameId).game;
+        const components = [new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId(`gamestaff:${gameId}`).setLabel("Submit both box scores").setStyle(ButtonStyle.Primary),
+          new ButtonBuilder().setCustomId(`gameextract:${gameId}:latest`).setLabel("Process stored box scores").setStyle(ButtonStyle.Secondary))];
+        if (game.testMode === true) components.push(new ActionRowBuilder().addComponents(
+          ...[[game.team1Id, game.team1Name], [game.team2Id, game.team2Name]].map(([id, name]) =>
+            new ButtonBuilder().setCustomId(`gametest:${gameId}:${id}`).setLabel(`🧪 Test as ${name}`.slice(0, 80)).setStyle(ButtonStyle.Secondary))));
+        await interaction.editReply({ content: "Staff tools · this game only. Test controls still recheck Test Mode and coach ownership when used.", components });
+      } else if (action === "gameextract") {
         service.authorizeExtraction(gameId, actor(interaction, interaction.user.id), canManageLeague(interaction));
         await interaction.editReply("Processing the stored screenshots…");
         const targetId = submissionId === "latest" ? service.load(gameId).submissions

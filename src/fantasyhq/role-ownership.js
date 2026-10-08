@@ -1,3 +1,4 @@
+const { STAFF_ROLES } = require('./discord-permissions');
 const fs = require("fs");
 const path = require("path");
 const { createFantasyHQRepository } = require("./repository");
@@ -15,7 +16,7 @@ function createRoleOwnershipService(repository = createFantasyHQRepository(), op
   }
   function stateFile(context) { return path.join(context.paths.leagueRoot, "role-ownership.json"); }
   function readState(context) {
-    try { return JSON.parse(fs.readFileSync(stateFile(context), "utf8")); } catch { return { roleIds: {}, conflicts: [] }; }
+    try { const state=JSON.parse(fs.readFileSync(stateFile(context), 'utf8')); if(!state || typeof state !== 'object' || Array.isArray(state))throw Error('Invalid role ownership schema.'); return state; } catch(error) { if(error.code==='ENOENT')return {roleIds:{},conflicts:[]}; throw Error('Role ownership storage is unreadable. Restore or repair it before syncing Discord roles.'); }
   }
   async function snapshot(guild) {
     const context = repository.loadLeagueContext({ guildId: guild.id });
@@ -66,14 +67,17 @@ function createRoleOwnershipService(repository = createFantasyHQRepository(), op
     repository.saveOwners(context.league.leagueId, records);
     repository.saveTeams(context.league.leagueId, context.teams.map((team) => ({ ...team, assignedUserId: owners.find((entry) => entry.teamId === team.teamId)?.userId || null })));
     if (changed) repository.appendAuditLog(context.league.leagueId, { action: "owners.roles.synced", userId: "discord-roles", timestamp: now, metadata: { owners, conflicts } });
+    const staffRoleIds = new Set([...roles.values()].filter(role => STAFF_ROLES.has(role.name)).map(role => role.id));
+    const staffUserIds = [...members.values()].filter(member => !member.user.bot && [...staffRoleIds].some(id => member.roles.cache.has(id))).map(member => member.id);
     const warnings = [];
     if (ownerChangeHandler) {
       const upgradeState = repository.loadPlayerUpgradeState(context.league.leagueId);
-      if (changed || !upgradeState?.ownershipInitialized) {
+      if (changed || !upgradeState?.ownershipInitialized || state.ownerWorkflowSignature !== JSON.stringify(records.map(({teamId,userId})=>({teamId,userId})).sort((a,b)=>a.teamId.localeCompare(b.teamId)))) {
         try {
-          await ownerChangeHandler({ leagueId: context.league.leagueId, seasonId: context.seasonId, phase: context.league.currentPhase, previousOwners: previous, owners: records });
+          await ownerChangeHandler({ leagueId: context.league.leagueId, seasonId: context.seasonId, phase: context.league.currentPhase, previousOwners: previous, owners: records, staffUserIds, staffRoleIds: [...staffRoleIds] });
+          state.ownerWorkflowSignature = JSON.stringify(records.map(({teamId,userId})=>({teamId,userId})).sort((a,b)=>a.teamId.localeCompare(b.teamId)));
         } catch (error) {
-          warnings.push(`Player upgrade coach history needs attention: ${error.message}`);
+          warnings.push(`Coach ownership workflows need attention: ${error.message}`);
         }
       }
     }
@@ -90,10 +94,8 @@ function createRoleOwnershipService(repository = createFantasyHQRepository(), op
         } catch { warnings.push(`Could not update Coach role for ${member.id}. Check Manage Roles and role hierarchy.`); }
       }
     }
-    fs.writeFileSync(stateFile(context), JSON.stringify({ ...state, guildId: guild.id, conflicts, warnings, syncedAt: now }, null, 2));
-    const { STAFF_ROLES } = require('./discord-permissions');
-    const staffRoleIds = new Set([...roles.values()].filter(role => STAFF_ROLES.has(role.name)).map(role => role.id));
-    const staffUserIds = [...members.values()].filter(member => !member.user.bot && [...staffRoleIds].some(id => member.roles.cache.has(id))).map(member => member.id);
+    repository.saveRoleOwnership(context.league.leagueId, { ...state, guildId: guild.id, conflicts, warnings, syncedAt: now });
+
     return { owners: records.length, conflicts, warnings, staffUserIds, staffRoleIds: [...staffRoleIds], teamRoleIds: { ...state.roleIds }, teamMemberIds: Object.fromEntries(context.teams.map(team => [team.teamId, [...members.values()].filter(member => !member.user.bot && member.roles.cache.has(state.roleIds[team.teamId])).map(member => member.id)])) };
   }
   function sync(guild) { return serial(guild, () => reconcile(guild)); }
@@ -127,8 +129,19 @@ function createRoleOwnershipService(repository = createFantasyHQRepository(), op
       return reconcile(guild);
     });
   }
+  async function refreshActor(guild, member) {
+    if (!guild || !member?.id || member.user?.bot || !repository.loadGuildLeagueBinding(guild.id)) return;
+    memberSnapshots.update(guild.id, member);
+    const context = repository.loadLeagueContext({ guildId: guild.id });
+    const state = readState(context);
+    const { memberTeamIds } = require('./coach-identity');
+    const held = memberTeamIds(repository, context, member).sort();
+    const assigned = repository.loadOwners(context.league.leagueId).filter(owner => owner.userId === member.id).map(owner => owner.teamId).sort();
+    const mappingsMissing = context.teams.some(team => !Object.hasOwn(state.roleIds || {}, team.teamId));
+    if (mappingsMissing || JSON.stringify(held) !== JSON.stringify(assigned)) await sync(guild);
+  }
   function setOwnerChangeHandler(handler) { ownerChangeHandler = typeof handler === "function" ? handler : null; }
-  return { sync, setOwner, setOwnerChangeHandler, runExclusive: serial, updateMember: memberSnapshots.update, invalidateMembers: memberSnapshots.invalidate };
+  return { sync, refreshActor, setOwner, setOwnerChangeHandler, runExclusive: serial, updateMember: memberSnapshots.update, invalidateMembers: memberSnapshots.invalidate };
 }
 const roleOwnership = createRoleOwnershipService();
 module.exports = { createRoleOwnershipService, roleOwnership };

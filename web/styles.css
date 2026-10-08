@@ -2993,3 +2993,20 @@ footer strong {
 .review-approval-dialog p {
   line-height: 1.6;
 }
+.weekly-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 16px 0; }
+.weekly-links { display: flex; flex-wrap: wrap; gap: 12px; }
+.weekly-action { display: inline-block; color: var(--yellow); margin: 6px 10px 6px 0; }
+#staff-weekly[hidden] { display: none; }
+#staff-weekly .standings-table { min-width: 620px; }
+@media (max-width: 600px) { .weekly-summary { grid-template-columns: 1fr; } }
+
+.stats-scope-controls { display:flex; flex-wrap:wrap; gap:1rem; margin-bottom:1rem; }
+.postseason-rounds { display:grid; grid-template-columns:repeat(4,minmax(220px,1fr)); gap:1rem; overflow-x:auto; padding-bottom:1rem; }
+.postseason-round h4 { font-size:.8rem; }
+.postseason-matchup { background:var(--panel, #17191f); border:1px solid #444; border-radius:12px; padding:1rem; margin-bottom:1rem; }
+.postseason-team { display:flex; align-items:center; gap:.5rem; margin:.7rem 0; }
+.postseason-team img { width:28px; height:28px; object-fit:contain; }
+.postseason-team strong { margin-left:auto; }
+.series-winner { color:#ffdc21; font-weight:700; }
+.postseason-matchup small { display:block; margin-bottom:.5rem; }
+@media(max-width:650px) { .postseason-rounds { grid-template-columns:1fr; overflow-x:visible; } }

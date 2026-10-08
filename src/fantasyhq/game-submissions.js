@@ -46,23 +46,40 @@ function createGameSubmissionService(options = {}) {
     return path.join(root, gameId);
   }
   function load(gameId) {
-    return JSON.parse(fs.readFileSync(path.join(directory(gameId), "record.json"), "utf8"));
+    const record = JSON.parse(fs.readFileSync(path.join(directory(gameId), 'record.json'), 'utf8'));
+    if (!record?.game || record.game.gameId !== gameId || !Array.isArray(record.submissions) || ['media','extractions','playerGameStats','teamGameStats','dnpPlayers','resultRevisions'].some(key => key in record && !Array.isArray(record[key]))) throw Error('Invalid game record schema. Original storage was preserved.');
+    return record;
   }
   function save(record) {
     const dir = directory(record.game.gameId);
+    require('./storage-safety').assertWriterLease(path.join(dir, 'record.json'));
     fs.mkdirSync(dir, { recursive: true });
     const temp = path.join(dir, `record-${randomUUID()}.tmp`);
     fs.writeFileSync(temp, JSON.stringify(record, null, 2));
     fs.renameSync(temp, path.join(dir, "record.json"));
   }
+  let storageWarnings = [];
   function records() {
-    return fs.existsSync(root) ? fs.readdirSync(root).filter(id => /^[a-f0-9-]{36}$/.test(id)).map(load) : [];
+    storageWarnings = [];
+    const result = [];
+    for (const id of fs.existsSync(root) ? fs.readdirSync(root).filter(id => /^[a-f0-9-]{36}$/.test(id)) : []) {
+      try { const record = load(id); if (!record?.game || record.game.gameId !== id || !Array.isArray(record.submissions)) throw Error('Invalid game record schema.'); result.push(record); }
+      catch (error) { storageWarnings.push({ gameId: id, file: path.join(directory(id), 'record.json'), error: error.message }); }
+    }
+    return result;
   }
+  function storageIssues() { records(); return structuredClone(storageWarnings); }
   function findThread(guildId, threadId) {
-    return records().find(r => r.game.guildId === guildId && r.game.discordThreadId === threadId);
+    return records().filter(r => r.game.guildId === guildId && r.game.discordThreadId === threadId).sort((a,b) => (b.game.seriesGameNumber || 0) - (a.game.seriesGameNumber || 0))[0];
   }
   function check(record, { guildId, discordThreadId, userId, privateThread, staff = false }) {
     const game = record.game;
+    if(repository.loadLeague(game.leagueId).seasonId!==String(game.seasonId))throw Error('This game belongs to an archived season. Use the active season game thread.');
+    if (game.seriesId) {
+      const state = require('./postseason-service').createPostseasonService({repository,submissions:{records,load}}).inspect(game.leagueId);
+      const series = state.series.find(s => s.id === game.seriesId);
+      if (state.conflicts.length || state.stage !== game.stage || series?.winnerTeamId || series?.gameIds.at(-1) !== game.gameId) throw Error('This postseason game is not open for submissions.');
+    }
     if (!privateThread || game.guildId !== guildId || game.discordThreadId !== discordThreadId) {
       throw new Error("Use Submit Game in this game's private thread.");
     }
@@ -104,6 +121,22 @@ function createGameSubmissionService(options = {}) {
       }, submissions: [], media: []
     };
     save(record);
+    return record;
+  }
+  function ensurePostseasonGame({leagueId, seriesId, guildId, discordThreadId = null}) {
+    const context = repository.loadLeague(leagueId);
+    const service = require('./postseason-service').createPostseasonService({repository,submissions:{records,load}});
+    const state = service.inspect(leagueId), series = state.series.find(s => s.id === seriesId && s.stage === state.stage);
+    if (!series || series.winnerTeamId || state.conflicts.length || context.league.guildId && context.league.guildId !== guildId) throw Error('A valid active postseason series is required.');
+    const last = series.gameIds.at(-1) && load(series.gameIds.at(-1));
+    if (last && last.game.status !== 'FINAL') return last;
+    const number = series.gameIds.length+1;
+    const existing = records().find(r => r.game.leagueId === leagueId && r.game.seasonId === context.seasonId && r.game.seriesId === seriesId && r.game.seriesGameNumber === number);
+    const record = existing || { game: { gameId:randomUUID(),leagueId,seasonId:context.seasonId,seriesId,stage:state.stage,statScope:state.stage === 'PLAY_IN' ? 'PLAY_IN' : 'PLAYOFFS',seriesGameNumber:number,
+      team1Id:series.team1Id,team2Id:series.team2Id,team1Name:context.teams.find(t => t.teamId === series.team1Id).teamName,team2Name:context.teams.find(t => t.teamId === series.team2Id).teamName,
+      guildId,discordThreadId,status:'SCHEDULED',startedAt:state.rounds.at(-1).startedAt,deadlineAt:state.rounds.at(-1).deadlineAt },submissions:[],media:[] };
+    if (!existing) save(record);
+    service.registerGame(leagueId,seriesId,record.game.gameId,{id:context.league.commissionerUserId,authorized:true});
     return record;
   }
   function setMessage(gameId, messageId) {
@@ -236,10 +269,10 @@ function createGameSubmissionService(options = {}) {
   }
   function mutate(gameId, update) {
     return exclusive(gameId, async () => {
-      const record = load(gameId), wasFinalized = Boolean(record.game.finalizedAt || record.game.status === "FINAL");
+      const record = load(gameId), oldResult = JSON.stringify(record.game.result || null), wasFinal = record.game.status === "FINAL";
       const result = await update(record);
       save(record);
-      if (!wasFinalized && (record.game.finalizedAt || record.game.status === "FINAL") && finalizationHandler) {
+      if ((oldResult !== JSON.stringify(record.game.result || null) || (!wasFinal && record.game.status === "FINAL")) && finalizationHandler) {
         try { await finalizationHandler(structuredClone(record)); }
         catch (error) { console.error("Finalized-game follow-up failed:", error.message); }
       }
@@ -249,6 +282,7 @@ function createGameSubmissionService(options = {}) {
   function setFinalizationHandler(handler) { finalizationHandler = typeof handler === "function" ? handler : null; }
   function authorizeExtraction(gameId, actor, staff = false) {
     const record = load(gameId);
+    if(repository.loadLeague(record.game.leagueId).seasonId!==String(record.game.seasonId))throw Error('This game belongs to an archived season.');
     if (!staff) check(record, actor);
     else if (!actor.privateThread || record.game.guildId !== actor.guildId || record.game.discordThreadId !== actor.discordThreadId
       || record.game.locked || record.game.finalizedAt || ["FINAL", "FINALIZED", "LOCKED"].includes(record.game.status)) {
@@ -256,6 +290,6 @@ function createGameSubmissionService(options = {}) {
     }
   }
   function staffActor(actor) { if (!actor.staff) throw new Error("Commissioner authorization required for Staff Submit."); return actor; }
-  return { beginStaff: (id, actor) => begin(id, staffActor(actor)), receiveStaff: (id, actor, attachments, messageId) => receive(id, staffActor(actor), attachments, messageId), bind, ensureGame: params => bind(params, true), records, begin, beginSide: (id, actor) => begin(id, actor, true), cancel, receive, receiveSide: (id, actor, attachments, messageId) => receive(id, actor, attachments, messageId, true), load, findThread, setMessage, readOriginal, mutate, setFinalizationHandler, authorizeExtraction, repository };
+  return { ensurePostseasonGame, beginStaff: (id, actor) => begin(id, staffActor(actor)), receiveStaff: (id, actor, attachments, messageId) => receive(id, staffActor(actor), attachments, messageId), bind, storageIssues, ensureGame: params => bind(params, true), records, begin, beginSide: (id, actor) => begin(id, actor, true), cancel, receive, receiveSide: (id, actor, attachments, messageId) => receive(id, actor, attachments, messageId, true), load, findThread, setMessage, readOriginal, mutate, setFinalizationHandler, authorizeExtraction, repository };
 }
 module.exports = { createGameSubmissionService, downloadDiscordImage, imageType };

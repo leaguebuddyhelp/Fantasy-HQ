@@ -61,7 +61,7 @@ test('late restart sends only current alert and failed sends are not repeatedly 
 });
 
 
-test('existing active matchup cards gain solo controls without creating or replacing threads', async t => {
+test('existing active matchup cards move advanced controls behind Staff tools without replacing threads', async t => {
     const f = fixture(t);
     f.repository.saveSettings('test', { testMode: true });
     await f.submissions.setMessage(f.game.gameId, 'existing-card');
@@ -69,7 +69,8 @@ test('existing active matchup cards gain solo controls without creating or repla
     await f.service.tick(f.client);
     assert.equal(f.submissions.load(f.game.gameId).game.testMode, true);
     const ids = f.edits.at(-1).components.flatMap(r => r.components.map(c => c.data.custom_id));
-    assert.equal(ids.filter(id => id.startsWith('gametest:')).length, 2);
+    assert.equal(ids.filter(id => id.startsWith('gametest:')).length, 0);
+    assert.equal(ids.filter(id => id.startsWith('gametools:')).length, 1);
     assert.equal(f.sent.length, 0);
     f.repository.saveSettings('test', { testMode: false, requireAllOwners: false });
     await f.service.tick(f.client);

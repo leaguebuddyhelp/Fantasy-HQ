@@ -97,3 +97,49 @@ test('staff thread membership uses both existing staff roles and the shared memb
   assert.deepEqual((await service.sync(guild)).staffUserIds, ['a', 'b']);
   assert.deepEqual((await service.sync(guild)).staffUserIds, ['a', 'b']); assert.equal(fetches, 1);
 });
+
+test('a button actor refreshes changed team roles immediately, without waiting for the gateway timer', async t => {
+  const { repo, members, roles, guild, service } = fixture(t);
+  await service.sync(guild);
+  const actor = members.get('a');
+  actor.roles.cache.delete('r1'); actor.roles.cache.set('r2', roles.get('r2'));
+  await service.refreshActor(guild, actor);
+  assert.deepEqual(repo.loadOwners('l').map(o => [o.teamId, o.userId]), [['lal', 'a']]);
+  const { requireCoachIdentity } = require('../src/fantasyhq/coach-identity');
+  assert.equal(requireCoachIdentity(repo, repo.loadLeague('l'), actor, 'a').teamId, 'lal');
+  actor.roles.cache.delete('r2');
+  await service.refreshActor(guild, actor);
+  assert.equal(repo.loadOwners('l').length, 0);
+  assert.throws(() => requireCoachIdentity(repo, repo.loadLeague('l'), actor, 'a'), /team Coach role/);
+});
+
+test('unchanged team identity avoids fetching guild roles or members on each action', async t => {
+  const { members, guild, service } = fixture(t);
+  await service.sync(guild);
+  guild.roles.fetch = async () => { throw Error('unneeded role fetch'); };
+  guild.members.fetch = async () => { throw Error('unneeded member fetch'); };
+  await service.refreshActor(guild, members.get('a'));
+  await service.refreshActor(guild, members.get('b'));
+});
+
+test('shared coach identity supports all configured team roles and rejects stale or ambiguous ownership', async t => {
+  const { repo, members, roles, guild, service } = fixture(t);
+  const { requireCoachIdentity, memberTeamIds } = require('../src/fantasyhq/coach-identity');
+  members.get('b').roles.cache.set('r2', roles.get('r2'));
+  await service.sync(guild);
+  const context = repo.loadLeague('l');
+  assert.equal(requireCoachIdentity(repo, context, members.get('a'), 'a').teamId, 'bos');
+  assert.equal(requireCoachIdentity(repo, context, members.get('b'), 'b').teamId, 'lal');
+  assert.deepEqual(memberTeamIds(repo, context, { roles: ['r2'] }), ['lal']);
+  assert.throws(() => requireCoachIdentity(repo, context, members.get('a'), 'b'), /must match/);
+  members.get('a').roles.cache.set('r2', roles.get('r2'));
+  assert.throws(() => requireCoachIdentity(repo, context, members.get('a'), 'a'), /multiple team roles/);
+  await service.refreshActor(guild, members.get('a'));
+  assert.equal(repo.loadOwners('l').length, 0);
+});
+
+test('corrupt role ownership storage is preserved and blocks role synchronization', async t => {
+ const f=fixture(t);await f.service.sync(f.guild);
+ const file=path.join(f.repo.loadLeague('l').paths.leagueRoot,'role-ownership.json');fs.writeFileSync(file,'{preserve');
+ await assert.rejects(f.service.sync(f.guild),/storage is unreadable/);assert.equal(fs.readFileSync(file,'utf8'),'{preserve');assert.equal(f.repo.loadOwners('l')[0].userId,'a');
+});

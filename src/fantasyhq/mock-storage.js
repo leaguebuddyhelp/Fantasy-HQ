@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { randomUUID } = require('crypto');
 function atomicWrite(file, value) {
+    require('./storage-safety').assertWriterLease(file);
     fs.mkdirSync(path.dirname(file), { recursive: true });
     const tmp = `${file}.${randomUUID()}.tmp`;
     try { const fd = fs.openSync(tmp, 'wx'); try { fs.writeFileSync(fd, JSON.stringify(value, null, 2) + '\n'); fs.fsyncSync(fd); } finally { fs.closeSync(fd); } fs.renameSync(tmp, file); }

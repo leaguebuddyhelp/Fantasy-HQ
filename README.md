@@ -221,3 +221,6 @@ npm run scrape -- --team atlanta-hawks
 The regular all-team scan (`npm run scrape`) and resumed scans also fetch payrolls. Team roster JSON includes the source payroll snapshot and unmatched roster names. Successful payroll snapshots are cached in `data/2kratings/contracts/<TEAM>.json`. If the source fails, the scan retains its last successful payroll, marks it `STALE`, and records the reason in `data/2kratings/logs/failures.json`; ratings collection continues. Without a prior successful payroll, salaries remain unavailable. Names match after accent/punctuation normalization; ambiguous or absent names are never guessed.
 
 New league roster imports retain player contracts. Existing roster import previews include contract changes, and an unavailable payroll never clears a saved league contract. Source NBA season labels are not shifted to match a custom league season. This adds contract data to scans/imports; it does not introduce salary-cap trade rules or change trade values.
+
+
+Regular-season repair workflows, playoff handoff, final-result corrections, individual Staff keys and backup/restore commands are documented in [READINESS-REPAIRS.md](READINESS-REPAIRS.md). Run `npm run check` before deployment and use a separate Discord test server for real multi-coach verification.

@@ -1,3 +1,4 @@
+const { contractValue } = require('../shared/player-contract');
 const POSITION_BASELINES = Object.freeze({
     PG: { height: 75, wingspan: 3.5 },
     SG: { height: 77, wingspan: 4 },
@@ -15,7 +16,8 @@ const PICK_PROTECTIONS = Object.freeze({
 });
 
 function leagueSeasonStartYear(seasonNumber) {
-    const value = Number(seasonNumber);
+    const reset = String(seasonNumber).match(/^(\d+)-reset-[a-f0-9-]+$/);
+    const value = Number(reset ? reset[1] : seasonNumber);
     if (!Number.isInteger(value) || value < 1) return 2026;
     return value >= 2026 ? value : 2026 + value - 1;
 }
@@ -92,7 +94,8 @@ function evaluatePlayerTradeValue(player = {}, seasonNumber = 1) {
     const experienceModifier = 1 + Math.min(0.03, years * 0.004);
     const archetype = String(player.archetype || "").toLowerCase();
     const archetypeModifier = /rim protector|defensive anchor|two-way/.test(archetype) && ["PF", "C"].includes(position) ? 1.01 : 1;
-    const contractModifier = 1;
+    const contract = contractValue(player, leagueSeasonStartYear(seasonNumber));
+    const contractModifier = contract.modifier;
     const overallBase = 1 + 1100 * (safeOverall / 99) ** 4.5;
     const overallTier = overallTierMultiplier(safeOverall);
     const primeAge = primeAgeMultiplier(age);
@@ -100,6 +103,7 @@ function evaluatePlayerTradeValue(player = {}, seasonNumber = 1) {
     return {
         value: Math.max(1, Math.round(unrounded)),
         age,
+        contractReason: contract.reason,
         components: { overallBase, overallTierMultiplier: overallTier, ageMultiplier: ageMultiplier(age), primeAgeMultiplier: primeAge, heightModifier, wingspanModifier, versatilityModifier, experienceModifier, archetypeModifier, contractModifier },
     };
 }

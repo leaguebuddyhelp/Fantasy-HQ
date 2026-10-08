@@ -42,9 +42,7 @@ function createDiscordTradeWorkflow(options = {}) {
         return Boolean((coach && roles.has(coach.id)) || (gm && roles.has(gm.id)) || (settings.testMode && canManageLeague(interaction)));
     }
     function memberTeamIds(interaction, context) {
-        const ownership = repository.loadRoleOwnership(context.league.leagueId);
-        const roles = memberRoleIds(interaction);
-        return context.teams.filter(team => ownership.roleIds?.[team.teamId] && roles.has(ownership.roleIds[team.teamId])).map(team => team.teamId);
+        return require('./coach-identity').memberTeamIds(repository, context, interaction.member);
     }
     function currentTradeContext(interaction, tradeId) {
         if (interaction.guildId) {
@@ -86,7 +84,7 @@ function createDiscordTradeWorkflow(options = {}) {
     function transferName(transfer, liveSnapshot, context) {
         if (transfer.assetType === "PLAYER") {
             const player = liveSnapshot.players.find(candidate => candidate.playerId === transfer.assetId);
-            return `${player?.name || transfer.playerName || transfer.assetId} · Age ${player?.age ?? "—"} · TV ${Number(player?.tradeValue || transfer.snapshotTradeValue || 0).toLocaleString("en-US")}`;
+            return `${player?.name || transfer.playerName || transfer.assetId} · ${player?.contractView?.short || "Contract unavailable"} · Age ${player?.age ?? "—"} · TV ${Number(player?.tradeValue || transfer.snapshotTradeValue || 0).toLocaleString("en-US")}`;
         }
         const pick = liveSnapshot.picks.find(candidate => candidate.pickId === transfer.assetId);
         const owner = context.teams.find(team => team.teamId === (pick?.originalTeamId || transfer.originalTeamId));
@@ -219,7 +217,7 @@ function createDiscordTradeWorkflow(options = {}) {
     function privateTeamId(interaction, context, settings, explicit = null) {
         if (explicit) return explicit;
         const owned = memberTeamIds(interaction, context);
-        if (owned.length === 1) return owned[0];
+        if (owned.length === 1) return require('./coach-identity').requireCoachIdentity(repository, context, interaction.member, interaction.user.id).teamId;
         if (settings.testMode && canManageLeague(interaction)) return null;
         throw new Error(owned.length ? "Your account has multiple team roles. Ask staff to resolve the team-role conflict." : "Your team role is not linked. Ask staff to run /league roles and repair channel setup.");
     }
@@ -227,7 +225,7 @@ function createDiscordTradeWorkflow(options = {}) {
     async function startBuilder(interaction) {
         const context = repository.loadLeagueContext({ guildId: interaction.guildId });
         const settings = settingsFor(context.league.leagueId);
-        if (!canBuild(interaction, settings)) throw new Error("The Build a Trade button is for league Coaches and GMs.");
+        if (!canBuild(interaction, settings) && !memberTeamIds(interaction, context).length) throw new Error("The Build a Trade button is for league Coaches and GMs.");
         const initiatorId = privateTeamId(interaction, context, settings);
         const payload = initiatorId ? teamPicker(context, 0, "other", initiatorId) : teamPicker(context, 0, "initial");
         await ephemeral(interaction, payload);
@@ -246,7 +244,7 @@ function createDiscordTradeWorkflow(options = {}) {
         const transfers = trade.transfers || [];
         const values = kind === "PLAYER"
             ? snapshot.players.filter(player => player.teamId === teamId && !transfers.some(item => item.assetType === "PLAYER" && item.assetId === player.playerId))
-                .map(player => ({ label: `${player.name} · ${player.overall ?? "—"} OVR`.slice(0, 100), description: `Age ${player.age ?? "—"} · Trade Value ${Number(player.tradeValue || 1).toLocaleString("en-US")}`.slice(0, 100), value: encodeURIComponent(player.playerId) }))
+                .map(player => ({ label: `${player.name} · ${player.overall ?? "—"} OVR`.slice(0, 100), description: `${player.contractView?.short || "Contract unavailable"} · Age ${player.age ?? "—"} · Trade Value ${Number(player.tradeValue || 1).toLocaleString("en-US")}`.slice(0, 100), value: encodeURIComponent(player.playerId) }))
             : snapshot.picks.filter(pick => pick.currentOwnerTeamId === teamId && !transfers.some(item => item.assetType === "PICK" && item.assetId === pick.pickId))
                 .map(pick => ({ label: `${pick.draftYear} ${teamName(repository.loadLeague(trade.leagueId, trade.seasonId), pick.originalTeamId)} ${pick.round === 1 ? "1st" : "2nd"}`.slice(0, 100), description: `${PICK_PROTECTIONS[pick.protection]?.label || "Unprotected"} · Trade Value ${Number(pick.tradeValue).toLocaleString("en-US")}`.slice(0, 100), value: encodeURIComponent(pick.pickId) }));
         const typeName = kind === "PLAYER" ? "player" : "pick";
@@ -361,6 +359,7 @@ function createDiscordTradeWorkflow(options = {}) {
             new ButtonBuilder().setCustomId(`trade:gm:APPROVE:${trade.tradeId}:${version}:${teamId}`).setLabel("Approve").setStyle(ButtonStyle.Success),
             new ButtonBuilder().setCustomId(`trade:gm:DENY:${trade.tradeId}:${version}:${teamId}`).setLabel("Deny").setStyle(ButtonStyle.Danger),
             new ButtonBuilder().setCustomId(`trade:gm:COUNTER:${trade.tradeId}:${version}:${teamId}`).setLabel("Counter").setStyle(ButtonStyle.Primary),
+            new ButtonBuilder().setCustomId(`trade:cancel:${trade.tradeId}:${version}`).setLabel('Withdraw (proposer / Staff)').setStyle(ButtonStyle.Secondary),
         );
     }
 
@@ -580,6 +579,11 @@ function createDiscordTradeWorkflow(options = {}) {
         const owner = repository.loadOwners(trade.leagueId).find(o => o.teamId === actorTeamId);
         if (owner?.userId !== interaction.user.id && !(settings.testMode === true && !owner && canManageLeague(interaction))) throw Error('Only that team’s coach can respond; staff can simulate vacant teams only in Test Mode.');
         if (!actorTeamId) throw new Error("This response is not for one of your teams.");
+        if (owner?.userId === interaction.user.id) {
+            const member = interaction.guildId ? interaction.member : await guild.members.fetch(interaction.user.id);
+            const identity = require('./coach-identity').requireCoachIdentity(repository, context, member, interaction.user.id);
+            if (identity.teamId !== actorTeamId) throw Error('Only the current coach of this team can respond.');
+        }
         if (action === "COUNTER") {
             const counter = tradeService.counterTrade({ leagueId: trade.leagueId, tradeId, version, actorUserId: interaction.user.id, actorTeamId });
             await ephemeral(interaction, builderPayload(counter));
@@ -644,6 +648,30 @@ function createDiscordTradeWorkflow(options = {}) {
             const parts = interaction.customId.split(":");
             const [root, action] = parts;
             if (root !== "trade") return false;
+            if (interaction.guildId && !['build', 'gm', 'vote', 'test-vote', 'proof', 'close', 'cancel'].includes(action)) {
+                const context = repository.loadLeagueContext({ guildId: interaction.guildId });
+                const settings = settingsFor(context.league.leagueId);
+                const teamId = privateTeamId(interaction, context, settings);
+                const tradeId = ['add', 'source', 'asset-page', 'asset'].includes(action) ? parts[3] : parts[2];
+                const saved = tradeId && tradeService.getTrade(context.league.leagueId, tradeId);
+                if (saved?.status === 'DRAFT' && saved.initiatingUserId === interaction.user.id && teamId && saved.initiatingTeamId !== teamId) throw Error('Your team changed. Start a new trade builder.');
+            }
+            if (!interaction.guildId && !['gm', 'vote', 'test-vote', 'proof', 'close', 'cancel'].includes(action)) {
+                const tradeId = ['add', 'source', 'asset-page', 'asset'].includes(action) ? parts[3] : parts[2];
+                const { context, trade } = currentTradeContext(interaction, tradeId);
+                const guild = await interaction.client.guilds.fetch(context.league.guildId);
+                const member = await guild.members.fetch(interaction.user.id);
+                const settings = settingsFor(context.league.leagueId);
+                const teamId = privateTeamId({ ...interaction, guildId: guild.id, guild, member }, context, settings);
+                if (trade.status === 'DRAFT' && trade.initiatingUserId === interaction.user.id && teamId && trade.initiatingTeamId !== teamId) throw Error('Your team changed. Start a new trade builder.');
+            }
+            if (interaction.isButton() && action === 'cancel') {
+                const { trade } = currentTradeContext(interaction, parts[2]);
+                if (parts[3] && Number(parts[3]) !== trade.version) throw Error('This trade version is stale. Refresh before withdrawing.');
+                if (canManageLeague(interaction) && interaction.guildId !== repository.loadLeague(trade.leagueId).league.guildId) throw Error('Use this league’s Discord server.');
+                const result = tradeService.cancelTrade({ leagueId: trade.leagueId, tradeId: trade.tradeId, actorUserId: interaction.user.id, staffAuthorized: !!interaction.guildId && canManageLeague(interaction), reason: 'Withdrawn from Discord' });
+                await edit(interaction, { content: 'Trade withdrawn. Its assets are available again.', embeds: [offerEmbed(result)], components: [] }); return true;
+            }
             if (interaction.isButton() && action === "build") { await startBuilder(interaction); return true; }
             if (interaction.isButton() && action === "close") { await edit(interaction, { content: "Trade builder closed. Any saved draft remains available from its current interaction.", embeds: [], components: [] }); return true; }
             if (interaction.isButton() && action === "teams") {
@@ -657,6 +685,9 @@ function createDiscordTradeWorkflow(options = {}) {
             }
             if (interaction.isStringSelectMenu() && action === "select-other") {
                 const initiatorId = parts[2], teamId = interaction.values[0], context = repository.loadLeagueContext({ guildId: interaction.guildId });
+                const actual = privateTeamId(interaction, context, settingsFor(context.league.leagueId));
+                if (actual && actual !== initiatorId) throw Error('Build a trade for your current team only.');
+                if (!actual && repository.loadOwners(context.league.leagueId).some(owner => owner.teamId === initiatorId && owner.userId !== interaction.user.id)) throw Error('Another coach owns this team. They must build their own trade.');
                 const trade = tradeService.createDraft({ leagueId: context.league.leagueId, seasonId: context.seasonId, initiatingUserId: interaction.user.id, initiatingTeamId: initiatorId, secondTeamId: teamId });
                 await edit(interaction, builderPayload(trade)); return true;
             }
@@ -742,7 +773,7 @@ function createDiscordTradeWorkflow(options = {}) {
             if (interaction.isButton() && action === "submit") {
                 const { context } = currentTradeContext(interaction, parts[2]);
                 const result = tradeService.submitTrade({ leagueId: context.league.leagueId, tradeId: parts[2], actorUserId: interaction.user.id });
-                await interaction.update({ content: "Proposal submitted. The other coaches have 24 hours to respond. Your values are frozen for this version.", embeds: [], components: [] });
+                await interaction.update({ content: "Proposal submitted. The other coaches have 24 hours to respond. Your values are frozen for this version.", embeds: [], components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`trade:cancel:${result.trade.tradeId}:${result.trade.version}`).setLabel("Withdraw proposal").setStyle(ButtonStyle.Secondary))] });
                 const guild = interaction.guild || await interaction.client.guilds.fetch(context.league.guildId);
                 await notifyGMs(interaction.client, guild, result.trade);
                 return true;
@@ -776,6 +807,11 @@ function createDiscordTradeWorkflow(options = {}) {
         const owner = repository.loadOwners(trade.leagueId).find(entry => entry.userId === message.author.id && trade.participatingTeams.includes(entry.teamId));
         const member = message.member || await message.guild.members.fetch(message.author.id).catch(() => null);
         const staff = canManageLeague({ guildId: message.guild.id, memberPermissions: member?.permissions, member: { roles: member?.roles } });
+        if (owner) {
+            try { require('./coach-identity').requireCoachIdentity(repository, repository.loadLeague(trade.leagueId, trade.seasonId), member, message.author.id); }
+            catch (error) { await message.reply(error.message); return true; }
+        }
+
         if (!settings.testMode && !owner) { await message.reply("Only an involved coach may submit proof in this trade thread."); return true; }
         if (settings.testMode && !owner && !staff) { await message.reply("Only an involved coach or league staff using Test Mode may submit proof."); return true; }
         const actorTeamId = owner?.teamId || trade.participatingTeams.find(teamId => !repository.loadOwners(trade.leagueId).some(entry => entry.teamId === teamId));
@@ -795,6 +831,7 @@ function createDiscordTradeWorkflow(options = {}) {
         const row = new ActionRowBuilder().addComponents(
             new ButtonBuilder().setCustomId(`trade:proof:APPROVE:${trade.tradeId}:${trade.version}`).setLabel("Approve Proof").setStyle(ButtonStyle.Success),
             new ButtonBuilder().setCustomId(`trade:proof:REJECT:${trade.tradeId}:${trade.version}`).setLabel("Reject Proof").setStyle(ButtonStyle.Danger),
+            new ButtonBuilder().setCustomId(`trade:cancel:${trade.tradeId}:${trade.version}`).setLabel('Withdraw / Cancel').setStyle(ButtonStyle.Secondary),
         );
         await message.reply({ content: `Screenshot received from <@${message.author.id}>. Staff review is required; deadline remains ${trade.expiresAt}.`, components: [row], allowedMentions: { users: [message.author.id] } });
         return true;
@@ -822,7 +859,7 @@ function createDiscordTradeWorkflow(options = {}) {
                         }
                         await announceCompleted(guild, trade);
                         await notifyCompleted(client, tradeService.getTrade(trade.leagueId, trade.tradeId));
-                    } else if (["DENIED_BY_GM", "EXPIRED_GM_RESPONSE", "DENIED_BY_COMMITTEE", "EXPIRED_COMMITTEE", "EXPIRED_PROOF", "INVALIDATED"].includes(trade.status)) {
+                    } else if (["DENIED_BY_GM", "EXPIRED_GM_RESPONSE", "DENIED_BY_COMMITTEE", "EXPIRED_COMMITTEE", "EXPIRED_PROOF", "INVALIDATED", "CANCELLED"].includes(trade.status)) {
                         await announceDenied(client, guild, trade, trade.invalidReason || trade.status.replaceAll("_", " "));
                     }
                 } catch (error) { console.error(`Trade ${trade.tradeId} recovery: ${error.message}`); }

@@ -1,3 +1,4 @@
+const { contractView } = require('../shared/player-contract');
 const { brandTeamReply } = require("../shared/team-branding");
 const { addListFields } = require("../shared/discord-layout");
 const { AttachmentBuilder, EmbedBuilder } = require("discord.js");
@@ -38,9 +39,9 @@ async function handleRatingsTeam(interaction) {
   if (!roster) throw new Error(`No roster matched "${teamQuery}".`);
 
   const lines = [...roster.players].sort((a,b)=>Number(b.overall || 0)-Number(a.overall || 0))
-    .map((player) => `**${player.name}** · ${player.overall ?? "—"} OVR · ${positionLabel(player)}`);
+    .map((player) => `**${player.name}** · ${player.overall ?? "—"} OVR · ${positionLabel(player)} · ${contractView(player).short}`);
   const embed = new EmbedBuilder().setTitle(`${roster.team.name} • Ratings`).setColor(0xffdc21)
-    .setDescription(`${roster.players.length} players · Original ratings snapshot`)
+    .setDescription(`${roster.players.length} players · Reference snapshot · Use /team roster for the current league roster`)
     .setFooter({ text: `2KRatings · ${roster.rosterDate || "Date unavailable"}` });
   addListFields(embed, "Roster", lines);
   await interaction.editReply(brandTeamReply({ embeds: [embed] }, roster.team.name));
@@ -50,7 +51,7 @@ async function handleRatingsPlayer(interaction) {
   const playerQuery = interaction.options.getString("player", true);
   const player = findPlayer(playerQuery);
   if (!player) throw new Error(`No player matched "${playerQuery}".`);
-  await interaction.editReply(nbaPlayerCard(player, "2KRatings snapshot"));
+  await interaction.editReply(nbaPlayerCard(player, "Reference ratings snapshot · Use /player for current league details"));
 }
 
 async function handleRatingsTop(interaction) {
@@ -64,10 +65,10 @@ async function handleRatingsTop(interaction) {
   await interaction.editReply({
     embeds: [
       new EmbedBuilder()
-        .setTitle(title)
+        .setTitle(`Reference ratings · ${title}`)
         .setColor(0xffdc21)
         .setDescription(lines.join("\n\n") || "No players found.")
-        .setFooter({ text: `Roster date: ${rosterDate}` }),
+        .setFooter({ text: `Snapshot: ${rosterDate} · /player shows current league details` }),
     ],
   });
 }
@@ -85,10 +86,10 @@ async function handleRatingsFreeAgency(interaction) {
   await interaction.editReply({
     embeds: [
       new EmbedBuilder()
-        .setTitle(title)
+        .setTitle(`Reference ratings · ${title}`)
         .setColor(0xffdc21)
         .setDescription(lines.join("\n") || "No free agents found.")
-        .setFooter({ text: `Snapshot date: ${freeAgency.rosterDate || "Unknown"}` }),
+        .setFooter({ text: `Snapshot: ${freeAgency.rosterDate || "Unknown"} · /freeagents shows current availability` }),
     ],
   });
 }

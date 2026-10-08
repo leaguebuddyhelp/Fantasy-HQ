@@ -1,8 +1,9 @@
+const { contractView } = require('../shared/player-contract');
 const { randomUUID } = require("crypto");
 
 const { activeMemberships, diffObject, normalizeText, numberOrNull, stringOrNull } = require("./service-helpers");
 const { createFantasyHQRepository } = require("./repository");
-const { leagueAge, playerTradeValue } = require("./asset-valuation");
+const { leagueAge, leagueSeasonStartYear, evaluatePlayerTradeValue, playerTradeValue } = require("./asset-valuation");
 
 const EDITABLE_PLAYER_FIELDS = [
   "name",
@@ -25,7 +26,7 @@ const EDITABLE_PLAYER_FIELDS = [
 ];
 
 function validatePlayerPatch(patch = {}) {
-  const next = { ...patch };
+  const next = Object.fromEntries(Object.entries(patch).filter(([key]) => EDITABLE_PLAYER_FIELDS.includes(key)));
   if ("overall" in next) {
     const overall = numberOrNull(next.overall);
     if (overall == null || overall < 0 || overall > 99) {
@@ -68,6 +69,8 @@ function createPlayerService(options = {}) {
       const team = membership ? teams.get(membership.teamId) : null;
       return {
         ...player,
+        contractView: contractView(player, leagueSeasonStartYear(context.seasonId)),
+        tradeValueReason: evaluatePlayerTradeValue(player, context.seasonId).contractReason,
         teamId: membership?.teamId || null,
         teamName: team?.teamName || null,
         conference: team?.conference || null,
@@ -89,21 +92,22 @@ function createPlayerService(options = {}) {
   function updatePlayer({ leagueId, seasonId, playerId, patch, actingUserId, operator }) {
     const validated = validatePlayerPatch(patch);
     const context = repository.loadLeague(leagueId, seasonId);
+    if (validated.teamId && !context.teams.some(t => t.teamId === validated.teamId)) throw Error('Choose a valid league team.');
     const players = repository.loadPlayers(leagueId);
     const playerIndex = players.findIndex((entry) => entry.playerId === playerId);
     if (playerIndex === -1) throw new Error(`Unknown player "${playerId}".`);
 
     const current = getPlayer(leagueId, context.seasonId, playerId);
+    if ('teamId' in validated && validated.teamId !== current.teamId) { const lock = require('./transaction-locks').playerTransactionLock(repository, leagueId, context.seasonId, playerId); if (lock) throw Error(lock); }
     const nextBase = {
       ...players[playerIndex],
       ...validated,
       updatedAt: new Date().toISOString(),
     };
     players[playerIndex] = nextBase;
-    repository.savePlayers(leagueId, players);
 
     const memberships = repository.loadRosterMemberships(leagueId);
-    const activeMembership = memberships.find((entry) => entry.playerId === playerId && entry.active !== false && !entry.endedAt && String(entry.seasonId) === String(context.seasonId));
+    let activeMembership = memberships.find((entry) => entry.playerId === playerId && entry.active !== false && !entry.endedAt && String(entry.seasonId) === String(context.seasonId));
     if (activeMembership) {
       if ("teamId" in validated && validated.teamId && validated.teamId !== activeMembership.teamId) {
         activeMembership.teamId = validated.teamId;
@@ -112,15 +116,13 @@ function createPlayerService(options = {}) {
       if ("position1" in validated) activeMembership.position1 = validated.position1;
       if ("position2" in validated) activeMembership.position2 = validated.position2;
       activeMembership.updatedAt = new Date().toISOString();
-      repository.saveRosterMemberships(leagueId, memberships);
     }
 
-    const updated = getPlayer(leagueId, context.seasonId, playerId);
+    if ('teamId' in validated && !validated.teamId && activeMembership) { activeMembership.active = false; activeMembership.endedAt = new Date().toISOString(); activeMembership = null; }
+    if ('teamId' in validated && validated.teamId && !activeMembership) { activeMembership = { leagueId, seasonId: context.seasonId, teamId: validated.teamId, playerId, active: true, source: 'manual', startedAt: new Date().toISOString() }; memberships.push(activeMembership); }
+    const updated = { ...current, ...nextBase, teamId: activeMembership?.teamId || null };
     const changes = diffObject(current, updated, EDITABLE_PLAYER_FIELDS);
-    if (activeMembership && current.teamId !== updated.teamId && onRosterMovement) {
-      notifyRosterMovement({ leagueId, seasonId: context.seasonId, playerIds: [playerId], reason: "PLAYER_NO_LONGER_ON_ROSTER" });
-    }
-    repository.appendAuditLog(leagueId, {
+    repository.commitRosterTransaction({ leagueId, players, rosterMemberships: memberships, auditEntry: {
       action: "player.updated",
       userId: String(actingUserId || context.league.commissionerUserId || "system"),
       ...(operator ? { operator: String(operator) } : {}),
@@ -131,8 +133,9 @@ function createPlayerService(options = {}) {
         playerName: updated.name,
         changes,
       },
-    });
-    return updated;
+    } });
+    if (current.teamId !== updated.teamId) notifyRosterMovement({ leagueId, seasonId: context.seasonId, playerIds: [playerId], reason: 'PLAYER_NO_LONGER_ON_ROSTER' });
+    return getPlayer(leagueId, context.seasonId, playerId);
   }
 
   function findDuplicateCandidates(leagueId, candidate) {
@@ -146,6 +149,7 @@ function createPlayerService(options = {}) {
   }
 
   function addPlayer({ leagueId, seasonId, teamId, player, actingUserId, operator }) {
+    if (!repository.loadLeague(leagueId, seasonId).teams.some(t => t.teamId === teamId)) throw Error('Choose a valid league team.');
     const validated = validatePlayerPatch(player);
     const duplicates = findDuplicateCandidates(leagueId, validated);
     if (duplicates.length && !player.forceCreate) {
@@ -159,11 +163,11 @@ function createPlayerService(options = {}) {
       leagueId,
       playerId,
       ...validated,
+      teamId,
       createdAt: now,
       updatedAt: now,
     };
     players.push(nextPlayer);
-    repository.savePlayers(leagueId, players);
 
     const memberships = repository.loadRosterMemberships(leagueId);
     memberships.push({
@@ -180,8 +184,7 @@ function createPlayerService(options = {}) {
       active: true,
       startedAt: now,
     });
-    repository.saveRosterMemberships(leagueId, memberships);
-    repository.appendAuditLog(leagueId, {
+    repository.commitRosterTransaction({ leagueId, players, rosterMemberships: memberships, auditEntry: {
       action: "player.added",
       userId: String(actingUserId || "system"),
       ...(operator ? { operator: String(operator) } : {}),
@@ -192,7 +195,7 @@ function createPlayerService(options = {}) {
         teamId,
         playerName: nextPlayer.name,
       },
-    });
+    } });
     return getPlayer(leagueId, seasonId, playerId);
   }
 
@@ -206,7 +209,7 @@ function createPlayerService(options = {}) {
   };
 }
 
-module.exports = {
+module.exports = { validatePlayerPatch,
   createPlayerService,
   EDITABLE_PLAYER_FIELDS,
   validatePlayerPatch,

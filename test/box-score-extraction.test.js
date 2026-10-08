@@ -322,3 +322,24 @@ test('review response excludes raw OCR and old row data; protected history prese
  const learned=require('../src/fantasyhq/box-score/learning').loadLearning(f.repository,f.game.leagueId);
  assert.equal(learned.aliases.unmatched['0-1'],1);
 });
+
+test('explicit final corrections preserve official results until approval; reversal preserves audit and published stats', async t => {
+  const f = await reviewFixture(t); fixReview(f);
+  const first = await f.review.correct(f.game.gameId,f.submission.submissionId,f.body);
+  await f.review.approve(f.game.gameId,f.submission.submissionId,{extractionId:first.extractionId,operator:'Approver'});
+  const record = f.submissions.load(f.game.gameId);
+  const { publicationSnapshot } = require('../src/fantasyhq/official-game');
+  const schedule = f.repository.loadSchedule('test','1');
+  schedule.statsPublication = {throughWeek:1,gameIds:[record.game.gameId],snapshots:publicationSnapshot([record])}; f.repository.saveSchedule(schedule);
+  const body = {extractionId:first.extractionId,operator:'Correction Staff',revisionReason:'Corrected after verified photo review',input:editable(first)};
+  const corrected = await f.review.correct(f.game.gameId,f.submission.submissionId,body);
+  assert.equal(f.submissions.load(record.game.gameId).game.result.extractionId,first.extractionId);
+  assert.equal(f.submissions.load(record.game.gameId).submissions.at(-1).status,'FINAL');
+  await f.review.approve(record.game.gameId,f.submission.submissionId,{...body,extractionId:corrected.extractionId});
+  assert.equal(f.submissions.load(record.game.gameId).resultRevisions[0].game.result.extractionId,first.extractionId);
+  await f.review.reverse(record.game.gameId,f.submission.submissionId,{...body,extractionId:corrected.extractionId});
+  const reversed = f.submissions.load(record.game.gameId); assert.equal(reversed.game.result,null); assert.deepEqual(reversed.playerGameStats,[]); assert.equal(reversed.resultRevisions.length,2);
+  const scope = {leagueId:'test',seasonId:'1',schedule:f.repository.loadSchedule('test','1')};
+  assert.equal(require('../src/fantasyhq/official-game').officialRegularGames([reversed],scope).games.length,0);
+  assert.equal(require('../src/fantasyhq/official-game').publishedRegularGames([reversed],scope).games.length,1);
+});

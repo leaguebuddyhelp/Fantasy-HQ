@@ -13,7 +13,7 @@ function fixture(t) {
     repository.saveSchedule(generateSchedule({ leagueId: 'test', seasonId: '1', teams })); createLeagueService({ repository }).startRegularSeason({ leagueId: 'test', seasonId: '1', validator: () => ({ ready: true }) });
     repository.saveOwners('test', teams.map(team => ({ teamId: team.teamId, userId: 'coach-' + team.teamId }))); repository.saveSettings('test', { gamesChannelId: 'games' });
     const channels = new Map(), calls = []; let failCreate = false, failMember = false;
-    function thread(id) { const members = new Set(), messages = new Map(); const result = { id, type: 12, guildId: 'guild', delete: async () => channels.delete(id), members: { add: async id => { if (failMember) { failMember = false; throw Error('Member failed'); } members.add(id); } }, messages: { fetch: async id => messages.get(id) }, send: async payload => { const m = { id: 'message-' + id, payload, edit: async p => m.payload = p }; messages.set(m.id, m); return m; }, memberIds: members, savedMessages: messages }; channels.set(id, result); return result; }
+    function thread(id) { const members = new Set(), messages = new Map(); const result = { id, type: 12, guildId: 'guild', delete: async () => channels.delete(id), members: { remove: async id => members.delete(id), add: async id => { if (failMember) { failMember = false; throw Error('Member failed'); } members.add(id); } }, messages: { fetch: async id => messages.get(id) }, send: async payload => { const m = { id: 'message-' + id, payload, edit: async p => m.payload = p }; messages.set(m.id, m); return m; }, memberIds: members, savedMessages: messages }; channels.set(id, result); return result; }
     const parent = { id: 'games', guildId: 'guild', type: 0, permissionsFor: () => ({ has: () => true }), threads: { create: async options => { if (failCreate) { failCreate = false; throw Error('Create failed'); } calls.push(options); return thread('thread-' + calls.length); } } }; channels.set('games', parent);
     const guild = { id: 'guild', members: { me: {} }, channels: { fetch: async id => id ? channels.get(id) || null : channels } };
     const staffUserIds = [], staffRoleIds = [];
@@ -109,4 +109,22 @@ test('both commissioner roles appear in every thread and are allowed on the init
   assert.ok(payload.content.includes('<@&commish-role>'));assert.ok(payload.content.includes('<@&assistant-role>'));
   assert.deepEqual(payload.allowedMentions,{parse:[]});
  }
+});
+
+
+test('coach replacement removes departed access, adds successor and preserves Staff membership', async t => {
+ const f=fixture(t); f.staffUserIds.push('staff'); await f.service.create(f.guild);
+ const game=f.submissions.records()[0].game, old='coach-'+game.team1Id;
+ const owners=f.repository.loadOwners('test').map(o=>o.teamId===game.team1Id?{...o,userId:'successor'}:o); f.repository.saveOwners('test',owners);
+ assert.equal((await f.service.create(f.guild)).failed,0);
+ const members=f.channels.get(game.discordThreadId).memberIds;
+ assert.equal(members.has(old),false); assert.equal(members.has('successor'),true); assert.equal(members.has('staff'),true);
+});
+
+test('ownership access reconciliation works for completed weeks and playoff phase without creating threads', async t => {
+ const f=fixture(t);f.staffUserIds.push('staff');await f.service.create(f.guild);
+ const game=f.submissions.records()[0].game, old='coach-'+game.team1Id;
+ const owners=f.repository.loadOwners('test').map(o=>o.teamId===game.team1Id?{...o,userId:'successor'}:o);f.repository.saveOwners('test',owners);f.repository.saveLeague('test',{currentPhase:'PLAYOFFS'});
+ await f.service.syncAccess(f.guild,{owners,staffUserIds:['staff']});
+ const members=f.channels.get(game.discordThreadId).memberIds;assert.equal(members.has(old),false);assert.equal(members.has('successor'),true);assert.equal(members.has('staff'),true);assert.equal(f.calls.length,14);
 });

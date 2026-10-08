@@ -1,6 +1,6 @@
 # Discord command and embed audit
 
-The current menu has 20 top-level commands. Eight registered actions were removed; their old handlers remain to avoid abruptly breaking existing interactions during deployment. Apply the menu with `npm run deploy:commands` and restart the bot for embed changes.
+The current menu has 22 top-level commands. Eight registered actions were removed; their old handlers remain to avoid abruptly breaking existing interactions during deployment. Apply the menu with `npm run deploy:commands` and restart the bot for embed changes.
 
 ## Removed from the menu
 
@@ -82,3 +82,8 @@ NBA application emojis are loaded by name from the connected bot's application a
 - Website approval now opens a confirmation dialog immediately after server success, disables repeat approval and shows APPROVED. Successful approval remains acknowledged if subsequent page refresh fails; rejected approvals do not show success.
 - Covered date access/validation, solo staff/CPU, button gating, staff submission/cancel, both forfeit targets and CPU; existing coach submission, fair-sim and retry tests pass.
 - Validation: npm run check passed all 154 tests; mocked review browser test passed successful/rejected approval and confirmation dialog behavior. No live Discord messages or game records modified during testing.
+
+
+### 2026-10-07 — General usability audit
+
+The current exported menu contains 22 unique commands; the retired definitions above are still filtered out before registration. See [APP-USABILITY-AUDIT.md](APP-USABILITY-AUDIT.md) for the current command map, flow findings, implemented fixes and remaining recommendations. Current channel setup creates 18 channels and provisions 35 roles (30 teams, Coach, GM, Trade Committee and both commissioner roles).

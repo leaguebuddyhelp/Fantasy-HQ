@@ -1,6 +1,8 @@
 window.localStorage.removeItem("leaguebuddyAdminKey");
 
 const state = {
+  coachWeekLoading: false,
+  staffWeekLoading: false,
   boards: [],
   classLabel: null,
   leagueSite: null,
@@ -563,6 +565,7 @@ function playerCardMarkup(player, rank) {
           <span class="grade-chip">OVR ${overall ?? "—"}</span>
           <span class="grade-chip">AGE ${player.age ?? "—"}</span>
           <span class="grade-chip">TV ${Number(player.tradeValue || 1).toLocaleString("en-US")}</span>
+          ${contractMarkup(player)}
         </div>
       </div>
     </button>`;
@@ -661,7 +664,7 @@ function renderLeagueStats() {
   elements.leagueStatsNext.disabled = state.leagueStatsPage === pages;
   elements.leagueStatsPageStatus.textContent = `${players.length ? start + 1 : 0}–${Math.min(start + pageSize, players.length)} of ${players.length} · Page ${state.leagueStatsPage} of ${pages}`;
   const warningCount = state.leagueStatsWarnings.length;
-  elements.leagueStatsStatus.textContent = `${state.leagueStats.length} players · Published when the week advances${warningCount ? ` · ${warningCount} invalid game-stat rows excluded` : ''}`;
+  elements.leagueStatsStatus.textContent = `${state.leagueStats.length} players · ${document.querySelector('#player-stats-scope')?.value === 'REGULAR_SEASON' ? 'Published when the week advances' : 'Official approved postseason games'}${warningCount ? ` · ${warningCount} invalid game-stat rows excluded` : ''}`;
 }
 
 async function loadLeagueStats(force = false) {
@@ -669,7 +672,7 @@ async function loadLeagueStats(force = false) {
   state.leagueStatsLoading = true;
   elements.leagueStatsStatus.textContent = 'Loading official player statistics…';
   try {
-    const payload = await requestJson('/api/league/stats');
+    const payload = await requestJson('/api/league/stats'+statScopeQuery('player'));
     state.leagueStats = payload.players || [];
     state.leagueStatsWarnings = payload.warnings || [];
     state.leagueStatsLoaded = true;
@@ -691,7 +694,7 @@ async function toggleStatsGameLog(playerId) {
   state.statsGameLogLoading = playerId;
   renderLeagueStats();
   try {
-    state.statsGameLogs.set(playerId, await requestJson(`/api/league/stats/players/${encodeURIComponent(playerId)}/games`));
+    state.statsGameLogs.set(playerId, await requestJson(`/api/league/stats/players/${encodeURIComponent(playerId)}/games${statScopeQuery('player')}`));
   } catch (error) { state.statsGameLogs.set(playerId, { error: error.message }); }
   finally { state.statsGameLogLoading = null; renderLeagueStats(); }
 }
@@ -733,7 +736,7 @@ function renderTeamStats() {
   }
   elements.teamStatsBody.innerHTML = rows.join('') || '<tr><td colspan="17">No teams are available.</td></tr>';
   const warnings = state.teamStatsWarnings.length;
-  elements.teamStatsStatus.textContent = `${teams.length} teams · Published when the week advances${warnings ? ` · ${warnings} invalid team-stat rows excluded` : ''}`;
+  elements.teamStatsStatus.textContent = `${teams.length} teams · ${document.querySelector('#team-stats-scope')?.value === 'REGULAR_SEASON' ? 'Published when the week advances' : 'Official approved postseason games'}${warnings ? ` · ${warnings} invalid team-stat rows excluded` : ''}`;
 }
 
 async function loadTeamStats(force = false) {
@@ -741,7 +744,7 @@ async function loadTeamStats(force = false) {
   state.teamStatsLoading = true;
   elements.teamStatsStatus.textContent = 'Loading official team statistics…';
   try {
-    const payload = await requestJson('/api/league/team-stats');
+    const payload = await requestJson('/api/league/team-stats'+statScopeQuery('team'));
     state.teamStats = payload.teams || [];
     state.teamStatsWarnings = payload.warnings || [];
     state.teamStatsLoaded = true;
@@ -759,7 +762,7 @@ async function toggleTeamGameLog(teamId) {
   if (state.teamGameLogs.has(teamId)) return;
   state.teamGameLogLoading = teamId;
   renderTeamStats();
-  try { state.teamGameLogs.set(teamId, await requestJson(`/api/league/team-stats/${encodeURIComponent(teamId)}/games`)); }
+  try { state.teamGameLogs.set(teamId, await requestJson(`/api/league/team-stats/${encodeURIComponent(teamId)}/games${statScopeQuery('team')}`)); }
   catch (error) { state.teamGameLogs.set(teamId, { error: error.message }); }
   finally { state.teamGameLogLoading = null; renderTeamStats(); }
 }
@@ -783,6 +786,9 @@ function renderLeagueSite() {
   }
 
   const { league, summary, teams, schedulePreview, admin, preseason } = payload;
+  renderCoachWeekPicker(teams);
+  document.querySelector("#staff-weekly").hidden = !hasAdminAccess() || league.currentPhase !== "REGULAR_SEASON";
+  if (location.hash === "#staff-weekly" && !hasAdminAccess()) requestAnimationFrame(() => document.querySelector("#league-admin").scrollIntoView({ block: "start" }));
   elements.leagueStatusPill.textContent = `Season ${league.seasonNumber} • ${league.currentPhase}`;
   elements.summaryTeams.textContent = summary.teams;
   elements.summaryPlayers.textContent = summary.players;
@@ -874,6 +880,8 @@ async function refreshLeagueSite() {
 
 async function loadAdminPanels() {
   if (!hasAdminAccess()) {
+    document.querySelector("#staff-week-output").replaceChildren();
+    document.querySelector("#staff-weekly").hidden = true;
     setPanelMessage(elements.dataIssuesList, "Unlock admin access to load preseason issues.");
     setPanelMessage(elements.auditLogList, "Unlock admin access to load the audit log.");
     setPanelMessage(elements.preseasonValidationOutput, "Unlock admin access to run preseason validation.");
@@ -916,14 +924,14 @@ function teamDialogMarkup(team) {
       </div>
       <div class="league-detail-grid">
         <section class="detail-panel">
-          <h3>Roster</h3>
+          <h3>Roster</h3>${team.payroll ? `<p>💵 ${escapeHtml(team.payroll.short)}</p>` : ""}
           <div class="detail-list">
             ${(team.roster || []).map((entry) => `
               <button type="button" class="detail-list-row" data-dialog-player="${escapeHtml(entry.player.playerId)}">
                 <span>${escapeHtml(entry.player.name)}</span>
                 <small>${escapeHtml(positionLabel(entry))} · ${escapeHtml(entry.jerseyNumber ?? "--")} · ${escapeHtml(entry.player.overall ?? "—")} OVR</small>
                 <small>Age ${entry.player.age ?? "—"} · Trade Value ${Number(entry.player.tradeValue || 1).toLocaleString("en-US")}</small>
-                <small>${escapeHtml(seasonStatLine(entry.seasonStats))}</small>
+                ${contractMarkup(entry.player)}<small>${escapeHtml(seasonStatLine(entry.seasonStats))}</small>
               </button>`).join("") || "<p>No roster loaded.</p>"}
           </div>
         </section>
@@ -957,6 +965,18 @@ function seasonStatLine(stats) {
   return `Regular season · ${stats.GP} GP · ${stats.PPG.toFixed(1)} PPG · ${stats.RPG.toFixed(1)} RPG · ${stats.APG.toFixed(1)} APG`;
 }
 
+function contractMarkup(player, detailed = false) {
+  const view = player.contractView;
+  if (!view) return '<small>Contract unavailable</small>';
+  if (!detailed) return `<small>💵 ${escapeHtml(view.short)}</small>`;
+  return `<section class="detail-panel"><h3>Contract</h3><p>${escapeHtml(view.short)}</p>
+    ${view.seasons.length ? `<table><thead><tr><th>Season</th><th>Salary</th><th>Option</th></tr></thead><tbody>${view.seasons.map(row => `<tr><td>${escapeHtml(row.season)}</td><td>${row.salary == null ? 'Unknown' : '$' + Number(row.salary).toLocaleString('en-US')}</td><td>${row.option === 'PLAYER' ? 'Player option' : row.option === 'TEAM' ? 'Team option' : '—'}</td></tr>`).join('')}</tbody></table>` : ''}
+    ${view.guaranteedTotal == null ? '' : `<p>Published guaranteed total: $${Number(view.guaranteedTotal).toLocaleString('en-US')}</p>`}
+    ${player.tradeValueReason ? `<p>${escapeHtml(player.tradeValueReason)}</p>` : ''}
+    ${view.sourceUrl && /^https:\/\/www\.basketball-reference\.com\//.test(view.sourceUrl) ? `<p><a href="${escapeHtml(view.sourceUrl)}" target="_blank" rel="noopener">Payroll source</a> · Updated ${escapeHtml(view.fetchedAt?.slice(0,10) || 'Unknown')}</p>` : ''}
+  </section>`;
+}
+
 function readonlyPlayerFacts(player) {
   return `
     <div class="league-facts">
@@ -964,6 +984,7 @@ function readonlyPlayerFacts(player) {
       ${fact("OVR", player.overall)}
       ${fact("Age", player.age)}
       ${fact("Trade Value", Number(player.tradeValue || 1).toLocaleString("en-US"))}
+      ${fact("Contract", player.contractView?.short)}
       ${fact("Positions", positionLabel(player))}
       ${fact("Archetype", player.archetype)}
       ${fact("Nationality", player.nationality)}
@@ -975,7 +996,7 @@ function readonlyPlayerFacts(player) {
       ${fact("Birthdate", player.birthdate)}
       ${fact("Prior to NBA", player.priorToNBA)}
       ${fact("Jersey", player.jerseyNumber)}
-    </div>`;
+    </div>${contractMarkup(player, true)}`;
 }
 
 function playerDialogMarkup(player) {
@@ -1046,7 +1067,7 @@ function rosterManagerMarkup(team) {
         <tbody>
           ${team.roster.map((entry) => `
             <tr data-roster-player="${escapeHtml(entry.player.playerId)}">
-              <td><strong>${escapeHtml(entry.player.name)}</strong><small>${escapeHtml(entry.player.nationality || "N/A")}</small><small>Age ${escapeHtml(entry.player.age ?? "—")} · Trade Value ${Number(entry.player.tradeValue || 1).toLocaleString("en-US")}</small><small>${escapeHtml(seasonStatLine(entry.seasonStats))}</small></td>
+              <td><strong>${escapeHtml(entry.player.name)}</strong><small>${escapeHtml(entry.player.nationality || "N/A")}</small><small>Age ${escapeHtml(entry.player.age ?? "—")} · Trade Value ${Number(entry.player.tradeValue || 1).toLocaleString("en-US")}</small>${contractMarkup(entry.player)}<small>${escapeHtml(seasonStatLine(entry.seasonStats))}</small></td>
               <td><input data-field="overall" type="number" min="0" max="99" value="${escapeHtml(entry.player.overall ?? "")}"></td>
               <td><input data-field="jerseyNumber" type="number" value="${escapeHtml(entry.jerseyNumber ?? "")}"></td>
               <td><input data-field="position1" value="${escapeHtml(entry.position1 || "")}"></td>
@@ -1537,16 +1558,27 @@ elements.importTeamSelect.addEventListener("change", () => {
   setPanelMessage(elements.importPreviewOutput, "Preview this team's import before applying changes.");
 });
 
+let seasonStartState = "idle";
+function setSeasonStartState(next) {
+  seasonStartState = next;
+  elements.startSeasonButton.disabled = next !== "idle";
+  elements.validatePreseasonButton.disabled = next !== "idle";
+}
+
 elements.validatePreseasonButton.addEventListener("click", async () => {
+  if (seasonStartState !== "idle") return;
+  setSeasonStartState("validating");
   try {
     setPanelMessage(elements.preseasonValidationOutput, "Running preseason validation…");
     await runPreseasonValidation();
   } catch (error) {
     setPanelMessage(elements.preseasonValidationOutput, error.message);
-  }
+  } finally { setSeasonStartState("idle"); }
 });
 
 elements.startSeasonButton.addEventListener("click", async () => {
+  if (seasonStartState !== "idle") return;
+  setSeasonStartState("confirming");
   elements.preseasonValidationOutput.innerHTML = `
     <div class="admin-summary" role="group" aria-labelledby="start-season-confirm-title">
       <strong id="start-season-confirm-title">Start the regular season?</strong>
@@ -1560,13 +1592,16 @@ elements.startSeasonButton.addEventListener("click", async () => {
 });
 
 elements.preseasonValidationOutput.addEventListener("click", async event => {
+  if (seasonStartState !== "confirming") return;
   if (event.target.closest("[data-cancel-start-season]")) {
+    setSeasonStartState("idle");
     elements.preseasonValidationOutput.innerHTML = '<p class="inline-status">Season start cancelled.</p>';
     elements.startSeasonButton.focus();
     return;
   }
   const confirmButton = event.target.closest("[data-confirm-start-season]");
   if (!confirmButton) return;
+  setSeasonStartState("submitting");
   try {
     confirmButton.disabled = true;
     setPanelMessage(elements.preseasonValidationOutput, 'Checking readiness and starting the season…');
@@ -1574,7 +1609,7 @@ elements.preseasonValidationOutput.addEventListener("click", async event => {
     await loadAdminWorkflow();
   } catch (error) {
     setPanelMessage(elements.preseasonValidationOutput, error.message);
-  } finally { elements.startSeasonButton.disabled = false; }
+  } finally { setSeasonStartState("idle"); }
 });
 
 elements.loadRosterManager.addEventListener("click", async () => {
@@ -1717,13 +1752,20 @@ async function refreshOwnerLabels() {
 setInterval(refreshOwnerLabels, 10000);
 window.addEventListener("focus", refreshOwnerLabels);
 
+let standingsRefreshPending = false;
 async function refreshStandings() {
+  if (standingsRefreshPending) return;
+  standingsRefreshPending = true;
+  const refreshButton = document.querySelector('#standings-refresh');
+  refreshButton.disabled = true;
   const label = document.querySelector('#standings-week'), container = document.querySelector('#standings-tables');
   try {
     const data = await requestJson('/api/league/standings');
     label.textContent = `${data.publishedThroughWeek ? 'Through Week ' + data.publishedThroughWeek : 'Awaiting first week advancement'} · ${data.countedGames} published games`;
     container.innerHTML = ['East', 'West'].map(conference => `<section class="admin-panel"><h3>${conference === 'East' ? 'EASTERN' : 'WESTERN'} CONFERENCE</h3><div class="standings-scroll"><table class="standings-table"><thead><tr>${['Rank', 'Team', 'GP', 'W', 'L', 'PCT', 'PF', 'PA', 'DIFF'].map(h => `<th scope="col">${h}</th>`).join('')}</tr></thead><tbody>${data.conferences[conference].map(team => `<tr><td>${team.rank}</td><td><button type="button" data-standings-team="${escapeHtml(team.teamId)}">${teamLogoMarkup(team.teamName)}${escapeHtml(team.teamName)}</button></td>${['GP', 'W', 'L', 'PCT', 'PF', 'PA', 'DIFF'].map(k => `<td>${k === 'PCT' ? team.PCT.toFixed(3).replace(/^0\./, '.') : k === 'DIFF' && team.DIFF > 0 ? '+' + team.DIFF : team[k]}</td>`).join('')}</tr>`).join('')}</tbody></table></div></section>`).join('');
-  } catch (error) { label.textContent = error.message; container.replaceChildren(); }
+  } catch (error) {
+    label.textContent = container.children.length ? `Could not reload: ${error.message}. Showing previously loaded standings.` : error.message;
+  } finally { standingsRefreshPending = false; refreshButton.disabled = false; }
 }
 document.querySelector('#standings-refresh').onclick = refreshStandings;
 document.querySelector('#standings-tables').addEventListener('click', async event => {
@@ -1738,6 +1780,7 @@ setInterval(() => { if (location.hash === '#standings' && !document.hidden) refr
 
 // Load read-only admin information together after unlocking. No automatic mutations.
 async function loadAdminWorkflow() {
+  if (hasAdminAccess() && state.leagueSite?.league?.currentPhase === "REGULAR_SEASON") await loadStaffWeek();
   if (elements.rosterTeamSelect.value) await loadRosterManager().catch(error => setPanelMessage(elements.rosterManager, error.message));
 }
 const commissionerName = document.querySelector('#admin-operator');
@@ -1745,3 +1788,144 @@ commissionerName.value = sessionStorage.getItem('leaguebuddyReviewOperator') || 
 commissionerName.addEventListener('input', () => sessionStorage.setItem('leaguebuddyReviewOperator', commissionerName.value));
 elements.adminKey.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); elements.adminKeySave.click(); } });
 elements.rosterTeamSelect.addEventListener('change', () => loadRosterManager().catch(error => setPanelMessage(elements.rosterManager, error.message)));
+
+function weeklyLink(url, label) {
+  if (!url || !(/^(https:\/\/discord\.com\/channels\/|\/games\/)/.test(url))) return '';
+  return `<a class="weekly-action" href="${escapeHtml(url)}"${url.startsWith('https:') ? ' target="_blank" rel="noopener"' : ''}>${escapeHtml(label)}</a>`;
+}
+function weeklyDeadline(date) {
+  return date ? new Date(date).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'Starts when game threads are created';
+}
+function renderCoachWeekPicker(teams) {
+  const picker = document.querySelector('#coach-week-team');
+  const selected = picker.value || new URLSearchParams(location.search).get('team') || localStorage.getItem('leaguebuddyWeeklyTeam') || '';
+  picker.innerHTML = '<option value="">Choose team</option>' + teams.map(t => `<option value="${escapeHtml(t.teamId)}">${escapeHtml(t.teamName)}</option>`).join('');
+  picker.value = teams.some(t => t.teamId === selected) ? selected : '';
+  if (picker.value && !state.coachWeekLoading) loadCoachWeek();
+}
+async function loadCoachWeek() {
+  if (state.coachWeekLoading) return;
+  const picker = document.querySelector('#coach-week-team'), teamId = picker.value;
+  const output = document.querySelector('#coach-week-output'), status = document.querySelector('#coach-week-status'), button = document.querySelector('#coach-week-refresh');
+  if (!teamId) { output.replaceChildren(); status.textContent = 'Choose your team.'; return; }
+  state.coachWeekLoading = true; button.disabled = true; picker.disabled = true; status.textContent = 'Loading your week…';
+  try {
+    const view = await requestJson(`/api/league/weekly/${encodeURIComponent(teamId)}`);
+    if (!view.available) { status.textContent = 'Weekly dashboards open during the regular season.'; output.replaceChildren(); return; }
+    status.textContent = `Week ${view.week} · ${view.teamName}${view.closed ? ' · Regular season complete' : ''}`;
+    output.innerHTML = `<div class="admin-summary"><strong>${view.bye ? 'Bye week' : `vs ${escapeHtml(view.game.opponent)}`}</strong>
+      <p>${escapeHtml(view.nextAction)}</p><p>${view.bye || view.closed ? '' : `Deadline: ${escapeHtml(weeklyDeadline(view.deadlineAt))}`}</p>
+      ${view.game ? `<p>${view.game.final ? '✅ Approved' : `${view.game.screenshots}/2 box scores received`}${view.game.inGameDate ? ` · Game date: ${escapeHtml(view.game.inGameDate)}` : ''}</p>` : ''}
+      <div class="weekly-links">${weeklyLink(view.game?.threadUrl, 'Open game thread')}${weeklyLink(view.channels.freeAgency, 'Free agency')}${weeklyLink(view.channels.submitTrade, 'Trade channel')}${weeklyLink(view.channels.playerUpgrades, 'Player upgrades')}</div></div>`;
+  } catch (error) { status.textContent = `Could not load this week: ${error.message}`; }
+  finally { state.coachWeekLoading = false; button.disabled = false; picker.disabled = false; }
+}
+function staffWeekMarkup(view) {
+  if (!view.available) return '<p>Weekly reports open during the regular season.</p>';
+  const b = view.blockers, t = view.transactions;
+  const queue = view.games.filter(g => !g.final).sort((a, b) => Number(b.reviewPending || b.extractionFailed) - Number(a.reviewPending || a.extractionFailed));
+  const gameRows = queue.map(g => `<tr><td>${escapeHtml(g.team1Name)} vs ${escapeHtml(g.team2Name)}</td><td>${escapeHtml(g.status.replaceAll('_', ' '))}${!g.inGameDate ? ' · Date not set' : ''}</td><td>${g.screenshots}/2</td><td>${weeklyLink(g.threadUrl, 'Thread')}${g.reviewUrl ? weeklyLink(g.reviewUrl, 'Review box scores') : ''}${g.recordCount > 1 ? 'Duplicate records need repair' : !g.threadUrl ? 'Create / repair game threads in Discord' : ''}</td></tr>`).join('');
+  const transactionRows = [
+    ...t.trades.map(x => ({ name: x.teams.join(' ↔ '), status: x.status.replaceAll('_', ' '), url: x.url, type: 'Trade' })),
+    ...t.offers.map(x => ({ name: `${x.player} · ${state.leagueSite?.teams?.find(team => team.teamId === x.teamId)?.teamName || x.teamId}`, status: x.cutRequired ? `Coach roster cut needed by ${weeklyDeadline(x.cutDeadlineAt)}` : x.status === 'PENDING_REVIEW' ? 'Staff proof review' : 'Approved; window pending', url: x.url || view.channels.freeAgencyProof || view.channels.staff, type: 'FA offer' })),
+    ...t.waivers.map(x => ({ name: `${x.player} · ${state.leagueSite?.teams?.find(team => team.teamId === x.teamId)?.teamName || x.teamId}`, status: 'Staff review', url: x.url || view.channels.freeAgencyProof || view.channels.staff, type: 'Waiver request' })),
+  ];
+  return `<div class="summary-grid weekly-summary">${view.groups.map(g => `<article class="summary-card"><span>${escapeHtml(g.label)}</span><strong>${g.final}/${g.total}</strong><small>Approved · ${g.total - g.final} remaining</small></article>`).join('')}</div>
+    <div class="admin-summary"><strong>${view.closed ? 'Week closed' : view.readyToAdvance ? 'Ready for week-advance review' : `${b.unresolved} games still need a final result`}</strong>
+      <p>Deadline: ${escapeHtml(weeklyDeadline(view.deadlineAt))}</p>
+      <p>${b.missingThreads} missing threads · ${b.missingDates} dates not set · ${b.missingBoxScores} incomplete box-score pairs</p>
+      <p>${b.pendingReviews} awaiting review · ${b.extractionFailures} OCR failures · ${b.processing} processing${b.duplicateRecords ? ` · ${b.duplicateRecords} duplicate records` : ''}</p>
+      <p>Byes: ${escapeHtml(view.byes.map(x => x.teamName).join(' · ') || 'None')}</p>
+      ${view.testMode ? '<p>Test Mode: matchup groups reflect actual assigned coaches.</p>' : ''}
+      ${weeklyLink(view.staffReportUrl, 'Open Staff report / review week advancement')}
+      <p>Week advancement still requires the existing confirmation in Discord. Pending transactions below are reminders, not additional advancement blockers.</p></div>
+    ${view.storageIssues?.length || view.notificationFailures ? `<p>⚠ Recovery needed: ${view.storageIssues?.length || 0} unreadable game records · ${view.notificationFailures || 0} failed notification attempts. Create a backup before repairing stored records.</p>` : ''}
+    <details><summary>Approved games — review or correct</summary>${view.games.filter(g => g.final).map(g => `<p>${escapeHtml(g.team1Name)} vs ${escapeHtml(g.team2Name)} ${weeklyLink(g.reviewUrl, 'Review result')}</p>`).join('') || '<p>No approved games yet.</p>'}</details>
+    <h4>Game closeout queue</h4>${queue.length ? `<div class="standings-scroll"><table class="standings-table"><thead><tr><th>Matchup</th><th>Status</th><th>Box scores</th><th>Action</th></tr></thead><tbody>${gameRows}</tbody></table></div>` : '<p>All scheduled games are approved.</p>'}
+    <h4>Pending transactions</h4><p>${t.trades.length} trades · ${t.offers.length} active offers · ${t.offers.filter(o => o.status === 'PENDING_REVIEW').length} FA proof reviews · ${t.waivers.length} waiver requests · ${t.waitingCuts} winner roster cuts needed</p>
+    ${transactionRows.length ? `<div class="standings-scroll"><table class="standings-table"><thead><tr><th>Type</th><th>Teams / player</th><th>Status</th><th>Action</th></tr></thead><tbody>${transactionRows.map(x => `<tr><td>${x.type}</td><td>${escapeHtml(x.name)}</td><td>${escapeHtml(x.status)}</td><td>${weeklyLink(x.url, 'Open in Discord')}</td></tr>`).join('')}</tbody></table></div>` : '<p>No pending trades, offers or waiver requests.</p>'}`;
+}
+async function loadStaffWeek() {
+  if (state.staffWeekLoading || !hasAdminAccess()) return;
+  const key = state.adminKey, output = document.querySelector('#staff-week-output'), status = document.querySelector('#staff-week-status'), button = document.querySelector('#staff-week-refresh');
+  state.staffWeekLoading = true; button.disabled = true; status.textContent = 'Loading weekly checklist…';
+  try {
+    const view = await adminRequestJson('/api/league/admin/weekly');
+    if (state.adminKey !== key || !hasAdminAccess()) return;
+    const firstLoad = !output.children.length;
+    output.innerHTML = staffWeekMarkup(view);
+    if (firstLoad && location.hash === "#staff-weekly") requestAnimationFrame(() => document.querySelector("#staff-weekly").scrollIntoView({ block: "start" }));
+    status.textContent = view.available ? `Week ${view.week} · ${view.final}/${view.total} approved · Updated ${new Date().toLocaleTimeString()}` : 'Not in regular season.';
+  } catch (error) { if (state.adminKey === key) { output.replaceChildren(); status.textContent = error.message; } }
+  finally { state.staffWeekLoading = false; button.disabled = false; }
+}
+document.querySelector('#coach-week-team').addEventListener('change', event => { localStorage.setItem('leaguebuddyWeeklyTeam', event.target.value); document.querySelector('#coach-week-output').replaceChildren(); loadCoachWeek(); });
+document.querySelector('#coach-week-refresh').addEventListener('click', loadCoachWeek);
+document.querySelector('#staff-week-refresh').addEventListener('click', loadStaffWeek);
+window.addEventListener('hashchange', () => { if (location.hash === '#my-week') loadCoachWeek(); if (location.hash === '#staff-weekly' && hasAdminAccess()) loadStaffWeek(); });
+setInterval(() => { if (document.hidden) return; if (location.hash === '#my-week') loadCoachWeek(); if (['#staff-weekly', '#league-admin'].includes(location.hash) && hasAdminAccess()) loadStaffWeek(); }, 60000);
+
+let playoffRequestRunning = false;
+document.querySelector('#playoffs-review')?.addEventListener('click', async () => {
+  if (playoffRequestRunning) return;
+  const output = document.querySelector('#playoffs-output'); playoffRequestRunning = true;
+  try {
+    const view = await adminRequestJson('/api/league/admin/playoffs', { method: 'POST', body: JSON.stringify({ action: 'prepare', operator: commissionerName.value.trim() }) });
+    output.replaceChildren();
+    if (view.alreadyStarted) { output.textContent = 'Playoffs have already started.'; return; }
+    if (view.blocked) { output.textContent = `${view.unresolved.length} unresolved games must be finalized first.`; return; }
+    const summary = document.createElement('p'); summary.textContent = Object.entries(view.seeds).map(([c, teams]) => `${c}: ${teams.map((t,i) => `${i+1}. ${t.teamName}`).join(', ')}`).join(' | '); output.append(summary);
+    const policy = document.createElement('p'); policy.textContent = 'Confirming freezes these seeds and closes upgrade spending. Existing trades, FA windows and waivers retain their saved rules.'; output.append(policy);
+    const confirm = document.createElement('button'); confirm.textContent = 'Confirm playoff handoff';
+    const operator = commissionerName.value.trim();
+    confirm.addEventListener('click', async () => { if (playoffRequestRunning) return; playoffRequestRunning = true; confirm.disabled = true;
+      try { await adminRequestJson('/api/league/admin/playoffs', { method: 'POST', body: JSON.stringify({ action: 'confirm', token: view.token, operator }) }); output.textContent = 'Playoffs started. Seeds and final standings are saved.'; }
+      catch (error) { output.textContent = error.message + ' Review seeding again.'; }
+      finally { playoffRequestRunning = false; }
+    }); output.append(confirm);
+  } catch(error) { output.textContent = error.message; }
+  finally { playoffRequestRunning = false; }
+});
+
+
+document.querySelector('#backup-create')?.addEventListener('click', async event => {
+ const button=event.currentTarget, output=document.querySelector('#backup-output'); if(button.disabled)return; button.disabled=true;
+ try { const result=await adminRequestJson('/api/league/admin/backups',{method:'POST',body:JSON.stringify({})}); output.textContent=`Backup saved: ${result.id} · ${result.files} files${result.corruptFiles.length ? ` · ${result.corruptFiles.length} unreadable JSON files preserved for repair` : ''}`; }
+ catch(error){output.textContent=error.message;} finally{button.disabled=false;}
+});
+
+function statScopeQuery(kind) {
+  const scope=document.querySelector(`#${kind}-stats-scope`)?.value || 'REGULAR_SEASON',season=document.querySelector(`#${kind}-stats-season`)?.value || '';
+  return '?'+new URLSearchParams({scope,...(season?{season}:{})});
+}
+for (const kind of ['player','team']) for(const control of ['scope','season'])document.querySelector(`#${kind}-stats-${control}`)?.addEventListener('change',()=>{
+  if(kind==='player'){state.statsGameLogs.clear();state.expandedStatsPlayerId=null;state.leagueStatsPage=1;loadLeagueStats(true);}
+  else{state.teamGameLogs.clear();state.expandedTeamStatsId=null;loadTeamStats(true);}
+});
+
+(() => {
+  const season=document.querySelector('#playoffs-season'),status=document.querySelector('#playoffs-status'),output=document.querySelector('#playoffs-bracket');
+  let loading=false,pendingReload=false;
+  const stages=['PLAY_IN','FIRST_ROUND','SECOND_ROUND','CONFERENCE_FINALS','NBA_FINALS'];
+  async function load() {
+    if(loading){pendingReload=true;return;}loading=true;status.textContent='Loading official bracket…';
+    try {
+      const response=await fetch('/api/league/playoffs'+(season.value?'?season='+encodeURIComponent(season.value):''));const payload=await response.json();if(!response.ok)throw Error(payload.error || 'Unable to load bracket.');
+      for(const select of [season,document.querySelector('#player-stats-season'),document.querySelector('#team-stats-season')])if(select){const value=select.value;select.innerHTML='<option value="">Current season</option>'+payload.seasons.map(s=>`<option value="${escapeHtml(s)}">Season ${escapeHtml(String(s).split('-reset-')[0])}${String(s).includes('-reset-')?' · restart '+escapeHtml(String(s).slice(-6)):''}</option>`).join('');select.value=value;}
+      const state=payload.playoffs;if(!state){status.textContent='Playoffs have not started for this season.';output.innerHTML='';return;}
+      if(state.version!==2){status.textContent='Historical seeds are available; this season predates the series bracket.';output.innerHTML=Object.entries(state.seeds||{}).map(([c,teams])=>`<h3>${escapeHtml(c)}</h3><ol>${teams.map(t=>`<li>${escapeHtml(t.teamName)}</li>`).join('')}</ol>`).join('');return;}
+      const label=id=>Object.values(state.seeds).flat().find(t=>t.teamId===id)?.teamName||id;
+      const seed=id=>{const team=Object.entries(state.qualifiedSeeds||{}).find(([,ids])=>ids.includes(id));return team?team[1].indexOf(id)+1:Object.values(state.seeds).flatMap(teams=>teams.map((t,i)=>({id:t.teamId,seed:i+1}))).find(t=>t.id===id)?.seed;};
+      status.textContent=`${payload.testMode?'TEST MODE · ':''}Season ${state.seasonNumber||String(payload.seasonId).split('-reset-')[0]} · ${state.stage.replaceAll('_',' ')}${state.conflicts.length?' · Commissioner review required':''}`;
+      function seriesCard(s) {
+        const games=payload.games.filter(g=>g.seriesId===s.id),round=state.rounds.find(r=>r.stage===s.stage);
+        return `<article class="postseason-matchup"><p>${escapeHtml(s.status)}${s.forfeit?' · Series forfeit':''}</p>${[s.team1Id,s.team2Id].map(id=>`<div class="postseason-team ${s.winnerTeamId===id?'series-winner':''}">${teamLogoMarkup(label(id))}<span>#${seed(id)||'—'} ${escapeHtml(label(id))}</span><strong>${s.wins[id]}</strong></div>`).join('')}<small>First to ${s.requiredWins} win${s.requiredWins===1?'':'s'}${round?.deadlineAt?' · Deadline '+escapeHtml(new Date(round.deadlineAt).toLocaleString()):''}</small><details><summary>Official games (${games.length})</summary>${games.map(g=>`<p>Game ${g.gameNumber}: ${g.result.type==='FORFEIT'?escapeHtml(label(g.result.winnerTeamId))+' wins by forfeit':escapeHtml(label(s.team1Id))+' '+g.result.scores[s.team1Id]+' – '+g.result.scores[s.team2Id]+' '+escapeHtml(label(s.team2Id))}</p>`).join('')||'<p>No approved games yet.</p>'}</details></article>`;
+      }
+      output.innerHTML=['East','West'].map(c=>`<h3>${c}ern Conference</h3><div class="postseason-rounds">${stages.slice(0,4).map(stage=>`<div class="postseason-round"><h4>${stage.replaceAll('_',' ')}</h4>${state.series.filter(s=>s.stage===stage&&s.conference===c).map(seriesCard).join('')||'<p>Awaiting previous round.</p>'}</div>`).join('')}</div>`).join('')+`<h3>NBA Finals</h3>${state.series.filter(s=>s.stage==='NBA_FINALS').map(seriesCard).join('')||'<p>Awaiting conference champions.</p>'}${state.champion?`<h3>🏆 ${escapeHtml(label(state.champion.teamId))} · League Champion</h3>`:''}<h3>Championship history</h3>${Object.entries(payload.championships||{}).map(([season,c])=>`<p>Season ${escapeHtml(c.seasonNumber||String(season).split('-reset-')[0])} · ${escapeHtml(label(c.teamId))} · Finals ${Object.values(c.seriesScore).join('–')}${c.coachUserId?' · <a href="https://discord.com/users/'+escapeHtml(c.coachUserId)+'">Championship coach</a>':''}</p>`).join('')||'<p>No finalized championships yet.</p>'}<details><summary>Eliminated teams</summary>${[...new Set(state.series.filter(s=>s.winnerTeamId&&(s.stage!=='PLAY_IN'||s.id.endsWith('9-10')||s.id.endsWith('final'))).map(s=>s.winnerTeamId===s.team1Id?s.team2Id:s.team1Id))].map(id=>`<p>${escapeHtml(label(id))}</p>`).join('')||'<p>None yet.</p>'}</details>`;
+    }catch(error){status.textContent=error.message;output.innerHTML='<p>Unable to load the bracket. Use Reload bracket to retry.</p>';}finally{loading=false;if(pendingReload){pendingReload=false;load();}}
+  }
+  season.addEventListener('change',load);document.querySelector('#playoffs-refresh').addEventListener('click',load);window.addEventListener('hashchange',()=>{if(location.hash==='#playoffs')load();});
+  // Populate historical season selectors without opening simulation controls on the website.
+  setInterval(()=>{if(location.hash==='#playoffs'&&!document.hidden)load();},30000);
+  load();
+})();

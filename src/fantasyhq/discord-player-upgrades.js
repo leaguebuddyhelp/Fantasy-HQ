@@ -32,17 +32,7 @@ function createDiscordPlayerUpgrades({ repository, service, client } = {}) {
 
     function bound(interaction) {
         const context = repository.loadLeagueContext({ guildId: interaction.guildId });
-        const ownership = repository.loadRoleOwnership(context.league.leagueId);
-        const roles = roleCache(interaction.member);
-        if (!roles) throw new Error("Your team roles could not be verified. Try again in a moment.");
-        const teamIds = context.teams.filter(team => {
-            const roleId = ownership.roleIds?.[team.teamId];
-            return roleId && roles.has(roleId);
-        }).map(team => team.teamId);
-        if (teamIds.length !== 1) throw new Error(teamIds.length ? "You hold multiple team roles. Ask Staff to resolve the ownership conflict." : "Your team Coach role is not configured. Ask Staff to repair league roles.");
-        const teamId = teamIds[0], owner = repository.loadOwners(context.league.leagueId).find(entry => entry.teamId === teamId);
-        if (owner?.userId !== interaction.user.id) throw new Error("Your Coach role is not the current owner assignment. Ask Staff to sync league roles.");
-        return { context, teamId, coachUserId: interaction.user.id, team: context.teams.find(entry => entry.teamId === teamId) };
+        return { context, ...require('./coach-identity').requireCoachIdentity(repository, context, interaction.member, interaction.user.id) };
     }
 
     function statusEmbed(context, team, status) {
@@ -511,12 +501,13 @@ function createDiscordPlayerUpgrades({ repository, service, client } = {}) {
                     catch (error) { console.error("Pending player upgrade ledger recovery failed:", error.message); }
                 }
                 service.reconcileFinalizedGames({ leagueId: context.league.leagueId, seasonId: context.seasonId });
+                await service.flushNotifications(context.league.leagueId);
             } catch (error) { if (!/No FantasyHQ league is configured/.test(error.message)) console.error("Player upgrade recovery:", error.message); }
         }
     }
 
     async function notifyCoach(notice) {
-        if (!client) return;
+        if (!client) throw Error('Discord client unavailable.');
         const user = await client.users.fetch(notice.coachUserId);
         const context = repository.loadLeague(notice.leagueId, notice.seasonId), team = context.teams.find(entry => entry.teamId === notice.teamId);
         const status = service.getStatus({ leagueId: notice.leagueId, seasonId: notice.seasonId, teamId: notice.teamId, coachUserId: notice.coachUserId, phase: context.league.currentPhase, owners: repository.loadOwners(notice.leagueId) });

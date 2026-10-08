@@ -62,8 +62,11 @@ function createGameThreadService({ submissions = createGameSubmissionService(), 
                 }
                 deadlineAt = c.week.deadlineAt; result.deadlineAt = deadlineAt;
                 if (thread.archived) await thread.setArchived(false);
-                for (const id of new Set([...ids, ...(synced.staffUserIds || [])])) await thread.members.add(id);
-                await submissions.mutate(game.gameId, r => { r.game.threadCreatedAt ||= thread.createdTimestamp ? new Date(thread.createdTimestamp).toISOString() : null; r.game.startedAt = c.week.startedAt; r.game.deadlineAt = deadlineAt; Object.assign(r.game, require('./game-decisions').cpuState(repository, r.game)); r.game.coachUserIds = ids; r.game.teamRoleIds = teamRoleIds; r.game.staffRoleIds = synced.staffRoleIds || []; r.game.threadError = null; });
+                const desired = new Set([...ids, ...(synced.staffUserIds || [])]);
+                const prior = new Set([...(game.coachUserIds || []), ...(game.staffUserIds || [])]);
+                for (const id of prior) if (!desired.has(id)) { if (!thread.members.remove) throw Error('Thread membership removal unavailable; repair required.'); await thread.members.remove(id); }
+                for (const id of desired) await thread.members.add(id);
+                await submissions.mutate(game.gameId, r => { r.game.threadCreatedAt ||= thread.createdTimestamp ? new Date(thread.createdTimestamp).toISOString() : null; r.game.startedAt = c.week.startedAt; r.game.deadlineAt = deadlineAt; Object.assign(r.game, require('./game-decisions').cpuState(repository, r.game)); r.game.coachUserIds = ids; r.game.staffUserIds = synced.staffUserIds || []; r.game.teamRoleIds = teamRoleIds; r.game.staffRoleIds = synced.staffRoleIds || []; r.game.threadError = null; });
                 const fresh = submissions.load(game.gameId).game;
                 let message = null; if (fresh.discordMessageId) { try { message = await thread.messages.fetch(fresh.discordMessageId); } catch (e) { if (e.code !== 10008) throw e; } }
                 if (message) await message.edit(gamePayload(fresh, require("./game-activity").activityView(submissions.load(game.gameId)))); else { message = await thread.send({ ...gamePayload(fresh, require("./game-activity").activityView(submissions.load(game.gameId))), allowedMentions: { parse: [], roles: [...new Set([...teamRoleIds, ...(fresh.staffRoleIds || [])])] } }); await submissions.setMessage(game.gameId, message.id); }
@@ -71,6 +74,26 @@ function createGameThreadService({ submissions = createGameSubmissionService(), 
         }
         return result;
     }
-    return { configure, create, status, reopenCleanedWeek, repository, configuration: guildId => ({ gamesChannelId: repository.loadSettings(context(guildId).league.leagueId)?.gamesChannelId || null }) };
+    async function syncAccess(guild, { owners, staffUserIds = [], staffRoleIds = [] } = {}) {
+        const c = context(guild.id); owners ||= repository.loadOwners(c.league.leagueId);
+        const errors = [];
+        for (const record of submissions.records()) {
+            const game = record.game;
+            if (game.guildId !== guild.id || game.leagueId !== c.league.leagueId || !game.discordThreadId || game.discordThreadCleanedAt) continue;
+            const ids = [...new Set(owners.filter(o => [game.team1Id,game.team2Id].includes(o.teamId)).map(o => o.userId))];
+            const desired = new Set([...ids,...staffUserIds]), prior = new Set([...(game.coachUserIds || []),...(game.staffUserIds || [])]);
+            if (!game.threadAccessError && JSON.stringify([...desired].sort()) === JSON.stringify([...prior].sort()) && JSON.stringify(game.staffRoleIds || []) === JSON.stringify(staffRoleIds)) continue;
+            try {
+                const thread = await guild.channels.fetch(game.discordThreadId);
+                if (!thread || thread.type !== ChannelType.PrivateThread) throw Error('Saved private game thread is unavailable.');
+                if (thread.archived) await thread.setArchived(false);
+                for (const id of prior) if (!desired.has(id)) await thread.members.remove(id);
+                for (const id of desired) if (!prior.has(id)) await thread.members.add(id);
+                await submissions.mutate(game.gameId,r => {r.game.coachUserIds=ids;r.game.staffUserIds=staffUserIds;r.game.staffRoleIds=staffRoleIds;r.game.threadAccessError=null;});
+            } catch(error) { errors.push({gameId:game.gameId,error:error.message}); await submissions.mutate(game.gameId,r=>{r.game.threadAccessError=error.message;}); }
+        }
+        if (errors.length) throw Error(`${errors.length} private thread access repairs failed. Inspect game threadAccessError and retry ownership sync.`);
+    }
+    return { syncAccess, configure, create, status, reopenCleanedWeek, repository, configuration: guildId => ({ gamesChannelId: repository.loadSettings(context(guildId).league.leagueId)?.gamesChannelId || null }) };
 }
 module.exports = { createGameThreadService, threadName, HOURS_48 };
