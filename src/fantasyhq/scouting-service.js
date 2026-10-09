@@ -20,7 +20,7 @@ function normalizeSearch(value) {
 }
 
 function createScoutingService({ repository, draftClassDir = path.join(process.cwd(), 'draft_class') } = {}) {
-    if (!repository) throw new Error('A FantasyHQ repository is required.');
+    if (!repository) throw new Error('A LEAGUEbuddy repository is required.');
 
     function contextFor(guildId) {
         if (!guildId) throw new Error('Scouting is only available in the league server.');

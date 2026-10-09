@@ -9,7 +9,7 @@ test('simple panel keeps advanced controls tucked away and option changes update
  const manager=createDiscordSimulation({repository:f.repository});
  assert.equal(panelPayload().components.length,2);
  assert.equal(panelPayload().components.flatMap(r=>r.components).length,6);
- function interaction(customId,values=[]){return {guildId:'guild',user:{id:'c'},customId,values,deferred:false,deferReply:async function(){this.deferred=true;this.replyCount=(this.replyCount||0)+1;},deferUpdate:async function(){this.deferred=true;this.updated=true;},editReply:async function(payload){this.payload=payload;},reply:async function(payload){this.payload=payload;}};}
+ function interaction(customId,values=[]){return {guildId:'guild',user:{id:'c'},customId,values,message:{flags:{has:()=>true}},deferred:false,deferReply:async function(){this.deferred=true;this.replyCount=(this.replyCount||0)+1;},deferUpdate:async function(){this.deferred=true;this.updated=true;},editReply:async function(payload){this.payload=payload;},reply:async function(payload){this.payload=payload;}};}
  let i=interaction('sim:run:1');await manager.handle(i);
  assert.ok(f.repository.loadSettings('league').activeSimulationId,'first run automatically creates isolated workspace');
  assert.equal(i.payload.components.length,4);

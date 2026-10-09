@@ -13,7 +13,7 @@ function bindingStatusEmbed(guildId) {
   const binding = repository.loadGuildLeagueBinding(guildId);
   if (!binding) {
     return new EmbedBuilder()
-      .setTitle("FantasyHQ League Status")
+      .setTitle("LEAGUEbuddy League Status")
       .setColor(0xe67e22)
       .setDescription("No league is currently bound to this Discord server.")
       .addFields({
@@ -25,7 +25,7 @@ function bindingStatusEmbed(guildId) {
   const context = repository.loadLeague(binding.leagueId, binding.seasonId);
   const hasSchedule = repository.scheduleExists(binding.leagueId, binding.seasonId);
   return new EmbedBuilder()
-    .setTitle("FantasyHQ League Status")
+    .setTitle("LEAGUEbuddy League Status")
     .setColor(0xffdc21)
     .addFields(
       { name: "League", value: context.league.name, inline: true },
@@ -42,7 +42,7 @@ async function handleAdminBootstrap(interaction) {
 
   const leagueId = interaction.options.getString("league_id", true);
   const seasonId = interaction.options.getString("season_id") || "2026";
-  const leagueName = interaction.options.getString("league_name") || "FantasyHQ MyNBA League";
+  const leagueName = interaction.options.getString("league_name") || "LEAGUEbuddy MyNBA League";
   const league = setupService.createLeague({
     leagueId,
     leagueName,
@@ -59,7 +59,7 @@ async function handleAdminBootstrap(interaction) {
   await interaction.editReply({
     embeds: [
       new EmbedBuilder()
-        .setTitle("FantasyHQ League Bootstrapped")
+        .setTitle("LEAGUEbuddy League Bootstrapped")
         .setColor(0x2ecc71)
         .setDescription("Created league files from the latest 2KRatings roster snapshot and bound them to this server.")
         .addFields(

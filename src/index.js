@@ -1056,8 +1056,7 @@ async function handleInteraction(interaction) {
   if (!handler) return;
 
   try {
-    const privateReply = interaction.commandName === "mockdraft" || interaction.commandName === "bigboard" || interaction.commandName === "scout" || interaction.commandName === "upgrades" || (interaction.commandName === "league" && interaction.options.getSubcommand() === "delete") || (interaction.commandName === "games" && interaction.options.getSubcommand() === "create");
-    await interaction.deferReply({ flags: privateReply ? MessageFlags.Ephemeral : 0 });
+    await interaction.deferReply({ flags: require('./shared/discord-privacy').commandReplyFlags(interaction) });
     await handler(interaction);
   } catch (error) {
     await require("./shared/discord-interaction-error").replyInteractionError(interaction, error);

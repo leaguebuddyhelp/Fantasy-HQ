@@ -92,9 +92,9 @@ New league data is stored in `draft-picks.json` and `trades.json`; approved proo
 
 See [COMMAND-AUDIT.md](COMMAND-AUDIT.md) for retired commands and their replacements.
 
-## FantasyHQ Schedules
+## LEAGUEbuddy Schedules
 
-The schedule generator reads existing FantasyHQ league/team records from `data/fantasyhq/` instead of scraping or inventing teams.
+The schedule generator reads existing LEAGUEbuddy league/team records from `data/fantasyhq/` instead of scraping or inventing teams.
 
 - Map each Discord guild to a league in [data/fantasyhq/README.md](/Users/brandongordon/Sleeper-Discord/data/fantasyhq/README.md).
 - Store imported team records in `data/fantasyhq/leagues/<leagueId>/teams.json`.

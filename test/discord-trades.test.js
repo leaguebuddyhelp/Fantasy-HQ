@@ -239,3 +239,34 @@ test('trade team selection and saved builders cannot act for a different team', 
     }
     assert.equal(f.service.getTrade('league', draft.tradeId).status, 'DRAFT');
 });
+
+test('pending trade packages use private participant rooms and never the shared Submit Trade channel', async t => {
+    for (const [validRoom, dmOpen] of [[true, true], [true, false], [false, true]]) {
+        const f = fixture(t), { ChannelType } = require('discord.js');
+        f.repository.saveSettings('league', { discordChannels: { submitTrade: 'submit' } });
+        let sharedPosts = 0, privatePosts = 0, created = 0; const members = [];
+        const thread = { id: 'proposal-room', parentId: 'submit', type: validRoom ? ChannelType.PrivateThread : ChannelType.PublicThread,
+            members: { add: async id => members.push(id) }, send: async payload => { privatePosts++; assert.ok(payload.embeds.length); return { id: 'proposal-message' }; } };
+        const channel = { id: 'submit', send: async () => { sharedPosts++; assert.fail('Pending package must never be posted in the shared channel'); },
+            threads: { create: async options => { created++; assert.equal(options.type, ChannelType.PrivateThread); assert.equal(options.invitable, false); return thread; } } };
+        f.guild.channels.fetch = async id => id === 'submit' ? channel : id === thread.id ? thread : null;
+        const draft = f.service.createDraft({ leagueId: 'league', seasonId: '1', initiatingUserId: 'coach-alpha', initiatingTeamId: 'alpha', secondTeamId: 'bravo' });
+        f.service.updateDraft({ leagueId: 'league', tradeId: draft.tradeId, actorUserId: 'coach-alpha', transfers: [
+            { assetType: 'PLAYER', assetId: 'alpha-player-0', fromTeamId: 'alpha', toTeamId: 'bravo' },
+            { assetType: 'PLAYER', assetId: 'bravo-player-0', fromTeamId: 'bravo', toTeamId: 'alpha' },
+        ] });
+        const click = f.interaction(`trade:submit:${draft.tradeId}`);
+        click.client.users = { fetch: async () => ({ send: async () => { if (!dmOpen) throw Object.assign(Error('DMs closed'), { code: 50007 }); return { id: 'dm', channelId: 'dm-channel' }; } }) };
+        await f.workflow.handleTradeInteraction(click);
+        assert.equal(sharedPosts, 0); assert.equal(created, 1);
+        assert.equal(privatePosts, validRoom ? 1 : 0);
+        if (validRoom) {
+            assert.deepEqual(members.sort(), ['coach-alpha', 'coach-bravo']);
+            assert.equal(f.service.getTrade('league', draft.tradeId).currentVersion.proposalThreadId, thread.id);
+            // Recovery reuses the room and package rather than broadcasting or duplicating them.
+            click.client.guilds.cache = new Map([['guild', f.guild]]);
+            await f.workflow.reconcile(click.client);
+            assert.equal(created, 1); assert.equal(privatePosts, 1);
+        } else assert.match(click.followup.content, /not a private thread/);
+    }
+});

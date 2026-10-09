@@ -3,7 +3,7 @@ const path = require("path");
 const { randomUUID } = require("crypto");
 const {
     ActionRowBuilder, AttachmentBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder,
-    MessageFlags, StringSelectMenuBuilder,
+    MessageFlags, StringSelectMenuBuilder, ChannelType,
 } = require("discord.js");
 const { canManageLeague } = require("./discord-permissions");
 const { PICK_PROTECTIONS } = require("./asset-valuation");
@@ -388,10 +388,27 @@ function createDiscordTradeWorkflow(options = {}) {
         }
         const channelId = settings.discordChannels?.submitTrade;
         const channel = channelId ? await guild.channels.fetch(channelId).catch(() => null) : null;
-        if (channel && !trade.currentVersion.proposalMessageId) {
-            const userIds = trade.currentVersion.teams.map(team => team.coachUserId).filter(Boolean);
-            const message = await channel.send({ content: userIds.map(id => `<@${id}>`).join(" "), embeds: [offerEmbed(trade)], components: trade.currentVersion.teams.filter(team => team.teamId !== trade.initiatingTeamId).map(team => gmButtons(trade, team.teamId)), allowedMentions: { users: userIds } });
-            await saveTradeReference(trade.leagueId, trade.tradeId, trade.version, "proposalMessageId", message.id);
+        if (channel) {
+            // Pending negotiations belong only to the involved coaches. Never fall back to a shared post.
+            const userIds = [...new Set(trade.currentVersion.teams.map(team => team.coachUserId).filter(Boolean))];
+            if (settings.testMode && !userIds.includes(trade.currentVersion.initiatingUserId)) userIds.push(trade.currentVersion.initiatingUserId);
+            let thread = trade.currentVersion.proposalThreadId ? await guild.channels.fetch(trade.currentVersion.proposalThreadId).catch(error => {
+                if (Number(error.code) === 10003) return null;
+                throw error;
+            }) : null;
+            if (!thread) {
+                thread = await channel.threads.create({ name: `Trade ${trade.tradeId.slice(0, 8)} · v${trade.version}`, type: ChannelType.PrivateThread, invitable: false, autoArchiveDuration: 10080, reason: 'Private LEAGUEbuddy trade proposal' });
+                await saveTradeReference(trade.leagueId, trade.tradeId, trade.version, 'proposalThreadId', thread.id);
+                await saveTradeReference(trade.leagueId, trade.tradeId, trade.version, 'proposalMessageId', null);
+                trade = tradeService.getTrade(trade.leagueId, trade.tradeId);
+            }
+            if (thread.type !== ChannelType.PrivateThread || thread.parentId !== channel.id) throw Error('Trade proposal room is not a private thread in Submit Trade. Repair its stored reference.');
+            if (thread.archived) await thread.setArchived(false);
+            for (const userId of userIds) await thread.members.add(userId);
+            if (!trade.currentVersion.proposalMessageId) {
+                const message = await thread.send({ content: userIds.map(id => `<@${id}>`).join(" "), embeds: [offerEmbed(trade)], components: trade.currentVersion.teams.filter(team => team.teamId !== trade.initiatingTeamId).map(team => gmButtons(trade, team.teamId)), allowedMentions: { users: userIds } });
+                await saveTradeReference(trade.leagueId, trade.tradeId, trade.version, 'proposalMessageId', message.id);
+            }
         }
     }
 

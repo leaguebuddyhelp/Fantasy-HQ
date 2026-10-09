@@ -194,8 +194,10 @@ test("coach request flow posts one ledger entry; Staff-only approval updates tha
     await f.adapter.command(statusCommand);
     const history = f.interaction(customId(statusCommand.payload.components[0].components[1]));
     await f.adapter.handle(history);
+    assert.equal(history.payload.flags, 64, 'History from a shared panel must open privately');
     assert.match(history.payload.embeds[0].data.description, /OVR 80→85 · Build Arc Finisher→Stretch Five/);
     const eligibility = f.interaction(customId(statusCommand.payload.components[0].components[0]));
     await f.adapter.handle(eligibility);
+    assert.equal(eligibility.payload.flags, 64, 'Eligibility from a shared panel must open privately');
     assert.match(eligibility.payload.embeds[0].data.description, /Boston Player.*1\/2/);
 });

@@ -74,12 +74,12 @@ test('Big Board navigation renders a compact ten-player list and advances pages'
     assert.equal(choices[0].value, '1');
     assert.equal(rendered.components[0].toJSON().components[2].disabled, false);
     const nextId = rendered.components[0].toJSON().components[2].custom_id;
-    await handleBigBoardButton({ customId: nextId, guildId: 'guild', user: { id: 'coach' }, deferUpdate: async () => { deferred = true; }, editReply: async payload => { rendered = payload; } }, scoutingService);
+    await handleBigBoardButton({ customId: nextId, guildId: 'guild', user: { id: 'coach' }, message: { flags: { has: () => true } }, deferUpdate: async () => { deferred = true; }, editReply: async payload => { rendered = payload; } }, scoutingService);
     assert.equal(deferred, true);
     assert.equal(rendered.embeds.length, 1);
     assert.match(rendered.embeds[0].data.description, /#11 Test Prospect 11/);
     const lastId = rendered.components[0].toJSON().components[3].custom_id;
-    await handleBigBoardButton({ customId: lastId, guildId: 'guild', user: { id: 'coach' }, deferUpdate: async () => { }, editReply: async payload => { rendered = payload; } }, scoutingService);
+    await handleBigBoardButton({ customId: lastId, guildId: 'guild', user: { id: 'coach' }, message: { flags: { has: () => true } }, deferUpdate: async () => { }, editReply: async payload => { rendered = payload; } }, scoutingService);
     assert.equal(rendered.embeds.length, 1);
     assert.match(rendered.embeds[0].data.description, /#21 Test Prospect 21/);
     assert.equal(rendered.components[1].toJSON().components[0].options.length, 5);
@@ -92,14 +92,14 @@ test('selecting a Big Board player opens their full private card and Back restor
         boardPage: (guildId, userId, pageNumber) => ({ ...page, page: pageNumber, prospects: page.prospects }),
         inspect: (guildId, userId, rank) => info(2, null, Number(rank)),
     };
-    await handleBigBoardSelect({ customId: 'bigboard:select:1', values: ['14'], guildId: 'guild', user: { id: 'coach' }, deferUpdate: async () => { }, editReply: async payload => { rendered = payload; } }, scoutingService);
+    await handleBigBoardSelect({ customId: 'bigboard:select:1', values: ['14'], guildId: 'guild', user: { id: 'coach' }, message: { flags: { has: () => true } }, deferUpdate: async () => { }, editReply: async payload => { rendered = payload; } }, scoutingService);
     assert.equal(rendered.embeds[0].data.title, '#14 Test Prospect 14');
     const intel = rendered.embeds[0].data.fields.find(field => field.name === 'Scouting intel').value;
     assert.match(intel, /Draft Grade.*88\.25/);
     assert.match(intel, /OVR.*80/);
     assert.match(intel, /Locked.*Potential/);
     const backId = rendered.components[0].toJSON().components[0].custom_id;
-    await handleBigBoardButton({ customId: backId, guildId: 'guild', user: { id: 'coach' }, deferUpdate: async () => { }, editReply: async payload => { rendered = payload; } }, scoutingService);
+    await handleBigBoardButton({ customId: backId, guildId: 'guild', user: { id: 'coach' }, message: { flags: { has: () => true } }, deferUpdate: async () => { }, editReply: async payload => { rendered = payload; } }, scoutingService);
     assert.equal(rendered.embeds[0].data.title, 'Season 1 Big Board');
     assert.match(rendered.embeds[0].data.description, /#11 Test Prospect 11/);
 });

@@ -82,7 +82,7 @@ async function handleBigBoardCommand(interaction, scoutingService) {
 }
 
 async function handleBigBoardButton(interaction, scoutingService) {
-    await interaction.deferUpdate();
+    await require('../shared/discord-privacy').acknowledgePrivateComponent(interaction);
     const [, action, pageValue] = interaction.customId.split(':');
     const current = Number(pageValue || 0);
     const requested = action === 'first' ? 0 : action === 'last' ? Number.MAX_SAFE_INTEGER
@@ -93,7 +93,7 @@ async function handleBigBoardButton(interaction, scoutingService) {
 }
 
 async function handleBigBoardSelect(interaction, scoutingService) {
-    await interaction.deferUpdate();
+    await require('../shared/discord-privacy').acknowledgePrivateComponent(interaction);
     const [, , pageValue] = interaction.customId.split(':');
     const pageNumber = Number(pageValue || 0), boardPage = scoutingService.boardPage(interaction.guildId, interaction.user.id, pageNumber);
     const prospectNumber = String(interaction.values?.[0] || '');

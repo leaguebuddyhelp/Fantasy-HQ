@@ -385,9 +385,7 @@ function createDiscordPlayerUpgrades({ repository, service, client } = {}) {
         if (page > 0) navigation.push(button(`upgrades:eligibility:${page - 1}`, "Previous players"));
         if ((page + 1) * pageSize < roster.length) navigation.push(button(`upgrades:eligibility:${page + 1}`, "More players"));
         const payload = { embeds: [new EmbedBuilder().setColor(COLOR).setTitle(`PLAYER ELIGIBILITY · ${current.team.teamName}`).setDescription(description)], components: navigation.length ? [row(...navigation)] : [] };
-        if (interaction.deferred || interaction.replied) await interaction.editReply(payload);
-        else if (interaction.isButton?.()) await interaction.update(payload);
-        else await interaction.reply({ ...payload, flags: MessageFlags.Ephemeral });
+        await require('../shared/discord-privacy').respondPrivately(interaction, payload);
     }
 
     async function historyView(interaction, page = 0) {
@@ -398,9 +396,7 @@ function createDiscordPlayerUpgrades({ repository, service, client } = {}) {
         if (page > 0) navigation.push(button(`upgrades:history:${page - 1}`, "Previous"));
         if ((page + 1) * pageSize < entries.length) navigation.push(button(`upgrades:history:${page + 1}`, "More"));
         const payload = { embeds: [new EmbedBuilder().setColor(COLOR).setTitle(`MY UPGRADE HISTORY · ${current.team.teamName}`).setDescription(description)], components: navigation.length ? [row(...navigation)] : [] };
-        if (interaction.deferred || interaction.replied) await interaction.editReply(payload);
-        else if (interaction.isButton?.()) await interaction.update(payload);
-        else await interaction.reply({ ...payload, flags: MessageFlags.Ephemeral });
+        await require('../shared/discord-privacy').respondPrivately(interaction, payload);
     }
 
     async function reviewButton(interaction, requestId, action) {
@@ -502,7 +498,7 @@ function createDiscordPlayerUpgrades({ repository, service, client } = {}) {
                 }
                 service.reconcileFinalizedGames({ leagueId: context.league.leagueId, seasonId: context.seasonId });
                 await service.flushNotifications(context.league.leagueId);
-            } catch (error) { if (!/No FantasyHQ league is configured/.test(error.message)) console.error("Player upgrade recovery:", error.message); }
+            } catch (error) { if (!/No LEAGUEbuddy league is configured/.test(error.message)) console.error("Player upgrade recovery:", error.message); }
         }
     }
 

@@ -189,7 +189,7 @@ function createFantasyHQRepository(options = {}) {
 
     if (!resolvedLeagueId) {
       throw new Error(
-        "No FantasyHQ league is configured for this guild. Set data/fantasyhq/guild-leagues.json or FANTASYHQ_LEAGUE_ID.",
+        "No LEAGUEbuddy league is configured for this server. Run /league create to get started.",
       );
     }
 
@@ -318,14 +318,14 @@ function createFantasyHQRepository(options = {}) {
     recoverLeagueTransactions(leagueId);
     const paths = buildLeaguePaths(dataRoot, leagueId);
     if (!fs.existsSync(paths.leagueFile)) {
-      throw new Error(`Missing FantasyHQ league file at ${paths.leagueFile}.`);
+      throw new Error(`Missing LEAGUEbuddy league file at ${paths.leagueFile}.`);
     }
     const leagueRecord = normalizeLeagueRecord(leagueId, readJson(paths.leagueFile, {}) || {});
     const rawTeams = readJson(paths.teamsFile, { teams: [] });
 
     const rawTeamList = Array.isArray(rawTeams) ? rawTeams : rawTeams.teams;
     if (!Array.isArray(rawTeamList)) {
-      throw new Error(`FantasyHQ teams file at ${paths.teamsFile} must be an array or { "teams": [] }.`);
+      throw new Error(`LEAGUEbuddy teams file at ${paths.teamsFile} must be an array or { "teams": [] }.`);
     }
 
     const teams = rawTeamList.map((team) => normalizeTeam(leagueId, team));

@@ -39,7 +39,7 @@ const commands = [
     .setDescription("Browse this season's early top ten preview."),
   new SlashCommandBuilder()
     .setName("schedule")
-    .setDescription("Generate and view FantasyHQ MyNBA schedules.")
+    .setDescription("Generate and view LEAGUEbuddy MyNBA schedules.")
     .addSubcommand((subcommand) =>
       subcommand
         .setName("generate")
@@ -191,11 +191,11 @@ const commands = [
       .addChoices(...["PG", "SG", "SF", "PF", "C"].map((value) => ({ name: value, value })))),
   new SlashCommandBuilder()
     .setName("admin")
-    .setDescription("Configure FantasyHQ league data for this Discord server.")
+    .setDescription("Configure LEAGUEbuddy league data for this Discord server.")
     .addSubcommand((subcommand) =>
       subcommand
         .setName("bind")
-        .setDescription("Bind this Discord server to an existing FantasyHQ league.")
+        .setDescription("Bind this Discord server to an existing LEAGUEbuddy league.")
         .addStringOption((option) =>
           option
             .setName("league_id")
@@ -223,7 +223,7 @@ const commands = [
     .addSubcommand((subcommand) =>
       subcommand
         .setName("status")
-        .setDescription("Show the current FantasyHQ league binding and schedule status."),
+        .setDescription("Show the current LEAGUEbuddy league binding and schedule status."),
     ),
   new SlashCommandBuilder()
     .setName("league")

@@ -1,3 +1,4 @@
+const privateAcknowledgments = new WeakSet();
 const EXPIRED_INTERACTION_CODES = new Set([10062, 40060]);
 
 async function replyInteractionError(interaction, error, logger = console, preferFollowUp = false) {
@@ -5,9 +6,18 @@ async function replyInteractionError(interaction, error, logger = console, prefe
     if (EXPIRED_INTERACTION_CODES.has(Number(error.code))) return;
     const content = `Error: ${error.message}`;
     try {
-        if (preferFollowUp && (interaction.deferred || interaction.replied)) await interaction.followUp({ content, flags: require("discord.js").MessageFlags.Ephemeral });
-        else if (interaction.deferred || interaction.replied) await interaction.editReply(content);
-        else await interaction.reply({ content, flags: require("discord.js").MessageFlags.Ephemeral });
+        const flags = require("discord.js").MessageFlags.Ephemeral;
+        const privateReply = interaction.ephemeral === true || privateAcknowledgments.has(interaction);
+        if (interaction.deferred || interaction.replied) {
+            if (privateReply && !preferFollowUp) await interaction.editReply(content);
+            else {
+                // A deferred public response cannot be made ephemeral after acknowledgment.
+                if (interaction.deferred && !interaction.replied && !preferFollowUp) {
+                    await interaction.editReply({ content: 'This request could not be completed. See your private error message.', embeds: [], components: [], attachments: [] });
+                }
+                await interaction.followUp({ content, flags, allowedMentions: { parse: [] } });
+            }
+        } else await interaction.reply({ content, flags, allowedMentions: { parse: [] } });
     } catch (responseError) {
         if (!EXPIRED_INTERACTION_CODES.has(Number(responseError.code))) logger.error("Could not send interaction error response:", { code: responseError.code, message: responseError.message });
     }
@@ -36,6 +46,8 @@ async function runDiscordInteraction(interaction, handler, { refreshActor = asyn
             if (initialUpdate && name === 'update') return this.editReply(...args);
             if (initialUpdate && name === 'reply') return this.followUp(...args);
             const result = await original.apply(this, args);
+            if (['deferReply', 'reply'].includes(name) && (Number(args[0]?.flags || 0) & 64)) privateAcknowledgments.add(interaction);
+            if (['deferUpdate', 'update'].includes(name) && require('./discord-privacy').isEphemeralMessage(interaction.message)) privateAcknowledgments.add(interaction);
             if (!reconciled && interaction.guild && !interaction.isAutocomplete?.()) {
                 reconciled = true;
                 try { await refreshActor(interaction.guild, interaction.member); }
