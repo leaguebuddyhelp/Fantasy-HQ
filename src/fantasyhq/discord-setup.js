@@ -28,7 +28,6 @@ function dashboardEmbed(dashboard) {
   const checks = validator.checks;
   const next = league.currentPhase === PHASES.PRESEASON ? "Review rosters, then click Start regular season below to validate and confirm Week 1." : !setup ? "Browse /myteam, /player, or /freeagents. Use the website for roster editing."
     : !checks.rostersImported ? "Run /roster import to load teams, players, and free agents."
-      : !checks.ownersAssigned && dashboard.settings.requireAllOwners !== false ? "Assign owners with /team assign. For testing, /league settings can allow unassigned teams."
         : !checks.scheduleGenerated ? "Click Generate schedule below, review the preview, then click Confirm schedule."
           : validator.ready ? "Setup is complete. Enter preseason when you are ready."
             : "Resolve the setup issues below, then refresh this checklist.";
@@ -40,7 +39,7 @@ function dashboardEmbed(dashboard) {
       name: "Setup checklist", value: [
         `${require("./discord-channels").CHANNELS.every(([key]) => dashboard.settings.discordChannels?.[key]) ? "✓" : "○"} Discord channels configured`,
         `${checks.rostersImported ? "✓" : "○"} Rosters imported`,
-        `${checks.ownersAssigned ? "✓" : "○"} Owners assigned`,
+        `✓ ${totals.ownersAssigned} coached teams · ${totals.teams - totals.ownersAssigned} CPU teams`,
         `${checks.scheduleValid ? "✓" : "○"} Schedule confirmed`,
       ].join("\n")
     });
@@ -56,7 +55,7 @@ function setupValidationEmbed(result) {
     .setColor(result.ready ? 0x2ecc71 : 0xe67e22)
     .addFields(
       { name: "Ready", value: result.ready ? "Yes" : "No", inline: true },
-      { name: "Checks", value: Object.entries(result.checks).map(([key, value]) => `${key}: ${value ? "PASS" : "FAIL"}`).join("\n"), inline: false },
+      { name: "Checks", value: Object.entries(result.checks).map(([key, value]) => key === "ownersAssigned" ? `All teams coached: ${value ? "Yes" : "No"} (optional; vacant teams are CPU teams)` : `${key}: ${value ? "PASS" : "FAIL"}`).join("\n"), inline: false },
       { name: "Errors", value: result.errors.length ? result.errors.join("\n") : "None", inline: false },
       { name: "Warnings", value: result.warnings.length ? result.warnings.join("\n") : "None", inline: false },
     );
@@ -113,7 +112,7 @@ async function handleLeagueCreate(interaction) {
           { name: "Discord channels", value: channelStatus.slice(0, 1024) },
           { name: "Players", value: imported ? `${imported.teamsImported} teams and ${imported.playersImported} players imported, including ${imported.freeAgentsImported} free agents.` : `League created, but import needs attention: ${importError}. Fix the source data and retry /roster import.` },
           { name: "Ownership", value: ownerStatus.slice(0, 1024) },
-          { name: "Mode", value: testMode ? "Test league — unassigned teams are allowed." : "Full league — all 30 teams need owners before preseason." },
+          { name: "Mode", value: testMode ? "Test league — unassigned teams are allowed." : "Online league — start with 1–30 coaches; unassigned teams are CPU teams." },
           { name: "Next step", value: imported ? "Open the checklist below. Assign team roles, then open the setup checklist and click Generate schedule." : "Retry /roster import after fixing the import issue. Do not recreate the league." },
 
         )
@@ -147,14 +146,13 @@ async function handleLeagueSettings(interaction) {
   const updates = {};
 
   const testMode = interaction.options.getBoolean("test_mode");
-  const requireAllOwners = interaction.options.getBoolean("require_all_owners");
   const playoffTeams = interaction.options.getInteger("playoff_teams");
   const gameDeadlineHours = interaction.options.getInteger("game_deadline_hours");
   const resultConfirmationRequired = null;
   const commissionerApprovalRequired = null;
 
-  if (testMode != null) { updates.testMode = testMode; if (requireAllOwners == null) updates.requireAllOwners = !testMode; }
-  if (requireAllOwners != null) updates.requireAllOwners = requireAllOwners;
+  if (testMode != null) updates.testMode = testMode;
+  updates.requireAllOwners = false;
   if (playoffTeams != null) updates.playoffTeams = playoffTeams;
   if (gameDeadlineHours != null) updates.gameDeadlineHours = gameDeadlineHours;
   if (resultConfirmationRequired != null) updates.resultConfirmationRequired = resultConfirmationRequired;
@@ -175,7 +173,7 @@ async function handleLeagueSettings(interaction) {
         .setDescription("Your league preferences are saved.")
         .addFields(
           { name: "Mode", value: settings.testMode === true ? "🧪 Test Mode — staff solo controls enabled" : "Online league — normal permissions", inline: true },
-          { name: "Owners", value: settings.requireAllOwners ? "All teams must be claimed" : "Vacant teams allowed", inline: true },
+          { name: "Owners", value: "1–30 coaches · unassigned teams are CPU teams", inline: true },
           { name: "Playoffs", value: "8 teams per conference", inline: true },
           { name: "Game deadline", value: "48 hours", inline: true },
           { name: "Result checks", value: "Each coach submits their own side. Validated box scores become official; flagged scores require Staff review." },

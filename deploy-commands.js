@@ -260,9 +260,6 @@ const commands = [
         .setName("settings")
         .setDescription("Update league-level setup settings.")
         .addBooleanOption(option => option.setName("test_mode").setDescription("Explicitly enable or disable solo Test Mode while in SETUP."))
-        .addBooleanOption((option) =>
-          option.setName("require_all_owners").setDescription("Require all 30 teams to have owners before activation.").setRequired(false),
-        )
         .addIntegerOption((option) =>
           option.setName("playoff_teams").setDescription("Playoff teams per conference (8).").setRequired(false).setMinValue(8).setMaxValue(8),
         )

@@ -154,7 +154,7 @@ async function callHandler(handler, pathname, options = {}) {
   return payload;
 }
 
-test("preseason website admin flow validates and starts the season", async () => {
+test("preseason website admin flow validates and starts the season with one coach and legacy owner requirements", async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "fantasyhq-preseason-"));
   const repository = createFantasyHQRepository({ dataRoot: tempRoot });
   const teams = buildFixtureTeams();
@@ -179,7 +179,7 @@ test("preseason website admin flow validates and starts the season", async () =>
     guildId,
   });
   setupService.importRosters({ leagueId, seasonId, actingUserId: "commissioner-1" });
-  for (const team of teams) {
+  for (const team of teams.slice(0, 1)) {
     setupService.assignOwner({
       leagueId,
       seasonId,
@@ -198,6 +198,8 @@ test("preseason website admin flow validates and starts the season", async () =>
       commissionerApprovalRequired: true,
     },
   });
+  repository.saveSettings(leagueId, { ...repository.loadSettings(leagueId), requireAllOwners: true });
+  assert.equal(repository.loadOwners(leagueId).length, 1);
   setupService.generatePendingSchedule({ leagueId, seasonId, actingUserId: "commissioner-1" });
   setupService.confirmPendingSchedule({ leagueId, seasonId, actingUserId: "commissioner-1" });
   const activated = setupService.activateLeague({ leagueId, seasonId, actingUserId: "commissioner-1" });

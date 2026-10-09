@@ -43,11 +43,6 @@ function validateSetupState({ league, teams, owners, rosterMemberships, settings
   if (!checks.leagueConfigured) errors.push("League configuration is incomplete.");
   if (!checks.leagueSettings) errors.push("League settings have not been configured.");
 
-  if (settings?.requireAllOwners === false) {
-    if (!checks.ownersAssigned) warnings.push("Some teams do not have assigned owners, but unassigned teams are currently permitted.");
-  } else if (!checks.ownersAssigned) {
-    errors.push("All 30 teams must have assigned owners before activation.");
-  }
 
   if (schedule) {
     const validation = validateSchedule(schedule, teams || []);

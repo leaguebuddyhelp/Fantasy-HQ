@@ -215,5 +215,30 @@ test('failed initial import reports recovery without recreating the league',t=>{
   assert.equal(result.imported,null);
   assert.match(result.importError,/Missing roster snapshot/);
   assert.equal(repository.loadGuildLeagueBinding('g').leagueId,'fresh');
-  assert.equal(repository.loadSettings('fresh').requireAllOwners,true);
+  assert.equal(repository.loadSettings('fresh').requireAllOwners,false);
 });
+
+for (const coachCount of [0, 1, 15, 30]) {
+  test(`setup activates with ${coachCount} coaches despite a legacy all-owners setting`, t => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lb-coach-count-'));
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    const repository = createFantasyHQRepository({ dataRoot: root });
+    const teams = buildFixtureTeams();
+    const service = createSetupService({ repository, sourceTeamsLoader: () => teams,
+      sourceRosterLoader: name => buildRosterForTeam(teams.find(team => team.teamName === name)),
+      sourceFreeAgencyLoader: () => ({ players: [] }) });
+    const args = { leagueId: 'league', seasonId: '1', actingUserId: 'staff' };
+    service.createLeague({ leagueId: 'league', leagueName: 'League', seasonNumber: 1,
+      commissionerUserId: 'staff', guildId: 'guild' });
+    service.importRosters(args);
+    for (const team of teams.slice(0, coachCount)) service.assignOwner({ ...args, teamId: team.teamId, userId: `coach-${team.teamId}` });
+    repository.saveSettings('league', { ...repository.loadSettings('league'), requireAllOwners: true });
+    service.generatePendingSchedule(args);
+    service.confirmPendingSchedule(args);
+    const validation = service.validateSetup(args);
+    assert.equal(validation.ready, true, validation.errors.join('\n'));
+    assert.equal(validation.checks.ownersAssigned, coachCount === 30);
+    assert.equal(service.activateLeague(args).currentPhase, PHASES.PRESEASON);
+    assert.equal(repository.loadOwners('league').length, coachCount);
+  });
+}

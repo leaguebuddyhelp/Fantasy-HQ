@@ -41,7 +41,7 @@ function defaultSettings(league) {
     gameDeadlineHours: 48,
     resultConfirmationRequired: true,
     commissionerApprovalRequired: false,
-    requireAllOwners: true,
+    requireAllOwners: false,
   };
 }
 
@@ -273,6 +273,7 @@ function createSetupService(options = {}) {
     const next = {
       ...current,
       ...updates,
+      requireAllOwners: false,
       playoffSeriesLengths: {
         ...current.playoffSeriesLengths,
         ...(updates.playoffSeriesLengths || {}),

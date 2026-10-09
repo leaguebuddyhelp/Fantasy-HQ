@@ -36,7 +36,7 @@ Complete the initial setup in Discord with Manage Server permission:
 
 1. Run `/league create` with your league ID, name, and season number. This creates settings and binds the server. Existing league IDs and servers already connected to a league are rejected; existing leagues cannot be reset by this command.
 2. Creation automatically imports NBA team rosters and free agents. Use `/roster import` only to recover a failed import, before making custom roster edits.
-3. Assign owners with `/team assign`. For a test league, `/league settings require_all_owners:false` permits unassigned teams.
+3. Assign coaches with `/team assign`. Start with 1–30 coaches; unassigned teams are CPU teams in both online and test leagues.
 4. Run `/schedule generate`, review the preview, then the **Confirm schedule** button.
 5. Run `/league setup`, resolve any errors, then the **Enter preseason** checklist button to enter `PRESEASON`.
 

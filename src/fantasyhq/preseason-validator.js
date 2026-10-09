@@ -53,11 +53,6 @@ function createPreseasonValidator(options = {}) {
       else warnings.push(issue.message);
     }
 
-    if (settings?.requireAllOwners === false) {
-      if (!checks.ownersAssigned) warnings.push("Not all teams have assigned owners.");
-    } else if (!checks.ownersAssigned) {
-      errors.push("All teams must have owners assigned.");
-    }
 
     return {
       ready: errors.length === 0,
