@@ -305,12 +305,9 @@ function createDiscordMockDraft({ repository, simulations, live, client = null }
     async function projection(interaction) {
         const c = context(interaction), leagueId = c.league.leagueId;
         await validateCoach(interaction.guild, leagueId, interaction.user.id);
-        const classNumber = interaction.options?.getInteger?.('draft_class') ?? null;
-        if (classNumber == null || classNumber === Number(c.league.seasonNumber)) {
-            await simulations.refresh(leagueId);
-        }
-        const weekly = await simulations.classProjection(leagueId, classNumber);
-        await interaction.editReply(roundPayload(weekly, classNumber, 1));
+        await simulations.refresh(leagueId);
+        const weekly = await simulations.weeklyProjection(leagueId);
+        await interaction.editReply(roundPayload(weekly, Number(c.league.seasonNumber), 1));
     }
     async function handle(interaction) {
         try {
@@ -333,19 +330,12 @@ function createDiscordMockDraft({ repository, simulations, live, client = null }
                     await interaction.showModal(modal); return;
                 }
             }
-            if (id === 'start') {
+            if (id === 'start' || id === 'startclass') {
+                // Legacy class menus also start the current season's class.
                 await validateCoach(guild, leagueId, interaction.user.id);
-                await interaction.editReply({ embeds: [embed('🗂 Choose a draft class', 'Select the prospect class for your Live Mock Draft.')], components: [new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId('mock:startclass').setPlaceholder('Choose CUS01, CUS02, CUS03 or CUS04').addOptions([1, 2, 3, 4].map(n => ({ label: `2K27 CUS${String(n).padStart(2, '0')}`, value: String(n) }))))], allowedMentions: { parse: [] } });
-                return;
-            }
-            if (id === 'startclass') {
-                await validateCoach(guild, leagueId, interaction.user.id);
-                const classNumber = Number(interaction.values?.[0]);
-                if (!Number.isInteger(classNumber) || classNumber < 1 || classNumber > 4) throw Error('Choose draft class CUS01 through CUS04.');
-                if (classNumber === Number(c.league.seasonNumber)) {
-                    await simulations.refresh(leagueId);
-                }
-                await simulations.classProjection(leagueId, classNumber);
+                const classNumber = Number(c.league.seasonNumber);
+                await simulations.refresh(leagueId);
+                await simulations.weeklyProjection(leagueId);
                 await serial(key(leagueId, `host:${interaction.user.id}`), async () => { const m = live.create(leagueId, interaction.user.id, guild.id, classNumber); await serial(key(leagueId, m.id), () => pump(guild, leagueId, m.id)); const current = live.get(leagueId, m.id); await interaction.editReply({ content: `Your private Live Mock is ready: <#${current.threadId}>`, embeds: [], components: [] }); });
                 return;
             }

@@ -46,7 +46,7 @@ function createLiveMockService({ repository, simulations, now = () => Date.now()
             const existing = Object.values(state.mocks).find(m => LIVE.has(m.status) && m.hostUserId === userId && m.seasonId === input.seasonId);
             if (existing) { if (existing.draftClassId !== input.draftClassId) throw Error('You already have an active mock with another draft class. Finish that mock first.'); return existing; }
             const id = randomUUID();
-            const m = { id, leagueId, guildId, seasonId: input.seasonId, draftClassId: input.draftClassId, classNumber, hostUserId: userId, simulationSnapshotId: snapshot.id, status: 'SETUP', threadId: null, participants: [{ userId, teamId: owner.teamId, available: true }], createdAt: new Date(now()).toISOString(), lotteryRuns: 0, currentPick: 1, selections: [], delivery: {}, dmDelivery: {}, cleanup: { attempts: 0 }, testMode: repository.loadSettings(leagueId)?.testMode === true };
+            const m = { id, leagueId, guildId, seasonId: input.seasonId, draftClassId: input.draftClassId, classNumber: Number(repository.loadLeague(leagueId).league.seasonNumber), hostUserId: userId, simulationSnapshotId: snapshot.id, status: 'SETUP', threadId: null, participants: [{ userId, teamId: owner.teamId, available: true }], createdAt: new Date(now()).toISOString(), lotteryRuns: 0, currentPick: 1, selections: [], delivery: {}, dmDelivery: {}, cleanup: { attempts: 0 }, testMode: repository.loadSettings(leagueId)?.testMode === true };
             state.mocks[id] = m; return m;
         });
     }

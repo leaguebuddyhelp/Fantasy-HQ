@@ -43,15 +43,7 @@ function createScoutingService({ repository, draftClassDir = path.join(process.c
     }
 
     function boardFileForSeason(seasonNumber) {
-        const season = Number(seasonNumber);
-        if (!Number.isInteger(season) || season < 1) throw new Error('The league season number is invalid.');
-        const files = fs.readdirSync(draftClassDir).filter(file => file.toLowerCase().endsWith('.json'));
-        const file = files.find(candidate => {
-            const match = candidate.match(/CUS(\d+)\s*-\s*Big Board\.json$/i);
-            return match && Number(match[1]) === season;
-        });
-        if (!file) throw new Error(`No Big Board is available for season ${String(season).padStart(2, '0')}.`);
-        return file;
+        return require('../shared/season-draft-class').seasonDraftClass(fs.readdirSync(draftClassDir), seasonNumber);
     }
 
     function boardForContext(context) {

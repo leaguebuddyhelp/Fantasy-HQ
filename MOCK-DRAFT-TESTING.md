@@ -44,3 +44,13 @@ Known assumptions:
 - Zero-selection prospects have no defined AVP and display “Unselected”; all still remain eligible for human selection.
 - Discord delivery is recovered using persisted IDs, nonce enforcement and correlation-marker lookups in the latest 100 messages. Discord side effects assume one running bot process per guild; backend selection commits use a filesystem lock.
 - Live Discord permissions, API behavior, DMs and real process restarts still need this live checklist. Automated tests use Discord doubles and actual temporary JSON repositories.
+
+Season/class verification:
+
+- In an isolated test league, verify Seasons 1–4 select CUS01–CUS04 respectively for weekly mocks, live mocks, Big Board and Early Top Ten.
+- `/mockdraft` and `/toptenpreview` have no class argument; Start Live Mock opens its room immediately without a class menu.
+- Repeat a weekly mock in the same week and verify identical picks. Live lottery reruns remain random.
+- Open the website with an obsolete `?class=` URL. Both boards must show the current season, with a season label instead of class tabs.
+- Season 5 without installed CUS05 files must report a missing-class error.
+
+Automated regression coverage: `test/season-draft-class.test.js`, `test/season-draft-page.test.js`, `test/mock-draft.test.js`, `test/command-dispatch.test.js`.

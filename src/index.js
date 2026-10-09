@@ -480,7 +480,9 @@ function topTenPreviewActionRow(index, total, draftClassFile, prospect = {}) {
 }
 
 async function handleTopTenPreview(interaction, index = 0, draftClassSelection = null) {
-  const draftClassFile = resolveDraftClassFile(draftClassSelection || optionalStringOption(interaction, "draft_class"));
+  const season = scoutingService.contextFor(interaction.guildId).league.seasonNumber;
+  const draftClassFile = require('./shared/season-draft-class').seasonDraftClass(topTenDraftClassFiles(), season, 'Early Top Ten');
+  if (draftClassSelection && draftClassSelection !== draftClassFile) throw Error('The draft class changed with the league season. Run /toptenpreview again.');
   const prospects = topTenPreviewProspects(draftClassFile);
   if (!prospects.length) {
     await interaction.editReply("No top ten prospects found.");

@@ -373,10 +373,7 @@ function shortClassLabel(label) {
 }
 
 function renderClassSwitcher() {
-  elements.classSwitcher.innerHTML = classLabels().map((label) => {
-    const active = label === state.classLabel;
-    return `<button type="button" role="tab" class="${active ? "active" : ""}" data-class="${escapeHtml(label)}" aria-selected="${active}">${escapeHtml(shortClassLabel(label))}<small>Draft class</small></button>`;
-  }).join("");
+  elements.classSwitcher.textContent = `Season ${state.leagueSite?.league?.seasonNumber || state.draftSeasonNumber || 1} · ${shortClassLabel(state.classLabel)}`;
 }
 
 function fact(label, value) {
@@ -1245,9 +1242,7 @@ async function addPlayerToRoster(form) {
 
 async function loadDraftClass(selection) {
   const labels = classLabels();
-  const matchedEntry = state.boards.flatMap((board) => board.classes)
-    .find((item) => item.file === selection || item.label === selection);
-  state.classLabel = labels.includes(selection) ? selection : matchedEntry?.label || labels[0];
+  state.classLabel = labels[0];
   renderClassSwitcher();
   elements.grid.innerHTML = "";
   elements.topTenGrid.innerHTML = "";
@@ -1275,7 +1270,7 @@ async function loadDraftClass(selection) {
 
   const url = new URL(window.location.href);
   url.searchParams.delete("board");
-  url.searchParams.set("class", state.classLabel);
+  url.searchParams.delete("class");
   history.replaceState({}, "", url);
   const requestedProspect = url.searchParams.get("prospect");
   const requestedSource = url.searchParams.get("source") === "top-ten" ? "top-ten" : "big-board";
@@ -1294,6 +1289,7 @@ async function initialize() {
     state.leagueSite = leaguePayload;
     renderLeagueSite();
     state.boards = draftPayload.boards;
+    state.draftSeasonNumber = draftPayload.seasonNumber;
     const currentUrl = new URL(window.location.href);
     const requestedClass = currentUrl.searchParams.get("class");
     await loadDraftClass(requestedClass);
@@ -1308,13 +1304,6 @@ async function initialize() {
     elements.resultCount.textContent = "The draft board could not be loaded.";
   }
 }
-
-elements.classSwitcher.addEventListener("click", (event) => {
-  const button = event.target.closest("[data-class]");
-  if (!button || button.dataset.class === state.classLabel) return;
-  closeProfile(false);
-  loadDraftClass(button.dataset.class);
-});
 
 elements.search.addEventListener("input", () => {
   state.query = elements.search.value.trim();
@@ -1674,11 +1663,6 @@ elements.leagueDialog.addEventListener("cancel", (event) => { event.preventDefau
 
 window.addEventListener("popstate", async () => {
   const url = new URL(window.location.href);
-  const draftClass = url.searchParams.get("class");
-  if (draftClass !== state.classLabel) {
-    await loadDraftClass(draftClass);
-    return;
-  }
   const prospect = url.searchParams.get("prospect");
   const source = url.searchParams.get("source") === "top-ten" ? "top-ten" : "big-board";
   if (prospect) openProfile(prospect, source, false);

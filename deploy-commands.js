@@ -7,8 +7,7 @@ const commands = [
   new SlashCommandBuilder().setName("website").setDescription("Get the LEAGUEbuddy website link."),
   new SlashCommandBuilder().setName("promo").setDescription("Post the LEAGUEbuddy recruitment promo with freshly scanned open teams."),
   new SlashCommandBuilder().setName("availableteams").setDescription("Scan current team ownership and show open teams by conference and division."),
-  new SlashCommandBuilder().setName("mockdraft").setDescription("View a private first-round projection for any draft class.")
-    .addIntegerOption(option => option.setName("draft_class").setDescription("Choose a draft class; defaults to the current league class.").addChoices(...[1, 2, 3, 4].map(value => ({ name: `2K27 CUS${String(value).padStart(2, '0')}`, value })))),
+  new SlashCommandBuilder().setName("mockdraft").setDescription("View this season's private weekly mock draft."),
   new SlashCommandBuilder().setName("week").setDescription("Manage regular-season week advancement.")
     .addSubcommand(sub => sub.setName("advance").setDescription("Review and confirm completion of the active week.").addBooleanOption(option => option.setName("force").setDescription("Request confirmation to close the week with unresolved games.")))
     .addSubcommand(sub => sub.setName("playoffs").setDescription("Review final standings and confirm playoff seeding after Week 15.")),
@@ -37,14 +36,7 @@ const commands = [
     .addStringOption(option => option.setName("prospect").setDescription("Search prospects at the selected position by name or team.").setRequired(true).setAutocomplete(true)),
   new SlashCommandBuilder()
     .setName("toptenpreview")
-    .setDescription("Browse the 2K27 top ten preview.")
-    .addStringOption((option) =>
-      option
-        .setName("draft_class")
-        .setDescription("Choose one of the available draft classes.")
-        .setRequired(false)
-        .setAutocomplete(true),
-    ),
+    .setDescription("Browse this season's early top ten preview."),
   new SlashCommandBuilder()
     .setName("schedule")
     .setDescription("Generate and view FantasyHQ MyNBA schedules.")

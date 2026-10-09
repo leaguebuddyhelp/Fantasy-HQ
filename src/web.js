@@ -73,14 +73,15 @@ function classLabel(fileName) {
     .replace(/\s+-\s+(Early Top Ten|Big Board)$/i, "");
 }
 
+function draftSeasonNumber() {
+  const guildId = process.env.GUILD_ID;
+  if (!guildId || (!leagueService.repository.loadGuildLeagueBinding(guildId) && !process.env.FANTASYHQ_LEAGUE_ID)) return 1;
+  return boundLeagueContext().league.seasonNumber;
+}
+
 function resolveDraftClass(selection, boardId = "top-ten") {
-  const files = draftClassFiles(boardId);
-  if (!files.length) return null;
-  if (!selection) return files[0];
-  const normalized = String(selection).trim().toLowerCase();
-  return files.find((file) => file.toLowerCase() === normalized)
-    || files.find((file) => classLabel(file).toLowerCase() === normalized)
-    || null;
+  return require('./shared/season-draft-class').seasonDraftClass(
+    draftClassFiles(boardId), draftSeasonNumber(), boardId === 'top-ten' ? 'Early Top Ten' : 'Big Board');
 }
 
 function publicImageUrl(image) {
@@ -561,20 +562,23 @@ function unsafeRequestHandler(request, response) {
   }
 
   if (url.pathname === "/api/draft-classes") {
-    const boards = Object.values(BOARD_TYPES).map((board) => ({
-      id: board.id,
-      label: board.label,
-      target: board.target,
-      classes: draftClassFiles(board.id).map((file) => ({ file, label: classLabel(file) })),
-    }));
-    sendJson(response, 200, { boards });
+    try {
+      const seasonNumber = draftSeasonNumber();
+      const boards = Object.values(BOARD_TYPES).map(board => {
+        const file = resolveDraftClass(null, board.id);
+        return { id: board.id, label: board.label, target: board.target, classes: [{ file, label: classLabel(file) }] };
+      });
+      sendJson(response, 200, { seasonNumber, boards });
+    } catch (error) { sendJson(response, 404, { error: error.message }); }
     return;
   }
 
   if (url.pathname === "/api/prospects") {
     const boardId = BOARD_TYPES[url.searchParams.get("board")]?.id || "top-ten";
     const board = BOARD_TYPES[boardId];
-    const file = resolveDraftClass(url.searchParams.get("class"), boardId);
+    let file;
+    try { file = resolveDraftClass(null, boardId); }
+    catch (error) { sendJson(response, 404, { error: error.message }); return; }
     if (!file) {
       sendJson(response, 404, { error: "Draft class not found" });
       return;

@@ -547,37 +547,39 @@ test('lottery result embed offers start and rerun controls, refreshes after reru
     assert.equal(latest.components.length, 0);
 });
 
-test('live start prompts for all four classes and chosen class drives lottery, lock and picks', async t => {
+test('live start uses the season class without a chooser; legacy selectors cannot override it', async t => {
     const f = fixture(t, { alternateClasses: true }), d = discordFixture(f);
-    const prompt = d.interaction('mock:start'); await d.workflow.handle(prompt);
-    assert.equal(f.live.all('l').length, 0);
-    assert.deepEqual(prompt.replies[0].components[0].components[0].toJSON().options.map(o => o.value), ['1', '2', '3', '4']);
-    const choice = d.interaction('mock:startclass'); choice.values = ['2'];
-    await d.workflow.handle(choice);
+    f.repository.saveLeague('l', { seasonNumber: 2 });
+    f.repository.saveDraftPicks('l', f.input.picks.map(p => ({ ...p, draftYear: 2028 })));
+    const start = d.interaction('mock:start'); await d.workflow.handle(start);
     let m = f.live.all('l')[0]; assert.equal(m.classNumber, 2); assert.equal(m.draftClassId, 'class2');
+    assert.match(start.replies.at(-1).content, /private Live Mock is ready/);
+    const legacy = d.interaction('mock:startclass'); legacy.values = ['4']; await d.workflow.handle(legacy);
+    assert.equal(f.live.all('l').length, 1);
     f.live.lottery('l', m.id, { id: 'u0' }); m = f.live.lock('l', m.id, { id: 'u0' });
     assert.ok(m.input.prospects.every(p => p.prospectId.startsWith('class2:')));
-    assert.equal(f.simulations.active('l').draftClassId, 'class');
     f.live.setAvailable('l', m.id, 'u0', false); m = f.live.start('l', m.id, { id: 'u0' });
     m = f.live.commit('l', m.id, { expectedPick: 1, type: 'CPU' });
     assert.match(m.selections[0].prospect.name, /^CUS2/);
 });
-test('all class projections are isolated, weekly stable, and use their own thousand-round snapshots', async t => {
+test('weekly mocks follow seasons 1 through 4, remain stable and reject class overrides', async t => {
     const f = fixture(t, { alternateClasses: true });
-    for (const n of [2, 3, 4]) {
-        const result = await f.simulations.classProjection('l', n);
-        assert.equal(result.draftClassId, `class${n}`);
+    for (const n of [1, 2, 3, 4]) {
+        f.repository.saveLeague('l', { seasonNumber: n });
+        f.repository.saveDraftPicks('l', f.input.picks.map(p => ({ ...p, draftYear: 2026 + n })));
+        await f.simulations.refresh('l');
+        const result = await f.simulations.classProjection('l');
+        assert.equal(result.draftClassId, n === 1 ? 'class' : `class${n}`);
         assert.equal(result.selections.length, 30);
-        assert.ok(result.input.prospects.every(p => p.name.startsWith(`CUS${n}`)));
         assert.equal(f.simulations.byId('l', result.simulationSnapshotId).simulationCount, 1000);
-        assert.deepEqual(await f.simulations.classProjection('l', n), result);
+        assert.deepEqual(await f.simulations.classProjection('l'), result);
+        await assert.rejects(f.simulations.classProjection('l', n === 1 ? 2 : 1), /automatically/);
     }
-    assert.equal(f.simulations.active('l').id, f.snapshot.id);
-    await assert.rejects(f.simulations.classProjection('l', 5), /CUS01/);
+    assert.throws(() => f.live.create('l', 'u0', 'guild', 1), /automatically/);
     const d = discordFixture(f), command = d.interaction('unused');
-    command.options = { getInteger: () => 3 };
+    command.options = { getInteger: () => 1 }; // Old slash command registration cannot select another class.
     await d.workflow.projection(command);
-    assert.match(command.replies[0].embeds[0].data.fields[0].value, /CUS3/);
+    assert.match(command.replies[0].embeds[0].data.fields[0].value, /CUS4/);
 });
 
 test('all four installed boards load normalized ranks, including id_number boards', t => {
