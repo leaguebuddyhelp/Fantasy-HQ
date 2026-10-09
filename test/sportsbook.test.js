@@ -81,3 +81,24 @@ test('pushes refund stakes once, remain removable from parlays, and combined odd
  await f.final(f.games[1]);f.service.settle('league');const settled=f.service.mine('league',f.actor).bets.find(b=>b.id===parlay.id);assert.equal(settled.status,'WON');assert.equal(settled.settlements[0].results[0].status,'PUSH');assert.equal(settled.settlements[0].returnCents,require('../src/fantasyhq/sportsbook-money').payout(1000,[parlay.legs[1].odds]));
  const {combinedAmericanOdds}=require('../src/fantasyhq/sportsbook-money');assert.equal(combinedAmericanOdds([100,100]),300);assert.equal(combinedAmericanOdds([-110]),-110);assert.equal(combinedAmericanOdds([150]),150);
 });
+
+test('Discord betting privately previews and confirms exact odds, rejects another coach slip, and verifies current roles',async t=>{
+ const f=await setup(t),discord=require('../src/fantasyhq/discord-sportsbook').createDiscordSportsbook({repository:f.repository,submissions:f.submissions});
+ async function click(customId,extra={}){const replies=[];const i={customId,guildId:'guild',user:{id:f.actor.id},member:f.actor.member,isMessageComponent:()=>false,async deferReply(p){this.deferred=true;replies.push(p);},async editReply(p){replies.push(p);},async reply(p){replies.push(p);},async showModal(p){replies.push(p.toJSON());},...extra};await discord.handle(i);return replies;}
+ const open=await click('book:open');assert.equal(open[0].flags,64);const panel=open.at(-1),select=panel.components[0].toJSON().components[0];assert.ok(select.options.length>0);assert.equal(panel.components.some(r=>r.toJSON().components.some(b=>b.url)),false);
+ const selected=await click(select.custom_id,{values:[select.options[0].value]}),wager=selected.at(-1).components[1].toJSON().components.find(b=>b.label==='Review wager');assert.equal(wager.disabled,false);
+ const modal=(await click(wager.custom_id)).at(-1);assert.match(modal.custom_id,/book:stake:/);
+ const preview=(await click(modal.custom_id,{fields:{getTextInputValue:()=> '10'}})).at(-1);assert.match(preview.embeds[0].toJSON().description,/Total return \$/);const token=preview.components[0].toJSON().components[0].custom_id;
+ const receipt=(await click(token)).at(-1);assert.match(receipt.content,/Wager confirmed/);await click(token);assert.equal(f.repository.loadSportsbook('league').bets.length,1);
+ const foreign=(await click(select.custom_id,{values:['0'],user:{id:'coach-a'},member:{roles:{cache:new Map([['ra',{}]])}}})).at(-1);assert.match(foreign.content,/slip expired/);
+ const stale=(await click('book:wallet:0',{member:{roles:{cache:new Map([['ra',{}]])}}})).at(-1);assert.match(stale.content,/assignment must match/);
+ const staff=(await click('book:staff:0',{member:{roles:{cache:new (require('discord.js').Collection)([['rc',{}]])}}})).at(-1);assert.match(staff.content,/manage this league/);
+});
+
+test('Staff correction clears freeze once, preserves history, and future credits repay spent-payout debt',async t=>{
+ const f=await setup(t),state=f.service.refresh('league'),m=state.markets.find(m=>m.id===f.ids());m.odds=1000;f.repository.commitLeagueFiles({leagueId:'league',files:[{name:'sportsbook.json',value:state}]});const b=f.bet([m.id]);await f.final(f.games[0]);f.service.settle('league');for(let j=0;j<8;j++){const p=f.service.preview('league',f.actor,{marketIds:[f.ids('MONEYLINE','a',f.games[1])],wager:'50'});f.service.confirm('league',f.actor,p.id);}await f.final(f.games[0],{a:90,b:100});f.service.settle('league');
+ const actor={id:'commissioner',staffAuthorized:true};assert.throws(()=>f.service.prepareCorrection('league',f.actor,b.id),/Staff|commissioner/i);
+ const p=f.service.prepareCorrection('league',actor,b.id);assert.ok(p.debtCents>0);assert.throws(()=>f.service.confirmCorrection('league',{id:'other',staffAuthorized:true},p.id),/changed|expired/);f.service.confirmCorrection('league',actor,p.id);f.service.confirmCorrection('league',actor,p.id);
+ let account=f.service.mine('league',f.actor).profile;assert.equal(account.frozen,false);assert.equal(account.balanceCents,0);assert.equal(account.debtCents,p.debtCents);assert.equal(f.repository.loadSportsbook('league').bets[0].settlements.length,2);
+ await f.final(f.games[1]);f.service.settle('league');account=f.service.mine('league',f.actor).profile;assert.equal(account.debtCents,0);assert.ok(account.balanceCents>0);require('../src/fantasyhq/sportsbook-service').validateSportsbook(f.repository.loadSportsbook('league'));
+});

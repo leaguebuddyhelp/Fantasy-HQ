@@ -10,16 +10,15 @@ const imageCache = new Map();
 let imageKey = '';
 function attachOriginal(original, mediaId, alt) {
   const image = el('img'); image.alt = alt; original.append(image);
-  if (!imageCache.has(mediaId)) {
-    const request = api(endpoint.replace(/review$/, 'media/' + mediaId)).then(r => r.blob()).then(blob => { const url = URL.createObjectURL(blob); objectUrls.push(url); return url; });
-    imageCache.set(mediaId, request);
-    request.catch(() => imageCache.delete(mediaId));
-  }
-  imageCache.get(mediaId).then(url => {
-    image.src = url; enableImageViewer(image, url);
-    const link = el('a', 'Open full-size original'); link.href = url; link.target = '_blank'; link.rel = 'noopener'; original.append(link);
-  }).catch(error => original.append(el('p', error.message, 'review-problem')));
+  const media=(data.media||[]).find(m=>m.mediaId===mediaId),heic=['image/heic','image/heif'].includes(media?.contentType);
+  const base=endpoint.replace(/review$/, 'media/' + mediaId);
+  function cached(suffix){const key=mediaId+suffix;if(!imageCache.has(key)){const request=api(base+suffix).then(r=>r.blob()).then(blob=>{const url=URL.createObjectURL(blob);objectUrls.push(url);return url;});imageCache.set(key,request);request.catch(()=>imageCache.delete(key));}return imageCache.get(key);}
+  cached(heic?'?preview=1':'').then(url=>{
+    image.src=url;enableImageViewer(image,url);
+    return heic?cached(''):url;
+  }).then(url=>{const link=el('a',heic?'Download original HEIC':'Open full-size original');link.href=url;link.target='_blank';link.rel='noopener';if(heic)link.download='original.heic';original.append(link);}).catch(error=>original.append(el('p',error.message,'review-problem')));
 }
+
 function el(tag, text, cls) { const n = document.createElement(tag); if (text != null) n.textContent = text; if (cls) n.className = cls; return n; }
 function feedback(message, error = false) {
   const node = document.querySelector('#action-status'); if (node) { node.textContent = message; node.classList.toggle('review-error', error); }

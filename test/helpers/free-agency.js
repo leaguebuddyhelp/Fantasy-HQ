@@ -9,11 +9,12 @@ const { activeMemberships } = require('../../src/fantasyhq/service-helpers');
 const { playerTransactionLock } = require('../../src/fantasyhq/transaction-locks');
 const { normalizeOffer, offerScore, rankOffers, parseContractText } = require('../../src/fantasyhq/offer-score');
 function fixture(t, { count = 15, testMode = false } = {}) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lb-fa-')); t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'lb-fa-')); t.after(() => fs.rmSync(base, { recursive: true, force: true }));
+  const root = testMode ? path.join(base,'simulations','fixture','workspace') : base;
   const repository = createFantasyHQRepository({ dataRoot: root });
   repository.saveLeague('league', { currentPhase: 'REGULAR_SEASON', currentSeasonId: '1', currentWeek: 4 });
   repository.saveTeams('league', ['a','b','c'].map(teamId => ({ teamId, teamName: `Team ${teamId}`, abbreviation: teamId, conference: 'East' })));
-  repository.saveSettings('league', { testMode });
+  repository.saveSettings('league', { testMode, ...(testMode?{simulationId:'fixture'}:{}) });
   repository.saveOwners('league', ['a','b','c'].map(teamId => ({ teamId, userId: `coach-${teamId}` })));
   repository.saveGuildLeagueBinding('guild', { leagueId: 'league', seasonId: '1' });
   const players = [], memberships = [];

@@ -39,6 +39,14 @@ function handleBoxScoreReview(request,response,url,{ authorized, submissions = c
     let teamRecords=[];
     if(!mediaId)try {teamRecords=Object.values(require('../standings-service').createStandingsService({submissions}).getStandings(record.game.leagueId,record.game.seasonId).conferences).flat().filter(t=>[record.game.team1Id,record.game.team2Id].includes(t.teamId));}catch { /* Historic games remain readable after league deletion. */ }
     if (mediaId) {
+      if(url.searchParams.get('preview')==='1') {
+        const entry=media.find(m=>m.mediaId===mediaId);if(!entry)throw Error('Not found');
+        const bytes=submissions.readOriginal(gameId,mediaId);
+        (async()=>{try{const heic=['image/heic','image/heif'].includes(entry.contentType),preview=heic?await require('../offseason-image').normalize(bytes):bytes;
+          response.writeHead(200,{'Content-Type':heic?'image/png':entry.contentType,'Cache-Control':'no-store'});response.end(preview);
+        }catch{response.writeHead(422,{'Content-Type':'application/json','Cache-Control':'no-store'});response.end(JSON.stringify({error:'Image preview could not be decoded. The original remains available.'}));}})();return true;
+      }
+
       const image = media.find(m => m.mediaId === mediaId);
       if (!image) throw new Error('Not found');
       response.writeHead(200,{'Content-Type':image.contentType,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});

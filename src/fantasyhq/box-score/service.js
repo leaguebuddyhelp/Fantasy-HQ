@@ -57,7 +57,7 @@ function createBoxScoreExtractionService(options = {}) {
         Object.assign(r.extractions.find(e => e.extractionId === extractionId), output, { status, finishedAt:new Date().toISOString(), rosterSnapshot:rosters });
         r.submissions.find(s => s.submissionId === submissionId).status = status;
         if (status === 'READY_FOR_REVIEW' && ['TEAM_SIDES','STAFF_BOTH'].includes(submission.mode)) {
-          require('./finalize').finalizeValidatedSubmission(r, extractionId, { testMode: repository.loadSettings(r.game.leagueId)?.testMode === true, owners: repository.loadOwners(r.game.leagueId) });
+          require('./finalize').finalizeValidatedSubmission(r, extractionId, { testMode: require('../simulation-guard').isSimulationRepository(repository,r.game.leagueId), owners: repository.loadOwners(r.game.leagueId) });
         }
       });
     } catch (error) {

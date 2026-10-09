@@ -4,6 +4,8 @@ const { PermissionFlagsBits, REST, Routes, SlashCommandBuilder } = require("disc
 const { requireEnv } = require("./src/config");
 
 const commands = [
+  new SlashCommandBuilder().setName("website").setDescription("Get the LEAGUEbuddy website link."),
+  new SlashCommandBuilder().setName("promo").setDescription("Post the LEAGUEbuddy recruitment promo with freshly scanned open teams."),
   new SlashCommandBuilder().setName("availableteams").setDescription("Scan current team ownership and show open teams by conference and division."),
   new SlashCommandBuilder().setName("mockdraft").setDescription("View a private first-round projection for any draft class.")
     .addIntegerOption(option => option.setName("draft_class").setDescription("Choose a draft class; defaults to the current league class.").addChoices(...[1, 2, 3, 4].map(value => ({ name: `2K27 CUS${String(value).padStart(2, '0')}`, value })))),

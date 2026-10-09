@@ -9,7 +9,7 @@ function fixture(t) {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lb-threads-')); t.after(() => fs.rmSync(root, { recursive: true, force: true }));
     const repository = createFantasyHQRepository({ dataRoot: root });
     const teams = ['East', 'West'].flatMap(conference => Array.from({ length: 15 }, (_, i) => ({ teamId: `${conference}-${i}`, teamName: `${conference} ${i}`, abbreviation: `${conference[0]}${i}`, conference })));
-    repository.saveLeague('test', { currentPhase: 'PRESEASON', currentSeasonId: '1' }); repository.saveTeams('test', teams); repository.saveGuildLeagueBinding('guild', { leagueId: 'test', seasonId: '1' });
+    repository.saveLeague('test', { currentPhase: 'PRESEASON', currentSeasonId: '1', commissionerUserId:'commissioner' }); repository.saveTeams('test', teams); repository.saveGuildLeagueBinding('guild', { leagueId: 'test', seasonId: '1' });
     repository.saveSchedule(generateSchedule({ leagueId: 'test', seasonId: '1', teams })); createLeagueService({ repository }).startRegularSeason({ leagueId: 'test', seasonId: '1', validator: () => ({ ready: true }) });
     repository.saveOwners('test', teams.map(team => ({ teamId: team.teamId, userId: 'coach-' + team.teamId }))); repository.saveSettings('test', { gamesChannelId: 'games' });
     const channels = new Map(), calls = []; let failCreate = false, failMember = false;
@@ -17,7 +17,7 @@ function fixture(t) {
     const parent = { id: 'games', guildId: 'guild', type: 0, permissionsFor: () => ({ has: () => true }), threads: { create: async options => { if (failCreate) { failCreate = false; throw Error('Create failed'); } calls.push(options); return thread('thread-' + calls.length); } } }; channels.set('games', parent);
     const guild = { id: 'guild', members: { me: {} }, channels: { fetch: async id => id ? channels.get(id) || null : channels } };
     const staffUserIds = [], staffRoleIds = [];
-    const submissions = createGameSubmissionService({ repository, download: async () => Buffer.from([255, 216, 255, 0]) }); let syncs = 0;
+    const submissions = createGameSubmissionService({ repository, download: async () => require('node:fs').readFileSync(require('node:path').join(__dirname,'fixtures','contract-payne-team-option.jpg')) }); let syncs = 0;
     const service = createGameThreadService({ submissions, syncOwners: async () => { syncs++; return { conflicts: [], staffUserIds, staffRoleIds }; }, logger: { error() { } } });
     return { staffUserIds, staffRoleIds, repository, submissions, service, guild, channels, calls, thread, failCreate: () => failCreate = true, failMember: () => failMember = true, syncs: () => syncs };
 }

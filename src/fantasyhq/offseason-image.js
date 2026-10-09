@@ -1,9 +1,9 @@
 const sharp=require('sharp'),path=require('node:path'),{Worker}=require('node:worker_threads');
 const pending=[];let running=false;
 async function metadata(bytes) {
- if(!Buffer.isBuffer(bytes)||!bytes.length||bytes.length>24*1024*1024)throw Error('Upload a JPG, PNG or HEIC no larger than 24 MB.');
+ if(!Buffer.isBuffer(bytes)||!bytes.length||bytes.length>24*1024*1024)throw Error('Upload a JPG, PNG, WebP or HEIC no larger than 24 MB.');
  const info=await sharp(bytes,{limitInputPixels:60000000}).metadata();
- if(!['jpeg','png','heif'].includes(info.format)||!info.width||!info.height||info.width*info.height>60000000)throw Error('Use a JPG, PNG or HEIC photo within the supported pixel limit.');
+ if(!['jpeg','png','webp','heif'].includes(info.format)||!info.width||!info.height||info.width*info.height>60000000)throw Error('Use a JPG, PNG, WebP or HEIC photo within the supported pixel limit.');
  if(info.format==='heif'&&(info.compression!=='hevc'||!/heic|heix|hevc|hevx|mif1|msf1/.test(bytes.subarray(8,80).toString('ascii'))))throw Error('Use a supported HEIC photo.');
  return info;
 }

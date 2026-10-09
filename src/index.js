@@ -53,7 +53,7 @@ const client = new Client({
 });
 const tradeRepository = require("./fantasyhq/repository").createFantasyHQRepository();
 const storageSafety = require('./fantasyhq/storage-safety');
-const writerLease = storageSafety.acquireWriterLease(tradeRepository.dataRoot);
+const writerLease = storageSafety.acquireWriterLease(tradeRepository.dataRoot, { waitMs: 180000 });
 const startupBackup = storageSafety.createStorageBackup(tradeRepository.dataRoot, { label: 'startup' });
 console.log(`League backup: ${startupBackup.id}`);
 setInterval(() => { try { storageSafety.createStorageBackup(tradeRepository.dataRoot, { label: 'daily' }); } catch (error) { console.error('League backup failed:', error.message); } }, 86400000).unref();
@@ -131,8 +131,8 @@ const weekAdvancement = require("./fantasyhq/week-advancement").createWeekAdvanc
     if (mockSimulations) mockSimulations.refresh(leagueId).catch(error => console.error("Mock simulations:", error.message));
   },
 });
-discordWeeklyDashboard = require('./fantasyhq/discord-weekly-dashboard').createDiscordWeeklyDashboard({ repository: tradeRepository, weekService: weekAdvancement });
-const gameCleanup = require("./fantasyhq/game-thread-cleanup").createGameThreadCleanupService();
+const gameCleanup = require("./fantasyhq/game-thread-cleanup").createGameThreadCleanupService({ submissions: gameRecordStore });
+discordWeeklyDashboard = require('./fantasyhq/discord-weekly-dashboard').createDiscordWeeklyDashboard({ repository: tradeRepository, weekService: weekAdvancement, cleanupService: gameCleanup });
 require("./web").setGameThreadRuntime({ client, service: gameThreads, repository: gameThreads.repository, weekService: weekAdvancement, cleanupService: gameCleanup });
 const scoutingService = require("./fantasyhq/scouting-service").createScoutingService({ repository: require("./fantasyhq/repository").createFantasyHQRepository() });
 const scoutingCommands = require("./fantasyhq/discord-scouting");
@@ -772,6 +772,8 @@ async function handleTransferPortalClassAutocomplete(interaction) {
 }
 
 const handlers = {
+  website: interaction => require("./fantasyhq/discord-website").handleWebsite(interaction),
+  promo: interaction => require("./fantasyhq/discord-promo").handlePromo(interaction, {repository:tradeRepository,ownership:roleOwnership}),
   mockdraft: interaction => discordMocks.projection(interaction),
   bigboard: interaction => scoutingCommands.handleBigBoardCommand(interaction, scoutingService),
   tradeblock: interaction => discordTradeBlock.handleTradeBlockCommand(interaction),
@@ -787,18 +789,14 @@ const handlers = {
   league: handleLeagueCommand,
   player: handlePlayerCommand,
   ratings: handleRatingsCommand,
-  recruiting: handleRecruitingCommand,
   roster: handleRosterCommand,
   schedule: handleScheduleCommand,
   scout: interaction => scoutingCommands.handleScoutCommand(interaction, scoutingService),
   stats: interaction => discordPlayerStats.handleStatsCommand(interaction),
   teamstats: interaction => discordTeamStats.handleTeamStatsCommand(interaction),
   upgrades: interaction => discordPlayerUpgrades.command(interaction),
-  setup: handleSetupCommand,
   team: handleTeamCommand,
-  teams: handleTeamsCommand,
   toptenpreview: handleTopTenPreviewCommand,
-  transferportal: handleTransferPortalCommand,
 };
 
 const ownershipTimers = new Map();
@@ -938,15 +936,8 @@ async function handleInteraction(interaction) {
   if((interaction.isButton()||interaction.isStringSelectMenu()||interaction.isModalSubmit())&&interaction.customId.startsWith('awards:')){await require('./fantasyhq/discord-awards').createDiscordAwards({repository:tradeRepository,submissions:gameRecordStore}).handle(interaction);return;}
   if(interaction.isButton()&&interaction.customId.startsWith('poststats:')){await require('./fantasyhq/discord-postseason-stats').createDiscordPostseasonStats({repository:tradeRepository}).handle(interaction);return;}
   if ((interaction.isButton() || interaction.isStringSelectMenu() || interaction.isModalSubmit()) && interaction.customId.startsWith('post:')) {await discordPostseason.handle(interaction);return;}
-  if (interaction.isButton() && interaction.customId === 'coachweb:open') {
-    try {
-      const context = tradeRepository.loadLeagueContext({guildId: interaction.guildId});
-      const result = require('./fantasyhq/coach-web-session').createCoachWebSessions({repository: tradeRepository})
-        .issue(context.league.leagueId, {id: interaction.user.id, member: interaction.member, guildId: interaction.guildId});
-      await interaction.reply({content: 'Open your private coach page. This one-use link expires in five minutes.',
-        components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setLabel('Open private website').setStyle(ButtonStyle.Link).setURL(result.url))], flags: MessageFlags.Ephemeral});
-    } catch(error) { await interaction.reply({content:error.message,flags:MessageFlags.Ephemeral}); }
-    return;
+  if ((interaction.isButton() || interaction.isStringSelectMenu() || interaction.isModalSubmit()) && (interaction.customId.startsWith('book:') || interaction.customId === 'coachweb:open')) {
+    await require('./fantasyhq/discord-sportsbook').createDiscordSportsbook({repository:tradeRepository,submissions:gameRecordStore}).handle(interaction);return;
   }
   if ((interaction.isButton() || interaction.isStringSelectMenu() || interaction.isModalSubmit()) && interaction.customId.startsWith('offfa:')) { await require('./fantasyhq/discord-offseason-free-agency').createDiscordOffseasonFreeAgency({ repository: tradeRepository }).handle(interaction); return; }
   if ((interaction.isButton() || interaction.isStringSelectMenu() || interaction.isModalSubmit()) && interaction.customId.startsWith('fa:')) { await discordFreeAgency.handle(interaction); return; }

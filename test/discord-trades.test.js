@@ -8,14 +8,14 @@ const { createTradeService } = require("../src/fantasyhq/trade-service");
 const { createDiscordTradeWorkflow } = require("../src/fantasyhq/discord-trades");
 
 function fixture(t, testMode = false, logger = { error() { } }) {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "lb-discord-trades-"));
-    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), "lb-discord-trades-")), root = testMode ? path.join(base,"simulations","fixture","workspace") : base;
+    t.after(() => fs.rmSync(base, { recursive: true, force: true }));
     const repository = createFantasyHQRepository({ dataRoot: root });
     const teams = ["alpha", "bravo", "charlie"].map(teamId => ({ teamId, teamName: `${teamId} team`, abbreviation: teamId.toUpperCase(), conference: teamId === "alpha" ? "East" : "West" }));
     repository.saveLeague("league", { currentPhase: "REGULAR_SEASON", currentSeasonId: "1", seasonNumber: 1, currentWeek: 1, guildId: "guild" });
     repository.saveGuildLeagueBinding("guild", { leagueId: "league", seasonId: "1" });
     repository.saveTeams("league", teams);
-    repository.saveSettings("league", { testMode, discordChannels: {} });
+    repository.saveSettings("league", { testMode, ...(testMode?{simulationId:'fixture'}:{}), discordChannels: {} });
     repository.saveOwners("league", teams.map(team => ({ teamId: team.teamId, userId: `coach-${team.teamId}` })));
     const players = [], memberships = [];
     for (const team of teams) for (let index = 0; index < 15; index += 1) {
@@ -191,7 +191,7 @@ test('solo committee fallback handles an involved tester role while preserving i
     for (const independent of [false, true]) {
         const f = fixture(t, true);
         f.repository.saveOwners('league', [{ teamId: 'alpha', userId: 'coach-alpha' }]);
-        f.repository.saveSettings('league', { testMode: true, discordChannels: { tradeCommittee: 'committee' } });
+        f.repository.saveSettings('league', { testMode: true, simulationId:'fixture', discordChannels: { tradeCommittee: 'committee' } });
         f.guild.roles.cache.push({ id: 'reviewers', name: 'LEAGUEbuddy Trade Committee' });
         f.guild.roles.fetch = async () => { };
         const ids = independent ? ['coach-alpha', 'independent'] : ['coach-alpha'];

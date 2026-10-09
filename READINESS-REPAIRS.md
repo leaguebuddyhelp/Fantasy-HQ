@@ -76,17 +76,17 @@ Backups are retained; review available disk space and export/remove obsolete sna
 
 ## Separate website Staff access
 
-Configure `WEBSITE_ADMIN_KEYS` as a JSON mapping of Staff names to separate private keys:
+Configure `WEBSITE_ADMIN_KEYS` as a JSON mapping of Discord user IDs to separate private keys:
 
 ```json
-{"Commissioner A":"REPLACE_WITH_A_PRIVATE_RANDOM_KEY","Assistant B":"REPLACE_WITH_ANOTHER_PRIVATE_RANDOM_KEY"}
+{"COMMISSIONER_DISCORD_USER_ID":"REPLACE_WITH_A_PRIVATE_RANDOM_KEY","ASSISTANT_DISCORD_USER_ID":"REPLACE_WITH_ANOTHER_PRIVATE_RANDOM_KEY"}
 ```
 
-Each Staff member enters their own key. The server assigns their configured name regardless of the entered operator text. When this mapping is configured, `WEBSITE_ADMIN_KEY` does not authorize access. Without it, the legacy shared key remains supported and the entered operator name is an assertion rather than individually authenticated identity. Invalid mappings fail closed. Keep keys in server variables, never in Git or URLs.
+Each Staff member enters their own key. The server binds actions and audit attribution to their configured Discord ID regardless of entered operator text. Commissioner operations require the key mapped to the league commissioner ID. Staff keys retain Staff review access. When this mapping is configured, `WEBSITE_ADMIN_KEY` does not authorize access. Without it, the legacy shared key remains supported and the entered operator name is an assertion rather than individually authenticated identity. Invalid mappings fail closed. Keep keys in server variables, never in Git or URLs.
 
 ## Verification and remaining live gates
 
-Final `npm run check`: **455 tests passed, zero failures, zero skipped/cancelled/todo**. This includes syntax checks, TypeScript checking, local browser tests and saved-image OCR. `git diff --check` passed.
+Earlier repair baseline `npm run check`: **455 tests passed, zero failures, zero skipped/cancelled/todo**. This includes syntax checks, TypeScript checking, local browser tests and saved-image OCR. `git diff --check` passed.
 
 Automated verification covers a complete 210-game/15-week closeout; eight seeds per conference; tiebreakers; final correction/reversal and frozen publication; real malformed HTTP requests; interrupted admin transactions; owner replacement; obsolete private membership removal; failed-notification restart/retry; corruption preservation; verified backup restore; and separate-process writer exclusion. Existing browser tests and real offline OCR image tests are included in `npm run check`.
 
@@ -102,3 +102,5 @@ Before claiming full live readiness:
 4. Restore a production-shaped backup into a separate test data root and confirm saved media, rosters, history, standings and seeds. Export a recovery copy outside the Railway volume.
 
 The original audit's 64% is historical. This report does not replace unverified live gates with a “100%” label.
+
+For the current launch audit, use [Pass 1](LAUNCH-AUDIT-PASS-1.md), [Pass 2](LAUNCH-AUDIT-PASS-2.md) and [launch operations](LAUNCH-OPERATIONS.md). Earlier test totals and deployment observations above describe that earlier repair baseline.

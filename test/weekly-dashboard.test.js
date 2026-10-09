@@ -92,10 +92,67 @@ test('Staff-only channel access and current Coach identity are enforced before r
 test('weekly embeds stay within Discord limits and provide only existing navigation actions',t=>{
  const f=fixture(t);const report=staffPayload(f.service.report('g'));
  const e=report.embeds[0].toJSON();assert.ok(e.description.length<=4096);assert.ok(e.fields.every(x=>x.value.length<=1024));assert.ok(e.fields.reduce((n,x)=>n+x.name.length+x.value.length,e.title.length+e.description.length+e.footer.text.length)<6000);
- assert.equal(report.components[0].components[0].data.custom_id,'weeklystaff:review:1');
+ assert.equal(report.components[0].components[0].data.custom_id,'weeklystaff:advance:1');
+ assert.equal(report.components[0].components[0].data.label,'Create Next Week Threads');
+ assert.equal(report.components[0].components[1].data.custom_id,'weeklystaff:delete:1');
  const coach=coachPayload(f.service.teamDashboard('g',f.a.team1Id,true));assert.equal(coach.components[0].components[1].data.custom_id,'fa:active');assert.equal(coach.embeds.length,1);
 });
 module.exports={fixture};
+
+test('report recovers a deleted saved Staff channel only when the replacement is unique and Staff-only',async t=>{
+ const f=fixture(t),fetch=f.guild.channels.fetch;
+ f.repository.saveSettings('l',{...f.repository.loadSettings('l'),discordChannels:{...f.repository.loadSettings('l').discordChannels,staff:'deleted'}});
+ f.channel.name='lb-league-staff';
+ f.guild.channels.fetch=async id=>{if(id==='deleted')throw Object.assign(Error('Unknown Channel'),{code:10003});if(id===undefined)return new Map([['staff',f.channel]]);return fetch(id);};
+ f.setUnsafe(true);await assert.rejects(f.discord().ensureReport(f.guild),/Staff-only/);assert.equal(f.repository.loadSettings('l').discordChannels.staff,'deleted');
+ f.setUnsafe(false);await f.discord().ensureReport(f.guild);assert.equal(f.repository.loadSettings('l').discordChannels.staff,'staff');assert.equal(f.sent.length,1);assert.equal(f.sent[0].components[0].components[0].data.label,'Create Next Week Threads');
+});
+test('Staff channel recovery refuses duplicate names and does not hide permission errors',async t=>{
+ const f=fixture(t);f.guild.channels.fetch=async id=>{if(id)throw Object.assign(Error('Unknown Channel'),{code:10003});return new Map([['a',{name:'lb-league-staff'}],['b',{name:'lb-league-staff'}]]);};
+ await assert.rejects(f.discord().ensureReport(f.guild),/ambiguous/);assert.equal(f.sent.length,0);
+ f.guild.channels.fetch=async()=>{throw Object.assign(Error('Missing Access'),{code:50001});};
+ await assert.rejects(f.discord().ensureReport(f.guild),/Missing Access/);assert.equal(f.sent.length,0);
+});
+
+test('Staff report Delete Threads opens a private confirmation and deletes only after confirm',async t=>{
+ const f=fixture(t),deleted=[];
+ for(const match of f.week.games)await f.bind(match);
+ const fetch=f.guild.channels.fetch;
+ f.guild.channels.fetch=async id=>id==='staff'?fetch(id):{id,guildId:'g',type:12,delete:async()=>deleted.push(id)};
+ const cleanupService=require('../src/fantasyhq/game-thread-cleanup').createGameThreadCleanupService({submissions:f.submissions});
+ const adapter=createDiscordWeeklyDashboard({repository:f.repository,service:f.service,weekService:f.weekService,cleanupService});
+ const message=await adapter.ensureReport(f.guild);let reply;
+ const interaction={guild:f.guild,guildId:'g',channelId:'staff',message:{id:message.id},user:{id:'staff'},memberPermissions:{has:()=>true},customId:'weeklystaff:delete:1',deferReply:async o=>assert.equal(o.flags,64),editReply:async p=>{reply=p;}};
+ await adapter.button({...interaction,memberPermissions:{has:()=>false}});assert.match(reply.content,/Commish/);assert.equal(deleted.length,0);
+ await adapter.button({...interaction,message:{id:'other'}});assert.match(reply.content,/stale/);assert.equal(deleted.length,0);
+ await adapter.button(interaction);assert.equal(deleted.length,0);assert.match(reply.embeds[0].data.title,/CLEAN GAME THREADS/);
+ const confirm=reply.components[0].toJSON().components[1].custom_id;
+ await require('../src/fantasyhq/discord-game-cleanup').handleCleanupButton({...interaction,customId:confirm},cleanupService);
+ assert.equal(deleted.length,14);assert.equal(f.repository.loadLeague('l').league.currentWeek,1);assert.equal(f.repository.loadSchedule('l','1').weeks[0].status,'ACTIVE');
+});
+
+test('Staff report next-week button respects blockers and confirms the full existing transition',async t=>{
+ const f=fixture(t);let created=0,followups=0,reply;
+ const weekService=createWeekAdvancementService({submissions:f.submissions,threads:{create:async()=>{created++;return {created:14};}},onAdvanced:async()=>{followups++;}});
+ const adapter=createDiscordWeeklyDashboard({repository:f.repository,service:f.service,weekService});
+ const message=await adapter.ensureReport(f.guild);
+ const interaction={guild:f.guild,guildId:'g',channelId:'staff',message:{id:message.id},user:{id:'staff'},memberPermissions:{has:()=>true},customId:'weeklystaff:advance:1',deferReply:async o=>assert.equal(o.flags,64),editReply:async p=>{reply=p;}};
+ await adapter.button(interaction);assert.match(reply.embeds[0].data.title,/CANNOT BE COMPLETED/);assert.equal(reply.components.length,0);assert.equal(created,0);
+ for(const match of f.week.games)await f.final(await f.bind(match));
+ await adapter.button(interaction);assert.match(reply.embeds[0].data.title,/COMPLETE WEEK 1/);assert.equal(f.repository.loadLeague('l').league.currentWeek,1);assert.equal(created,0);
+ const customId=reply.components[0].toJSON().components[1].custom_id;
+ await require('../src/fantasyhq/discord-week').handleWeekButton({...interaction,customId},weekService);
+ assert.equal(f.repository.loadLeague('l').league.currentWeek,2);assert.equal(created,1);assert.equal(followups,1);
+ assert.equal(f.repository.loadSchedule('l','1').statsPublication.throughWeek,1);assert.equal(f.repository.loadSchedule('l','1').statsPublication.gameIds.length,14);
+ await adapter.ensureReport(f.guild);assert.equal(f.sent.length,2);assert.match(message.embeds[0].title,/CLOSED/);
+ await adapter.button(interaction);assert.match(reply.content,/stale/);assert.equal(created,1);
+});
+
+test('last week offers regular season completion and closed reports have no advance or delete controls',t=>{
+ const f=fixture(t),view=f.service.report('g');
+ assert.equal(staffPayload({...view,week:15}).components[0].components[0].data.label,'Complete Regular Season');
+ assert.ok(staffPayload({...view,closed:true}).components[0].components.every(b=>!b.data.custom_id?.startsWith('weeklystaff:')));
+});
 
 test('website weekly endpoints protect Staff data and expose only public coach progress',async t=>{
  const f=fixture(t),{requestHandler,setGameThreadRuntime}=require('../src/web');

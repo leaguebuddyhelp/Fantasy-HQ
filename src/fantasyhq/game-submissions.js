@@ -4,13 +4,14 @@ const { randomUUID, createHash } = require("crypto");
 const { createFantasyHQRepository } = require("./repository");
 
 const sharedLocks = new Map();
-const MAX_IMAGE_BYTES = 25 * 1024 * 1024;
-const TYPES = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
+const MAX_IMAGE_BYTES = 24 * 1024 * 1024;
+const TYPES = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/heic": "heic", "image/heif": "heic" };
 function imageType(bytes) {
   if (bytes.length >= 3 && bytes.subarray(0, 3).equals(Buffer.from([255, 216, 255]))) return "image/jpeg";
   if (bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) return "image/png";
   if (bytes.toString("ascii", 0, 4) === "RIFF" && bytes.toString("ascii", 8, 12) === "WEBP") return "image/webp";
-  throw new Error("Unsupported image. Upload original JPG, PNG, or WebP photos or screenshots.");
+  if (bytes.toString("ascii",4,8) === "ftyp" && /heic|heix|hevc|hevx|mif1|msf1/.test(bytes.subarray(8,80).toString("ascii"))) return "image/heic";
+  throw new Error("Unsupported image. Upload original JPG, PNG, WebP, or HEIC photos or screenshots.");
 }
 async function downloadDiscordImage(attachment) {
   const url = new URL(attachment.url);
@@ -22,7 +23,7 @@ async function downloadDiscordImage(attachment) {
   let length = 0;
   for await (const chunk of response.body) {
     length += chunk.length;
-    if (length > MAX_IMAGE_BYTES) throw new Error("Each screenshot must be 25 MB or smaller.");
+    if (length > MAX_IMAGE_BYTES) throw new Error("Each screenshot must be 24 MB or smaller.");
     chunks.push(chunk);
   }
   return Buffer.concat(chunks);
@@ -150,6 +151,7 @@ function createGameSubmissionService(options = {}) {
     const testTeamId = actor.testTeamId || record.submissions.find(s => s.status === 'COLLECTING' && s.mode === 'TEAM_SIDES')?.testActors?.[actor.userId];
     if (testTeamId) {
       if (!actor.staff || repository.loadSettings(record.game.leagueId)?.testMode !== true) throw Error('Staff authorization and explicit Test Mode are required for simulated sides.');
+      require('./simulation-guard').requireSimulationRepository(repository,record.game.leagueId);
       if (![record.game.team1Id, record.game.team2Id].includes(testTeamId)) throw Error('Choose a team in this matchup.');
       const owner = repository.loadOwners(record.game.leagueId).find(o => o.teamId === testTeamId);
       if (owner && owner.userId !== actor.userId) throw Error('Another coach owns this team; they must submit their own box score.');
@@ -223,12 +225,13 @@ function createGameSubmissionService(options = {}) {
       if (current.length + fresh.length > 2) throw new Error("Upload exactly two screenshots per submission.");
       for (const attachment of fresh) {
         if (!TYPES[attachment.contentType?.split(";")[0]] || attachment.size > MAX_IMAGE_BYTES) {
-          throw new Error("Upload JPG, PNG, or WebP photos or screenshots, each 25 MB or smaller.");
+          throw new Error("Upload JPG, PNG, WebP, or HEIC photos or screenshots, each 24 MB or smaller.");
         }
       }
       for (const attachment of fresh) {
         const bytes = await download(attachment);
         const contentType = imageType(bytes);
+        await require('./offseason-image').metadata(bytes);
         if (!bytes.length || bytes.length > MAX_IMAGE_BYTES) throw new Error("Invalid screenshot size.");
         // Recheck ownership and game lock after the asynchronous download.
         record = load(gameId);

@@ -7,15 +7,15 @@ const { createFantasyHQRepository } = require("../src/fantasyhq/repository");
 const { createTradeService, RESPONSE_WINDOW_MS } = require("../src/fantasyhq/trade-service");
 
 function fixture(t, { week = 4, phase = "REGULAR_SEASON", testMode = false, onPlayersMoved = null } = {}) {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "lb-trade-service-"));
-    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), "lb-trade-service-")), root = testMode ? path.join(base,"simulations","fixture","workspace") : base;
+    t.after(() => fs.rmSync(base, { recursive: true, force: true }));
     const repository = createFantasyHQRepository({ dataRoot: root });
     const teamIds = ["alpha", "bravo", "charlie"];
     const teams = teamIds.map((teamId, index) => ({ teamId, teamName: `${teamId} team`, abbreviation: teamId.toUpperCase(), conference: index === 0 ? "East" : "West" }));
     repository.saveLeague("league", { currentPhase: phase, currentSeasonId: "1", seasonNumber: 1, currentWeek: week });
     repository.saveTeams("league", teams);
     repository.saveGuildLeagueBinding("guild", { leagueId: "league", seasonId: "1" });
-    repository.saveSettings("league", { testMode, discordChannels: {} });
+    repository.saveSettings("league", { testMode, ...(testMode?{simulationId:'fixture'}:{}), discordChannels: {} });
     repository.saveOwners("league", teamIds.map(teamId => ({ teamId, userId: `coach-${teamId}` })));
     const players = [], memberships = [];
     for (const teamId of teamIds) for (let index = 0; index < 15; index += 1) {
@@ -290,4 +290,8 @@ test('test mode still requires actual online owners to submit and respond', t =>
   const { trade } = f.service.submitTrade({ leagueId: 'league', tradeId: draft.tradeId, actorUserId: 'coach-alpha' });
   assert.throws(() => f.service.decideGM({ leagueId: 'league', tradeId: trade.tradeId, version: 1, actorUserId: 'coach-alpha', actorTeamId: 'bravo', decision: 'APPROVE' }), /current team coach/);
   f.service.decideGM({ leagueId: 'league', tradeId: trade.tradeId, version: 1, actorUserId: 'coach-bravo', actorTeamId: 'bravo', decision: 'APPROVE', eligibleVoterIds: ['independent'] });
+});
+
+test('legacy canonical testMode cannot submit a vacant-team trade as a Staff simulation',t=>{
+ const f=fixture(t),draft=f.createTwoTeamDraft();f.repository.saveSettings('league',{testMode:true});f.repository.saveOwners('league',[]);assert.throws(()=>f.service.submitTrade({leagueId:'league',tradeId:draft.tradeId,actorUserId:'coach-alpha'}),/assigned coach|assigned/);
 });

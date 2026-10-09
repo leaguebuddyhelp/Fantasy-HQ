@@ -3014,3 +3014,47 @@ footer strong {
 #news-featured .news-hero { grid-column: 1 / -1; border-top: 3px solid var(--accent, #ffdc21); }
 #news-article > article { max-width: 80ch; line-height: 1.7; }
 #news .league-player-portrait, #streams .league-player-portrait { max-width: 120px; height: 100px; object-fit: contain; }
+
+/* Keep the full desktop navigation accessible as the league grows. */
+@media (min-width: 1101px) {
+  .site-header { height: auto; min-height: 78px; flex-wrap: wrap; gap: 12px; padding-top: 12px; padding-bottom: 12px; }
+  #primary-nav { min-width: 0; max-width: 100%; flex-wrap: wrap; justify-content: flex-start; }
+}
+
+/* Group destinations without hiding existing sections or changing deep links. */
+.site-header { gap: 20px; }
+#primary-nav { gap: 5px; }
+#primary-nav a { color: var(--muted); text-decoration: none; }
+#primary-nav .nav-home, .nav-group > summary { display: block; padding: 12px 14px; min-height: 44px; box-sizing: border-box; border-radius: 8px; cursor: pointer; white-space: nowrap; }
+.nav-group { position: relative; }
+.nav-group > summary { list-style: none; }
+.nav-group > summary::-webkit-details-marker { display: none; }
+.nav-group > summary::after { content: '⌄'; margin-left: 8px; color: var(--muted); }
+.nav-group[open] > summary, .nav-group.is-current > summary, #primary-nav [aria-current] { color: var(--yellow); background: rgba(255,220,33,.08); }
+.nav-group > summary:hover, #primary-nav a:hover { color: var(--yellow); }
+.nav-menu { position: absolute; top: calc(100% + 6px); left: 0; min-width: 220px; padding: 8px; border: 1px solid var(--line); border-radius: 12px; background: #151515; box-shadow: 0 14px 40px #0009; }
+.nav-group:last-child .nav-menu, .nav-group:nth-last-child(2) .nav-menu { left: auto; right: 0; }
+#primary-nav .nav-menu a { display: block; padding: 12px; min-height: 44px; box-sizing: border-box; border-radius: 6px; }
+.nav-group summary:focus-visible, #primary-nav a:focus-visible, .home-shortcuts a:focus-visible { outline: 2px solid var(--yellow); outline-offset: 3px; }
+.home-shortcuts { display: flex; flex-wrap: wrap; gap: 10px; margin: 24px 0; }
+.home-shortcuts a { padding: 13px 18px; border: 1px solid var(--line); border-radius: 10px; color: var(--white); text-decoration: none; font-weight: 700; background: var(--panel); }
+.home-shortcuts a:first-child { background: var(--yellow); color: var(--black); border-color: var(--yellow); }
+.filter-panel { margin: 22px 0 30px; border: 1px solid var(--line); border-radius: 12px; padding: 16px; background: var(--panel); }
+.filter-panel > summary { cursor: pointer; font-weight: 700; min-height: 28px; }
+.news-filters { display: grid; grid-template-columns: repeat(auto-fit,minmax(180px,1fr)); gap: 16px; padding-top: 20px; align-items: end; }
+.news-filters label { display: grid; gap: 8px; font-size: 13px; color: var(--muted); }
+.news-filters input, .news-filters select, .news-filters button { box-sizing: border-box; width: 100%; min-width: 0; min-height: 44px; padding: 10px 12px; font: inherit; border: 1px solid var(--line); border-radius: 8px; background: #0b0b0b; color: var(--white); }
+.news-filters button { background: var(--yellow); color: var(--black); font-weight: 700; cursor: pointer; }
+main section[id], #news-review-panel { scroll-margin-top: 110px; }
+@media (min-width: 1101px) { .site-header { flex-wrap: nowrap; } }
+@media (max-width: 1100px) {
+  .site-header { height: auto; min-height: 68px; display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 0 12px; padding-block: 10px; }
+  .mobile-nav-toggle { display: inline-flex; align-items: center; justify-content: center; }
+  .site-header #primary-nav { display: none; grid-column: 1 / -1; padding-top: 12px; grid-template-columns: 1fr; gap: 6px; max-height: 70vh; overflow-y: auto; }
+  .site-header #primary-nav[data-open="true"] { display: grid; }
+  #primary-nav .nav-home, .nav-group > summary { border: 1px solid var(--line); background: var(--panel); }
+  #primary-nav .nav-menu { position: static; min-width: 0; box-shadow: none; margin-top: 6px; }
+  #primary-nav .nav-menu a { border: 0; background: transparent; }
+  #primary-nav .nav-group:last-child .nav-menu { right: auto; }
+}
+@media (max-width: 520px) { .news-filters { grid-template-columns: 1fr; } .home-shortcuts a { flex: 1 1 38%; text-align: center; } }

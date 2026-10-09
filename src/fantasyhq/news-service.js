@@ -66,7 +66,7 @@ function createNewsService({repository,submissions,now=Date.now}){
   for(const a of state.articles.filter(a=>a.seasonId===repository.loadLeague(leagueId).seasonId&&!!a.testMode===testMode&&!byId.has(a.id))){if(!a.revalidationRequired||a.pendingSource){delete a.pendingSource;a.sourceUnavailable=true;a.revalidationRequired=true;a.correctionNotice='The original source is no longer eligible. Staff must review this article.';if(a.status==='APPROVED')a.status='DRAFT';changed=true;}}
   if(changed)save(leagueId,state,'news.detected');return state;
  }
- function staffList(leagueId,actor){requirePostseasonStaff(repository.loadLeague(leagueId),actor);return detect(leagueId).articles.filter(a=>!!a.testMode===!!repository.loadSettings(leagueId).simulationId);}
+ function staffList(leagueId,actor,{detect:refresh=true}={}){requirePostseasonStaff(repository.loadLeague(leagueId),actor);return (refresh?detect(leagueId):repository.loadNews(leagueId)).articles.filter(a=>!!a.testMode===!!repository.loadSettings(leagueId).simulationId);}
  function review(leagueId,actor,{id,action,headline,article,reason,breaking=false,featured=false}){
   requirePostseasonStaff(repository.loadLeague(leagueId),actor);const state=detect(leagueId),story=state.articles.find(a=>a.id===id&&!!a.testMode===!!repository.loadSettings(leagueId).simulationId);if(!story)throw Error('Unknown article.');
   if(action==='reject'){if(!reason||String(reason).trim().length<5)throw Error('Give a rejection reason.');if(story.status==='PUBLISHED')throw Error('Correct an already published article instead of deleting its history.');story.status='REJECTED';story.reason=String(reason).trim();}

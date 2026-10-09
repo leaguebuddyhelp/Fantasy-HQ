@@ -9,17 +9,19 @@ function validateSportsbook(state) {
   || !Array.isArray(state.ledger) || !Array.isArray(state.previews) || !state.wallets
   || typeof state.wallets !== 'object' || Array.isArray(state.wallets)) throw Error('Invalid Sportsbook storage.');
  for (const field of ['bets','markets','ledger','previews']) if (new Set(state[field].map(row=>row.id)).size !== state[field].length) throw Error('Duplicate Sportsbook record.');
- if (Object.values(state.wallets).some(wallet=>!wallet.userId || !Number.isSafeInteger(wallet.balanceCents) || wallet.balanceCents<0)
+ if (Object.values(state.wallets).some(wallet=>!wallet.userId || !Number.isSafeInteger(wallet.balanceCents) || wallet.balanceCents<0 || !Number.isSafeInteger(wallet.debtCents||0) || (wallet.debtCents||0)<0)
   || state.bets.some(bet=>!bet.id || !bet.userId || !Array.isArray(bet.legs) || !bet.legs.length || !Number.isSafeInteger(bet.stakeCents) || bet.stakeCents<100
     || !['OPEN','WON','LOST','PUSH','VOID'].includes(bet.status) || !Array.isArray(bet.settlements))) throw Error('Invalid Sportsbook currency or bet.');
- const balances = new Map();
+ const balances = new Map(), debts = new Map();
  for(const entry of state.ledger) {
   if(!entry.userId||!state.wallets[entry.userId]||!Number.isSafeInteger(entry.amountCents))throw Error('Invalid Sportsbook ledger.');
+  if (!Number.isSafeInteger(entry.debtChangeCents||0)) throw Error('Invalid Sportsbook debt ledger.');
+  debts.set(entry.userId,(debts.get(entry.userId)||0n)+BigInt(entry.debtChangeCents||0));
   balances.set(entry.userId,(balances.get(entry.userId)||0n)+BigInt(entry.amountCents));
  }
  for(const account of Object.values(state.wallets)) {
   const initial=state.ledger.filter(entry=>entry.userId===account.userId&&entry.type==='INITIAL');
-  if(initial.length!==1||initial[0].amountCents!==30000||balances.get(account.userId)!==BigInt(account.balanceCents))throw Error('Sportsbook wallet does not reconcile with its permanent ledger.');
+  if(initial.length!==1||initial[0].amountCents!==30000||balances.get(account.userId)!==BigInt(account.balanceCents)||(debts.get(account.userId)||0n)!==BigInt(account.debtCents||0))throw Error('Sportsbook wallet does not reconcile with its permanent ledger.');
  }
  return state;
 }
@@ -39,7 +41,7 @@ function createSportsbookService({repository,submissions,now=Date.now}) {
   return state.wallets[userId];
  }
  function currentGame(id) {const record=submissions.load?submissions.load(id):submissions.records().find(r=>r.game.gameId===id);if(!record)throw Error('Unknown game.');return record;}
- function refresh(leagueId) {
+ function refresh(leagueId,{persist=true}={}) {
   const state=repository.loadSportsbook(leagueId),c=repository.loadLeague(leagueId),settings=repository.loadSettings(leagueId);
   const allRecords=submissions.records(),snapshotSubmissions={records:()=>allRecords};
   const streamService=require('./streams-service').createStreamsService({repository,submissions:snapshotSubmissions});let streamAnalysis;
@@ -125,7 +127,7 @@ function createSportsbookService({repository,submissions,now=Date.now}) {
     special.status=base?.status==='LOCKED'?'LOCKED':'VOID';special.voidReason='The underlying market is closed or no longer supported by verified data.';changed=true;
    }
   }
-  if(changed)save(leagueId,state,'sportsbook.markets.refreshed');return state;
+  if(changed&&persist)save(leagueId,state,'sportsbook.markets.refreshed');return state;
  }
  function selections(leagueId,actor,ids,state) {
   const coach=identity(leagueId,actor),simulationId=repository.loadSettings(leagueId).simulationId||null;
@@ -186,15 +188,25 @@ function createSportsbookService({repository,submissions,now=Date.now}) {
   }
   return {status:'VOID',sourceDigest,reason:'Invalid market.'};
  }
+ function outcome(leagueId,bet) {
+  const results=bet.legs.map(leg=>resultFor(leagueId,leg)),sourceDigest=digest(results);
+  if(results.some(r=>r.status==='OPEN'))return null;
+  const valid=bet.legs.filter((leg,index)=>results[index].status==='WON'),loss=results.some(r=>r.status==='LOST');
+  const status=loss?'LOST':valid.length?'WON':results.every(r=>r.status==='VOID')?'VOID':'PUSH';
+  return {results,sourceDigest,status,returnCents:loss?0:valid.length?payout(bet.stakeCents,valid.map(leg=>leg.odds)):bet.stakeCents};
+ }
+ function credit(account,amount) {
+  const repayment=Math.min(account.debtCents||0,Math.max(0,amount));
+  account.debtCents=(account.debtCents||0)-repayment;account.balanceCents+=amount-repayment;
+  return {amountCents:amount-repayment,debtChangeCents:-repayment};
+ }
  function settle(leagueId) {
   const state=repository.loadSportsbook(leagueId);let changed=false;
   for(const bet of state.bets) {
    if(bet.pendingCorrection)continue;
-   const results=bet.legs.map(leg=>resultFor(leagueId,leg)),sourceDigest=digest(results);
-   if(results.some(result=>result.status==='OPEN')||bet.settlements.at(-1)?.sourceDigest===sourceDigest)continue;
-   const valid=bet.legs.filter((leg,index)=>results[index].status==='WON'),loss=results.some(r=>r.status==='LOST');
-   const status=loss?'LOST':valid.length?'WON':results.every(r=>r.status==='VOID')?'VOID':'PUSH';
-   const returnCents=loss?0:valid.length?payout(bet.stakeCents,valid.map(leg=>leg.odds)):bet.stakeCents;
+   const calculated=outcome(leagueId,bet);
+   if(!calculated||bet.settlements.at(-1)?.sourceDigest===calculated.sourceDigest)continue;
+   const {results,sourceDigest,status,returnCents}=calculated;
    const previous=bet.settlements.at(-1),adjustmentCents=returnCents-(previous?.returnCents||0),account=wallet(state,bet.userId);
    if(account.balanceCents+adjustmentCents<0) {
     // Policy on already-spent corrected winnings needs commissioner resolution.
@@ -202,9 +214,9 @@ function createSportsbookService({repository,submissions,now=Date.now}) {
     account.frozen=true;bet.pendingCorrection={sourceDigest,status,returnCents,adjustmentCents,results,detectedAt:stamp()};changed=true;continue;
    }
    if(!Number.isSafeInteger(account.balanceCents+adjustmentCents))throw Error('Wallet credit exceeds the supported currency range.');
-   account.balanceCents+=adjustmentCents;const settlement={id:randomUUID(),at:stamp(),sourceDigest,status,returnCents,adjustmentCents,results,corrects:previous?.id||null};
+   const applied=credit(account,adjustmentCents);const settlement={id:randomUUID(),at:stamp(),sourceDigest,status,returnCents,adjustmentCents,results,corrects:previous?.id||null};
    bet.settlements.push(settlement);bet.status=status;delete bet.pendingCorrection;
-   state.ledger.push({id:settlement.id,userId:bet.userId,betId:bet.id,type:previous?'CORRECTION':'SETTLEMENT',amountCents:adjustmentCents,at:stamp()});changed=true;
+   state.ledger.push({id:settlement.id,userId:bet.userId,betId:bet.id,type:previous?'CORRECTION':'SETTLEMENT',...applied,at:stamp()});changed=true;
   }
   if(changed)save(leagueId,state,'sportsbook.settled');return state;
  }
@@ -217,10 +229,34 @@ function createSportsbookService({repository,submissions,now=Date.now}) {
    careerProfitCents:settled.reduce((sum,b)=>sum+b.settlements.at(-1).returnCents-b.stakeCents,0),wins,losses,pushes:settled.filter(b=>['PUSH','VOID'].includes(b.status)).length,
    winPercentage:wins+losses?wins/(wins+losses)*100:null,biggestWinCents:Math.max(0,...settled.map(b=>b.settlements.at(-1).returnCents-b.stakeCents)),bestWinningStreak:bestStreak};
  }
- function mine(leagueId,actor) {identity(leagueId,actor);const state=repository.loadSportsbook(leagueId),exists=!!state.wallets[actor.id];wallet(state,actor.id);if(!exists)save(leagueId,state,'sportsbook.wallet.created',actor);return {profile:profile(state,actor.id),bets:state.bets.filter(b=>b.userId===actor.id)};}
+ function mine(leagueId,actor) {identity(leagueId,actor);const state=repository.loadSportsbook(leagueId),exists=!!state.wallets[actor.id];wallet(state,actor.id);return {profile:profile(state,actor.id),bets:state.bets.filter(b=>b.userId===actor.id)};}
  function leaderboard(leagueId) {const state=repository.loadSportsbook(leagueId);const owners=repository.loadOwners(leagueId);return Object.keys(state.wallets).map(id=>profile(state,id)).map(({userId,careerProfitCents,wins,losses,pushes,winPercentage,bestWinningStreak})=>({userId,displayName:owners.find(o=>o.userId===userId)?.displayName||'Coach '+userId,careerProfitCents,wins,losses,pushes,winPercentage,bestWinningStreak})).sort((a,b)=>b.careerProfitCents-a.careerProfitCents||a.userId.localeCompare(b.userId));}
+ function prepareCorrection(leagueId,actor,betId) {
+  requirePostseasonStaff(repository.loadLeague(leagueId),actor);
+  const state=repository.loadSportsbook(leagueId),bet=state.bets.find(b=>b.id===betId);
+  if(!bet?.pendingCorrection)throw Error('Choose a pending corrected payout.');
+  const calculated=outcome(leagueId,bet);if(!calculated)throw Error('Wait for all corrected results to finalize.');
+  const account=state.wallets[bet.userId],adjustmentCents=calculated.returnCents-bet.settlements.at(-1).returnCents;
+  const appliedCents=Math.max(-account.balanceCents,adjustmentCents),debtCents=appliedCents-adjustmentCents;
+  const preview={id:randomUUID(),type:'CORRECTION',userId:actor.id,betId,expiresAt:now()+300000,sourceDigest:digest([bet,account]),calculated,adjustmentCents,appliedCents,debtCents};
+  state.previews=state.previews.filter(p=>p.expiresAt>now());state.previews.push(preview);
+  save(leagueId,state,'sportsbook.correction.prepared',actor,{betId});return preview;
+ }
+ function confirmCorrection(leagueId,actor,token) {
+  requirePostseasonStaff(repository.loadLeague(leagueId),actor);const state=repository.loadSportsbook(leagueId);
+  const prior=state.bets.flatMap(b=>b.settlements).find(s=>s.requestId===token);
+  if(prior){if(prior.confirmedBy!==actor.id)throw Error('Correction belongs to another Staff member.');return prior;}
+  const preview=state.previews.find(p=>p.id===token&&p.type==='CORRECTION'),bet=state.bets.find(b=>b.id===preview?.betId),account=bet&&state.wallets[bet.userId];
+  if(!preview||preview.userId!==actor.id||preview.expiresAt<=now()||preview.sourceDigest!==digest([bet,account])||preview.calculated.sourceDigest!==outcome(leagueId,bet)?.sourceDigest)throw Error('Correction changed or expired. Review again.');
+  const applied=credit(account,preview.appliedCents);account.debtCents=(account.debtCents||0)+preview.debtCents;applied.debtChangeCents+=preview.debtCents;
+  const settlement={id:randomUUID(),requestId:token,confirmedBy:actor.id,at:stamp(),...preview.calculated,adjustmentCents:preview.adjustmentCents,appliedCents:applied.amountCents,debtCents:preview.debtCents,corrects:bet.settlements.at(-1).id};
+  bet.settlements.push(settlement);bet.status=settlement.status;delete bet.pendingCorrection;
+  account.frozen=state.bets.some(b=>b.userId===bet.userId&&b.pendingCorrection);
+  state.ledger.push({id:randomUUID(),userId:bet.userId,betId:bet.id,settlementId:settlement.id,type:'CORRECTION',...applied,at:stamp()});
+  state.previews=state.previews.filter(p=>p.id!==token);save(leagueId,state,'sportsbook.correction.confirmed',actor,{betId:bet.id,requestId:token});return settlement;
+ }
  function staff(leagueId,actor) {requirePostseasonStaff(repository.loadLeague(leagueId),actor);return repository.loadSportsbook(leagueId);}
  function publication(leagueId,key,receipt) {const state=repository.loadSportsbook(leagueId);state.publications ||= {};state.publications[key]=receipt;save(leagueId,state,'sportsbook.announcement',undefined,{key});}
- return {refresh,preview,confirm,settle,mine,leaderboard,staff,publication};
+ return {refresh,preview,confirm,settle,mine,leaderboard,staff,prepareCorrection,confirmCorrection,publication};
 }
 module.exports={createSportsbookService,validateSportsbook,closed};

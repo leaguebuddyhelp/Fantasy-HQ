@@ -62,9 +62,9 @@ test('overtime periods are retained and independently validated', () => {
   }
   assert.deepEqual(normalizeExtraction(data,context()).issues,[]);
 });
-async function fixture(t, provider) {
-  const root=fs.mkdtempSync(path.join(os.tmpdir(),'box-score-'));
-  t.after(() => fs.rmSync(root,{recursive:true,force:true}));
+async function fixture(t, provider, isolated=false) {
+  const base=fs.mkdtempSync(path.join(os.tmpdir(),'box-score-')),root=isolated?path.join(base,'simulations','fixture','workspace'):base;
+  t.after(() => fs.rmSync(base,{recursive:true,force:true}));
   const repository=createFantasyHQRepository({dataRoot:root});
   repository.saveLeague('test',{currentPhase:'REGULAR_SEASON',currentSeasonId:'1'});
   repository.saveTeams('test',teams); repository.saveOwners('test',[{teamId:'mil',userId:'owner'}]);
@@ -72,7 +72,7 @@ async function fixture(t, provider) {
   repository.saveSchedule({leagueId:'test',seasonId:'1',weeks:[{week:1,weekId:'test:1:week:1',games:[{team1Id:'mil',team2Id:'cle'}]}]});
   const ctx=context(); repository.savePlayers('test',Object.values(ctx.rosters).flat());
   repository.saveRosterMemberships('test',Object.entries(ctx.rosters).flatMap(([teamId,players]) => players.map(p => ({playerId:p.playerId,teamId,seasonId:'1',active:true}))));
-  const bytes=Buffer.from([255,216,255,0]);
+  const bytes=require('node:fs').readFileSync(require('node:path').join(__dirname,'fixtures','contract-payne-team-option.jpg'));
   const submissions=createGameSubmissionService({repository,download:async () => bytes});
   const actor={guildId:'guild',discordThreadId:'thread',privateThread:true,userId:'owner'};
   const {game}=submissions.bind({...actor,weekNumber:1,teamQuery:'MIL'});
@@ -283,9 +283,9 @@ test('staff screenshot pair supports commissioner corrections and approval',asyn
 
 
 test('solo finalization uses real validation and is rejected after disabling test mode or assigning an online owner', async t => {
-  for (const scenario of ['valid', 'disabled', 'online-owner']) {
-    const f = await fixture(t, fakeProvider());
-    f.repository.saveSettings('test', { testMode: scenario !== 'disabled' });
+  for (const scenario of ['valid', 'disabled', 'online-owner', 'canonical']) {
+    const f = await fixture(t, fakeProvider(), scenario!=='canonical');
+    f.repository.saveSettings('test', { testMode: scenario !== 'disabled', simulationId:scenario!=='canonical'?'fixture':null });
     if (scenario === 'online-owner') f.repository.saveOwners('test', [{ teamId: 'mil', userId: 'owner' }, { teamId: 'cle', userId: 'online' }]);
     await f.submissions.mutate(f.game.gameId, r => {
       Object.assign(r.submissions[0], { mode: 'TEAM_SIDES', soloTestAuthorizedBy: 'owner', participants: { mil: 'owner', cle: 'owner' } });

@@ -77,7 +77,7 @@ test('lost Discord acknowledgements recover marked messages without duplicate pi
 });
 test('MyTeam retains single dashboard with signing limits and persistent Waive Player control',()=>{
  const team={teamName:'Test',roster:[],schedule:[],draftPicks:[]};const context={league:{leagueName:'Test',currentPhase:'REGULAR_SEASON',currentWeek:1}};
- const payload=myTeamPayload(team,context,{completedSignings:4,activeTargets:1,allowedActiveTargets:1});assert.equal(payload.embeds.length,1);assert.match(JSON.stringify(payload.embeds[0].toJSON()),/4\/5/);assert.match(JSON.stringify(payload.embeds[0].toJSON()),/1\/1/);assert.deepEqual(payload.components[0].toJSON().components.map(b=>b.custom_id),['myweek:open','fa:waive','coachweb:open']);
+ const payload=myTeamPayload(team,context,{completedSignings:4,activeTargets:1,allowedActiveTargets:1});assert.equal(payload.embeds.length,1);assert.match(JSON.stringify(payload.embeds[0].toJSON()),/4\/5/);assert.match(JSON.stringify(payload.embeds[0].toJSON()),/1\/1/);assert.deepEqual(payload.components[0].toJSON().components.map(b=>b.custom_id),['myweek:open','fa:waive','book:open']);
 });
 
 test('full private coach upload workflow reaches confirmation, conditional release and Staff correction',async t=>{
@@ -85,7 +85,7 @@ test('full private coach upload workflow reaches confirmation, conditional relea
  const fs=require('node:fs'),path=require('node:path');
  fs.writeFileSync(path.join(f.repository.buildLeaguePaths(f.root,'league').leagueRoot,'role-ownership.json'),JSON.stringify({roleIds:{a:'team-a',b:'team-b',c:'team-c'}}));
  const bytes=await require('sharp')({create:{width:100,height:100,channels:3,background:'#ffffff'}}).png().toBuffer();
- const workflow=createDiscordFreeAgency({repository:f.repository,service:f.service,client:f.client,ocr:async()=> 'Salary: $6.66M\nYears: 3+1\nContract Type: Front (-5%)\nOption: Player\nPromise: Starter',fetcher:async()=>({ok:true,arrayBuffer:async()=>bytes})});
+ const workflow=createDiscordFreeAgency({repository:f.repository,service:f.service,client:f.client,ocr:async()=> 'Salary: $6.66M\nYears: 3+1\nContract Type: Front (-5%)\nOption: Player\nPromise: Starter',fetcher:async()=>({ok:true,body:require('node:stream').Readable.from([bytes])})});
  function interaction(id, extra={}) {
   const i={guildId:'guild',guild:f.guild,customId:id,user:{id:'coach-a'},member:{roles:{cache:new Collection([['team-a',{name:'Atlanta Hawks Coach'}],['coach',{name:'LEAGUEbuddy Coach'}]])}},
    async deferReply(){i.deferred=true;},async deferUpdate(){i.deferred=true;},async reply(p){i.payload=p;i.replied=true;},async editReply(p){i.payload=p;},async update(p){i.payload=p;i.replied=true;},async followUp(p){i.error=p;},async showModal(m){i.modal=m;},...extra};return i;
@@ -93,7 +93,7 @@ test('full private coach upload workflow reaches confirmation, conditional relea
  let i=interaction('fa:sign');await workflow.handle(i);assert.equal(i.error,undefined);const first=f.state().drafts.at(-1);
  i=interaction(`fa:position:${first.id}`,{values:['PG']});await workflow.handle(i);assert.equal(i.error,undefined);assert.ok(i.payload.components[0].toJSON().components.some(c=>c.options.length===9));
  i=interaction(`fa:player:${first.id}`,{values:['fa-0']});await workflow.handle(i);assert.equal(i.error,undefined);const uploadId=i.modal.toJSON().custom_id;
- i=interaction(uploadId,{fields:{getUploadedFiles:()=>new Collection([['file',{size:bytes.length,url:'https://example.org/screenshot.png',name:'screenshot.png',contentType:'image/png'}]])}});await workflow.handle(i);assert.equal(i.error,undefined);const draft=f.state().drafts.at(-1);assert.ok(fs.existsSync(draft.screenshot.path));assert.equal(draft.details.years,'3+1');assert.ok(!JSON.stringify(draft).includes('Promise'));
+ i=interaction(uploadId,{fields:{getUploadedFiles:()=>new Collection([['file',{size:bytes.length,url:'https://cdn.discordapp.com/attachments/thread/file/screenshot.png',name:'screenshot.png',contentType:'image/png'}]])}});await workflow.handle(i);assert.equal(i.error,undefined);const draft=f.state().drafts.at(-1);assert.ok(fs.existsSync(draft.screenshot.path));assert.equal(draft.details.years,'3+1');assert.ok(!JSON.stringify(draft).includes('Promise'));
  i=interaction(`fa:submit:${draft.id}`);await workflow.handle(i);assert.equal(i.error,undefined);assert.equal(f.state().offers.length,0);
  i=interaction(`fa:release:${draft.id}`,{values:['a-0']});await workflow.handle(i);assert.equal(i.error,undefined);assert.equal(f.state().offers.length,1);assert.equal(f.roster('a').length,15);
  const o=f.state().offers[0];
@@ -145,7 +145,7 @@ test('MINIMUM confirmation requires an exact dollar correction before enabling s
  const f=discordFixture(t), fs=require('node:fs'), path=require('node:path');
  fs.writeFileSync(path.join(f.repository.buildLeaguePaths(f.root,'league').leagueRoot,'role-ownership.json'),JSON.stringify({roleIds:{a:'team-a'}}));
  const bytes=await require('sharp')({create:{width:20,height:20,channels:3,background:'#ffffff'}}).png().toBuffer();
- const workflow=createDiscordFreeAgency({repository:f.repository,service:f.service,client:f.client,ocr:async()=> 'Salary: MINIMUM\nYears: 1\nType: Back (+5%)\nOption: None',fetcher:async()=>({ok:true,arrayBuffer:async()=>bytes})});
+ const workflow=createDiscordFreeAgency({repository:f.repository,service:f.service,client:f.client,ocr:async()=> 'Salary: MINIMUM\nYears: 1\nType: Back (+5%)\nOption: None',fetcher:async()=>({ok:true,body:require('node:stream').Readable.from([bytes])})});
  const act=(customId, extra={})=>{
   const i={customId,guildId:'guild',guild:f.guild,user:{id:'coach-a'},member:{roles:{cache:new Collection([['team-a',{name:'Atlanta Hawks'}]])}},
    deferReply:async()=>{},deferUpdate:async()=>{},reply:async p=>{i.payload=p;},editReply:async p=>{i.payload=p;},update:async p=>{i.payload=p;},followUp:async p=>{i.payload=p;},showModal:async m=>{i.modal=m;},...extra};return i;
@@ -153,7 +153,7 @@ test('MINIMUM confirmation requires an exact dollar correction before enabling s
  await workflow.handle(act('fa:sign'));const d=f.state().drafts.at(-1);
  await workflow.handle(act(`fa:position:${d.id}`,{values:['PG']}));
  const pick=act(`fa:player:${d.id}`,{values:['fa-0']});await workflow.handle(pick);
- const upload=act(pick.modal.toJSON().custom_id,{fields:{getUploadedFiles:()=>new Collection([['image',{size:bytes.length,url:'https://example.org/image.png',name:'image.png',contentType:'image/png'}]])}});
+ const upload=act(pick.modal.toJSON().custom_id,{fields:{getUploadedFiles:()=>new Collection([['image',{size:bytes.length,url:'https://cdn.discordapp.com/attachments/thread/file/image.png',name:'image.png',contentType:'image/png'}]])}});
  await workflow.handle(upload);
  assert.match(upload.payload.embeds[0].data.description,/MINIMUM without a dollar amount/);
  assert.equal(upload.payload.components[0].toJSON().components[0].disabled,true);

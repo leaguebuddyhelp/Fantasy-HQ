@@ -12,7 +12,7 @@ const COLUMNS = [
 ];
 function words(tsv) {
   return tsv.split('\n').map(line => line.split('\t')).filter(c => c[0] === '5' && c[11]?.trim()).map(c => ({
-    text:c.slice(11).join('\t'), x:(+c[6]+ +c[8]/2), y:(+c[7]+ +c[9]/2), confidence:+c[10],
+    left:+c[6],top:+c[7],width:+c[8],height:+c[9],text:c.slice(11).join('\t'), x:(+c[6]+ +c[8]/2), y:(+c[7]+ +c[9]/2), confidence:+c[10],
   }));
 }
 function detectLayout(located, meta) {
@@ -41,7 +41,8 @@ async function readScreenshot(worker, suppliedImage) {
   let recognitionCalls = 0;
   const recognize = (...args) => { recognitionCalls++; return worker.recognize(...args); };
   // Apply EXIF orientation and decode camera formats before inspecting coordinates.
-  const sourceMeta = await sharp(suppliedImage.bytes,{limitInputPixels:40000000}).metadata();
+  const sourceMeta = await sharp(suppliedImage.bytes,{limitInputPixels:60000000}).metadata();
+  if (sourceMeta.format === 'heif') suppliedImage = {...suppliedImage,bytes:await require('../offseason-image').normalize(suppliedImage.bytes)};
   const image = { ...suppliedImage, bytes: sourceMeta.orientation && sourceMeta.orientation !== 1 ? await sharp(suppliedImage.bytes,{limitInputPixels:40000000}).rotate().png().toBuffer() : suppliedImage.bytes };
   let meta = await sharp(image.bytes).metadata();
   await worker.setParameters({tessedit_pageseg_mode:'6',tessedit_char_whitelist:''});
@@ -179,28 +180,34 @@ function createTesseractProvider() {
 }
 function recognizeContractText(bytes) {
   return withOcrWorker(async worker => {
-    const oriented = await sharp(bytes, { limitInputPixels: 40000000 }).rotate().png().toBuffer();
-    const image = await sharp(oriented).resize({ width: 2000, withoutEnlargement: true }).grayscale().normalize().png().toBuffer();
+    let oriented = await require('../offseason-image').normalize(bytes);
     await worker.setParameters({ tessedit_pageseg_mode: '11', tessedit_char_whitelist: '' });
-    const text = (await worker.recognize(image, {}, { text: true })).data.text;
-    const { width, height } = await sharp(oriented).metadata();
-    // Verified Association Sign Contract layout. Cropping the value cells keeps
-    // the finance panel and personality text out of contract recognition.
-    if (!/Sign\s+Contract/i.test(text) || !/Offer\s+Details/i.test(text) || Math.abs(width / height - 16 / 9) > 0.04) return text;
-    await worker.setParameters({ tessedit_pageseg_mode: '7', tessedit_char_whitelist: '' });
-    const fields = [];
-    for (const [label, top] of [['Salary', .471], ['Years', .537], ['Contract Type', .598], ['Option', .661]]) {
-      const cell = await sharp(oriented).extract({ left: Math.round(width * .773), top: Math.round(height * top), width: Math.round(width * .148), height: Math.round(height * (label === 'Years' ? .030 : .039)) }).resize({ width: 750 }).grayscale().png().toBuffer();
-      let prepared = sharp(cell);
-      if (label === 'Years') {
-        // A lone white 1 on the inactive gray row needs a white background.
-        const stats = await sharp(cell).stats();
-        if (stats.channels[0].mean < 128) prepared = prepared.negate();
-        prepared = prepared.normalize().threshold(150);
-      } else prepared = prepared.normalize();
-      await worker.setParameters({ tessedit_char_whitelist: label === 'Years' ? '0123456789+' : '' });
-      const value = (await worker.recognize(await prepared.png().toBuffer(), {}, { text: true })).data.text.trim();
-      fields.push(`${label}: ${value}`);
+    async function inspect() {
+      const result = (await worker.recognize(oriented, {}, {text:true,tsv:true})).data;
+      const meta = await sharp(oriented).metadata();
+      const found = words(result.tsv);
+      const salary = found.filter(w=>/^Salary$/i.test(w.text)&&w.x>meta.width*.5).find(w=>found.some(y=>/^Years$/i.test(y.text)&&y.y>w.y&&y.y-w.y<meta.height*.15));
+      const years = salary && found.find(w=>/^Years$/i.test(w.text)&&w.y>salary.y&&w.y-salary.y<meta.height*.15);
+      const option = years && found.find(w=>/^Option$/i.test(w.text)&&w.y>years.y&&w.y-years.y<meta.height*.25);
+      return {text:result.text,meta,salary,years,option};
+    }
+    let layout = await inspect();
+    if (!layout.salary || !layout.years) return layout.text;
+    const anchor=layout.option||layout.years;
+    const angle = Math.atan2(anchor.left-layout.salary.left,anchor.y-layout.salary.y)*180/Math.PI;
+    if (Math.abs(angle)>.5 && Math.abs(angle)<10) {oriented=await sharp(oriented).rotate(angle,{background:'#202329'}).png().toBuffer();layout=await inspect();}
+    if (!layout.salary || !layout.years) return layout.text;
+    const spacing=layout.years.y-layout.salary.y, screenHeight=spacing/.064, screenWidth=screenHeight*16/9;
+    const fields=[];
+    await worker.setParameters({tessedit_pageseg_mode:'7'});
+    for (const [label,index] of [['Salary',0],['Years',1],['Contract Type',2],['Option',3]]) {
+      const height=Math.round(screenHeight*(label==='Years'?.030:.039));
+      const crop={left:Math.round(layout.salary.left+screenWidth*.184),top:Math.round(layout.salary.y+spacing*index-height/2),width:Math.round(screenWidth*.148),height};
+      if(crop.left<0||crop.top<0||crop.left+crop.width>layout.meta.width||crop.top+crop.height>layout.meta.height)return layout.text;
+      let cell=sharp(oriented).extract(crop).resize({width:750}).grayscale();
+      if(label==='Years'){const stats=await sharp(await cell.png().toBuffer()).stats();if(stats.channels[0].mean<128)cell=cell.negate();cell=cell.normalize().threshold(150);}else cell=cell.normalize();
+      await worker.setParameters({tessedit_char_whitelist:label==='Years'?'0123456789+':''});
+      fields.push(label+': '+(await worker.recognize(await cell.png().toBuffer(),{},{text:true})).data.text.trim());
     }
     return fields.join('\n');
   });

@@ -80,7 +80,7 @@ function createTradeService(options = {}) {
         const outlooks = teamOutlooks(context.teams, rosterByTeam, standingsByTeam, context.league.currentWeek, context.seasonId);
         const picks = repository.loadDraftPicks(leagueId);
         const pickById = new Map(picks.map(pick => [pick.pickId, pick]));
-        return { context, players, playerById, memberships, membershipByPlayer, membershipsByPlayer, rosterByTeam, standingsByTeam, outlooks, picks, pickById, owners: repository.loadOwners(leagueId), settings: repository.loadSettings(leagueId) || {} };
+        return { context, players, playerById, memberships, membershipByPlayer, membershipsByPlayer, rosterByTeam, standingsByTeam, outlooks, picks, pickById, owners: repository.loadOwners(leagueId), settings: {...repository.loadSettings(leagueId),testMode:require('./simulation-guard').isSimulationRepository(repository,leagueId)} };
     }
 
     function initializeDraftPicks({ leagueId, seasonId, actingUserId = "system" }) {
@@ -526,7 +526,7 @@ function createTradeService(options = {}) {
     }
 
     function reconcileOwnership(leagueId) {
-        const owners = repository.loadOwners(leagueId), testMode = repository.loadSettings(leagueId)?.testMode === true;
+        const owners = repository.loadOwners(leagueId), testMode = require('./simulation-guard').isSimulationRepository(repository,leagueId);
         const invalidated = [];
         for (const trade of repository.loadTrades(leagueId)) {
             if (!ACTIVE_STATUSES.has(trade.status)) continue;

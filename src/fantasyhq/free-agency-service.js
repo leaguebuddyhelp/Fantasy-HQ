@@ -31,14 +31,15 @@ function createFreeAgencyService({ repository = createFantasyHQRepository(), now
   function windowFor(s, playerId) { return s.state.windows.find(w => w.playerId === playerId && w.seasonId === s.context.seasonId && ACTIVE_WINDOWS.has(w.status)); }
   function offersFor(s, windowId, teamId = null) { return s.state.offers.filter(o => o.windowId === windowId && (!teamId || o.teamId === teamId)); }
   function live(s, windowId, teamId = null) { return offersFor(s, windowId, teamId).filter(o => LIVE_OFFERS.has(o.status)); }
+  function isolated(s) { try { require('./simulation-guard').requireSimulationRepository(repository,s.leagueId); return true; } catch { return false; } }
   function authorize(s, teamId, actorUserId, staffAuthorized = false) {
     if (!s.context.teams.some(t => t.teamId === teamId)) throw Error('Unknown team.');
     const owner = repository.loadOwners(s.leagueId).find(o => o.teamId === teamId);
-    if (owner?.userId !== actorUserId && !(repository.loadSettings(s.leagueId)?.testMode === true && !owner && staffAuthorized)) throw Error('Only the current assigned Coach can act for this team. Staff may simulate vacant teams only in Test Mode.');
+    if (owner?.userId !== actorUserId && !(isolated(s) && !owner && staffAuthorized)) throw Error('Only the current assigned Coach can act for this team. Staff may simulate vacant teams only in Test Mode.');
   }
   function consent(s, row) {
     const owner = repository.loadOwners(s.leagueId).find(o => o.teamId === row.teamId);
-    return owner ? owner.userId === row.coachUserId && (!owner.assignedAt || Date.parse(owner.assignedAt) <= Date.parse(row.submittedAt)) : repository.loadSettings(s.leagueId)?.testMode === true && row.staffTestAuthorized === true;
+    return owner ? owner.userId === row.coachUserId && (!owner.assignedAt || Date.parse(owner.assignedAt) <= Date.parse(row.submittedAt)) : isolated(s) && row.staffTestAuthorized === true;
   }
   function requireStaff(staffAuthorized) { if (!staffAuthorized) throw Error('Only configured Staff can review proof.'); }
   function teamStatus(s, teamId) {

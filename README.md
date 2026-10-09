@@ -178,7 +178,7 @@ Use `/league delete` to delete the league currently bound to this server. A priv
 
 ## Quick first-time setup
 
-Run `/league create league_id:2k-test-03 league_name:My Test League test_mode:true`. Season defaults to 1. Creation prepares roles, imports teams and free agents, syncs existing team-role owners, and shows an Open setup checklist button. Test mode permits vacant teams; omit it for a full league. Assign yourself a team with `/team assign`, generate and confirm a schedule, then use `/league setup` to enter preseason. Existing Discord role assignments survive deletion and carry into the new league. Website editing uses the host-configured website admin key, separately from Discord staff roles.
+Run `/league create league_id:2k-test-03 league_name:My Test League`. Season defaults to 1. Creation prepares roles, imports teams and free agents, syncs existing team-role owners, and shows an Open setup checklist button. For single-user practice, use the Staff Test Mode panel to create an isolated simulation. A legacy league Test Mode flag does not authorize simulated trades or solo game submissions in canonical storage. Assign yourself a team with `/team assign`, generate and confirm a schedule, then use `/league setup` to enter preseason. Existing Discord role assignments survive deletion and carry into the new league. Website editing uses the host-configured website admin key, separately from Discord staff roles.
 
 ## Mock drafts
 
@@ -224,3 +224,11 @@ New league roster imports retain player contracts. Existing roster import previe
 
 
 Regular-season repair workflows, playoff handoff, final-result corrections, individual Staff keys and backup/restore commands are documented in [READINESS-REPAIRS.md](READINESS-REPAIRS.md). Run `npm run check` before deployment and use a separate Discord test server for real multi-coach verification.
+
+The Sportsbook is entirely in Discord. Open **MyTeam → SPORTSBOOK** for markets, private wallet, bets and parlays. Staff uses the **Sportsbook Staff Review** pin. See [Sportsbook in Discord](SPORTSBOOK-DISCORD.md). Website betting endpoints are retired.
+
+Individual website credentials use `WEBSITE_ADMIN_KEYS` as a JSON mapping of Discord user IDs to private keys. Commissioner operations require a key mapped to the configured commissioner Discord ID. Named Staff keys can perform Staff review operations but cannot impersonate the commissioner. The legacy `WEBSITE_ADMIN_KEY` remains a commissioner credential; do not distribute it to assistants.
+
+`/promo` posts the LEAGUEbuddy recruitment message and invite with currently unassigned teams grouped by East/West and division. It rescans Discord coach assignments every time and sends one public embed without pinging members.
+
+`/website` posts the configured league website link and an Open Website button. Set `WEBSITE_URL` or use Railway's public domain.

@@ -7,7 +7,7 @@ const { contractView, teamPayroll } = require('../src/shared/player-contract');
 const context = { league: { leagueName: 'Test league', currentPhase: 'REGULAR_SEASON', currentWeek: 2 } };
 
 test('every scanned NBA roster fits one compact myteam embed with all players and salary coverage', () => {
-  const root = path.join(__dirname, '../data/2kratings/rosters/2026-10-07');
+  const root = path.join(__dirname, 'fixtures/rosters');
   for (const file of fs.readdirSync(root).filter(name => name.endsWith('.json'))) {
     const source = JSON.parse(fs.readFileSync(path.join(root, file), 'utf8'));
     const players = source.players;

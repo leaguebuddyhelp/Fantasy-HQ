@@ -31,7 +31,7 @@ function createDiscordTradeWorkflow(options = {}) {
     function league(guildId, leagueId = null) {
         return guildId ? repository.loadLeagueContext({ guildId }) : repository.loadLeague(leagueId);
     }
-    function settingsFor(leagueId) { return repository.loadSettings(leagueId) || {}; }
+    function settingsFor(leagueId) { return {...repository.loadSettings(leagueId),testMode:require('./simulation-guard').isSimulationRepository(repository,leagueId)}; }
     function teamName(context, teamId) { return context.teams.find(team => team.teamId === teamId)?.teamName || teamId; }
     function roleByName(guild, name) { return guild.roles.cache.find(role => !role.managed && role.name.toLowerCase() === name.toLowerCase()) || null; }
     function memberRoleIds(interaction) { return interaction.member?.roles?.cache || new Map(); }

@@ -3,6 +3,14 @@ const { ChannelType } = require('discord.js');
 const confirmations = new Map(), queues = new Map();
 function createGameThreadCleanupService({ submissions = require('./game-submissions').createGameSubmissionService(), now = () => Date.now() } = {}) {
     const repository = submissions.repository;
+    // Keep authorization tokens out of settings returned by website dashboards.
+    function stored(leagueId) { return repository.loadThreadCleanupConfirmations(leagueId); }
+    function remember(leagueId, token, value) {
+        const saved=stored(leagueId);
+        for(const [id,c]of Object.entries(saved))if(c.expiresAt<now())delete saved[id];
+        if(value)saved[token]=value;else delete saved[token];
+        repository.commitLeagueFiles({leagueId,files:[{name:'thread-cleanup-confirmations.json',value:saved}]});
+    }
     function authorize(actor) { if (!actor?.authorized || !actor.id) throw Error('Commissioner authorization required.'); }
     function selection(guildId, weekNumber) {
         const c = repository.loadLeagueContext({ guildId }), schedule = repository.loadSchedule(c.league.leagueId, c.seasonId);
@@ -26,10 +34,12 @@ function createGameThreadCleanupService({ submissions = require('./game-submissi
         for (const { game } of selected.records) { if (!game.discordThreadId || game.discordThreadCleanedAt) { already++; continue; } try { if (await find(guild, game, selected.all)) found++; else already++; } catch (error) { errors.push({ gameId: game.gameId, error: error.message }); } }
         const checked = selection(guild.id, weekNumber); if (JSON.stringify(targets(checked)) !== JSON.stringify(targets(selected))) throw Error('Thread links changed. Prepare cleanup again.');
         for (const [key, value] of confirmations) if (value.expiresAt < now()) confirmations.delete(key);
-        const token = randomUUID(); confirmations.set(token, { guildId: guild.id, actorId: actor.id, root: repository.dataRoot, leagueId: selected.leagueId, seasonId: selected.seasonId, week: weekNumber, targets: targets(selected), expiresAt: now() + 5 * 60000 });
-        return { token, week: weekNumber, status: selected.week.status, found, already, failed: errors.length, errors, requested: selected.records.filter(r => r.game.discordThreadId).length };
+        const token = randomUUID(); const confirmation = { guildId: guild.id, actorId: actor.id, root: repository.dataRoot, leagueId: selected.leagueId, seasonId: selected.seasonId, week: weekNumber, targets: targets(selected), expiresAt: now() + 5 * 60000 }; confirmations.set(token,confirmation); remember(selected.leagueId,token,confirmation);
+        let unmatched=0,discoveryError=null;
+        if(guild.channels.fetchActiveThreads){try{const active=await guild.channels.fetchActiveThreads(),ids=new Set(selected.records.map(r=>r.game.discordThreadId)),parentId=repository.loadSettings(selected.leagueId)?.gamesChannelId;unmatched=[...active.threads.values()].filter(t=>t.type===ChannelType.PrivateThread&&(!parentId||t.parentId===parentId)&&new RegExp('^W'+Number(weekNumber)+'\\s*[•·]').test(t.name)&&!ids.has(t.id)).length;}catch(error){discoveryError=error.message;}}
+        return { token, week: weekNumber, status: selected.week.status, found, already, failed: errors.length, errors, unmatched, discoveryError, requested: selected.records.filter(r => r.game.discordThreadId).length };
     }
-    function cancel(token, actor) { authorize(actor); const c = confirmations.get(token); if (c?.actorId === actor.id) confirmations.delete(token); }
+    function cancel(token, actor, guildId=actor.guildId) { authorize(actor); const leagueId=confirmations.get(token)?.leagueId || (guildId?repository.loadLeagueContext({guildId}).league.leagueId:null);const c=confirmations.get(token)||(leagueId&&stored(leagueId)[token]);if(c?.actorId===actor.id){if(c.root!==repository.dataRoot||(guildId&&c.guildId!==guildId))throw Error('Cleanup confirmation belongs to another league or server.');confirmations.delete(token);remember(leagueId,token,null);} }
     function cleanup(guild, actor, token) {
         authorize(actor); const key = `${repository.dataRoot}:${guild.id}`;
         const job = (queues.get(key) || Promise.resolve()).catch(() => { }).then(() => run(guild, actor, token)); queues.set(key, job);
@@ -39,8 +49,11 @@ function createGameThreadCleanupService({ submissions = require('./game-submissi
         const context = repository.loadLeagueContext({ guildId: guild.id });
         const previous = repository.loadAuditLog(context.league.leagueId).find(e => e.action === 'games.threads.cleanup.completed' && e.requestId === token);
         if (previous) { if (previous.userId !== actor.id) throw Error('Confirmation belongs to another commissioner.'); return { ...previous.result, replayed: true }; }
-        const c = confirmations.get(token);
-        if (!c || c.actorId !== actor.id || c.guildId !== guild.id || c.root !== repository.dataRoot || c.expiresAt < now()) throw Error('Cleanup confirmation expired or invalid. Prepare cleanup again.');
+        const c = confirmations.get(token) || stored(context.league.leagueId)[token];
+        if (!c) throw Error('Cleanup confirmation is unavailable or invalid. The bot may have restarted or its storage changed. Run /games cleanup again.');
+        if (c.actorId !== actor.id) throw Error('Cleanup confirmation is invalid for this user. Only the commissioner who requested it can confirm.');
+        if (c.guildId !== guild.id || c.root !== repository.dataRoot) throw Error('Cleanup confirmation is invalid for this server or league storage. Run /games cleanup again here.');
+        if (c.expiresAt < now()) throw Error('Cleanup confirmation expired after five minutes. Run /games cleanup again.');
         const selected = selection(guild.id, c.week);
         if (selected.leagueId !== c.leagueId || selected.seasonId !== c.seasonId || JSON.stringify(targets(selected)) !== JSON.stringify(c.targets)) throw Error('League, season or thread links changed. Confirm cleanup again.');
         const result = { week: c.week, requested: selected.records.filter(r => r.game.discordThreadId).length, deleted: 0, already: 0, failed: 0, errors: [] };

@@ -27,7 +27,9 @@ function staffPayload(view, counts = transactionCounts(view)) {
     .setFooter({ text: `Weekly Staff report · ${view.guildId} · ${view.leagueId} · ${view.seasonId} · ${view.weekId}`.slice(0, 2048) });
   if (view.storageIssues?.length || view.notificationFailures || view.upgradeDebtCount) embed.addFields({ name: '⚠ Recovery needed', value: `${view.storageIssues?.length || 0} unreadable game records · ${view.notificationFailures || 0} failed notification attempts · ${view.upgradeDebtCount || 0} upgrade balances need review. Staff can inspect the website checklist and storage backups.` });
   const controls = [];
-  if (!view.closed) controls.push(new ButtonBuilder().setCustomId(`weeklystaff:review:${view.week}`).setLabel('Review week advancement').setStyle(ButtonStyle.Primary));
+  if (!view.closed) controls.push(
+    new ButtonBuilder().setCustomId(`weeklystaff:advance:${view.week}`).setLabel(view.week === 15 ? 'Complete Regular Season' : 'Create Next Week Threads').setEmoji('📅').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId(`weeklystaff:delete:${view.week}`).setLabel('Delete Threads').setEmoji('🗑️').setStyle(ButtonStyle.Danger));
   controls.push(new ButtonBuilder().setCustomId('offseason:review').setLabel('Offseason checklist').setStyle(ButtonStyle.Secondary));
   const base = websiteBase();
   if (base) controls.push(new ButtonBuilder().setURL(`${base}/#staff-weekly`).setLabel('Website checklist').setStyle(ButtonStyle.Link));
@@ -47,12 +49,20 @@ function coachPayload(view) {
   if (links.length) rows.push(new ActionRowBuilder().addComponents(...links));
   return { embeds: [embed], components: rows, allowedMentions: { parse: [] } };
 }
-function createDiscordWeeklyDashboard({ repository = require('./repository').createFantasyHQRepository(), service, weekService, now = Date.now, logger = console } = {}) {
+function createDiscordWeeklyDashboard({ repository = require('./repository').createFantasyHQRepository(), service, weekService, cleanupService, now = Date.now, logger = console } = {}) {
   service ||= createWeeklyDashboardService({ repository, now });
   async function staffChannel(guild, leagueId) {
     const id = repository.loadSettings(leagueId)?.discordChannels?.staff;
     if (!id) return null;
-    const channel = await guild.channels.fetch(id);
+    let channel, recovered = false;
+    try { channel = await guild.channels.fetch(id); }
+    catch (error) { if (Number(error.code) !== 10003) throw error; }
+    if (!channel) {
+      const channels = await guild.channels.fetch();
+      const matches = [...channels.values()].filter(c => c?.name === 'lb-league-staff');
+      if (matches.length !== 1) throw Error('Staff report channel is missing or ambiguous. Repair channels from /league setup.');
+      channel = matches[0]; recovered = true;
+    }
     if (!channel?.isTextBased?.() || !channel.messages?.fetch) throw Error('Staff report channel is unavailable.');
     const roles = await guild.roles.fetch(), me = guild.members.me || await guild.members.fetchMe();
     const nonStaff = [...roles.values()].filter(r => r.id !== me.roles?.botRole?.id && !STAFF_ROLES.has(r.name) && !r.permissions?.has(P.Administrator));
@@ -61,6 +71,10 @@ function createDiscordWeeklyDashboard({ repository = require('./repository').cre
       if (overwrite.type !== 1 || overwrite.id === me.id || !overwrite.allow.has(P.ViewChannel)) continue;
       const member = await guild.members.fetch(overwrite.id);
       if (!member.permissions.has(P.Administrator) && !member.roles.cache.some(r => STAFF_ROLES.has(r.name))) throw Error('Staff report channel grants a non-Staff member access.');
+    }
+    if (recovered) {
+      const fresh = repository.loadSettings(leagueId) || {};
+      repository.saveSettings(leagueId, { ...fresh, discordChannels: { ...fresh.discordChannels, staff: channel.id } });
     }
     return channel;
   }
@@ -116,7 +130,16 @@ function createDiscordWeeklyDashboard({ repository = require('./repository').cre
         requireLeagueStaff(interaction);
         const view = service.report(interaction.guildId), row = repository.loadSettings(view.leagueId)?.weeklyStaffReports?.[`${interaction.guildId}:${view.seasonId}:${view.weekId}`];
         if (!view.available || view.closed || Number(interaction.customId.split(':')[2]) !== view.week || row?.messageId !== interaction.message?.id || row?.channelId !== interaction.channelId) throw Error('This weekly report is closed or stale. Use the current report.');
-        await require('./discord-week').handleWeekPreview(interaction, weekService);
+        const action = interaction.customId.split(':')[1];
+        if (action === 'delete') {
+          if (!cleanupService) throw Error('Thread cleanup is unavailable. Restart the connected bot and retry.');
+          const preview = await cleanupService.prepare(interaction.guild, { authorized: true, id: interaction.user.id, guildId: interaction.guildId }, view.week);
+          await interaction.editReply(require('./discord-game-cleanup').previewPayload(preview));
+        } else if (action === 'advance' || action === 'review') {
+          // Reuse the website/slash-command transition, including final-game
+          // checks, publication, next-week threads and all follow-up callbacks.
+          await require('./discord-week').handleWeekPreview(interaction, weekService);
+        } else throw Error('Unknown weekly report action. Use the current report.');
       }
     } catch (error) { await interaction.editReply({ content: error.message, embeds: [], components: [] }); }
   }

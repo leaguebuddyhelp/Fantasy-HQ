@@ -9,38 +9,52 @@
     content="LEAGUEbuddy league hub for team rosters, season schedules and stats, commissioner tools, prospect scouting, and mock drafts.">
   <title>LEAGUEbuddy</title>
   <link rel="stylesheet" href="/styles.css">
+  <script src="/navigation.js" defer></script>
   <script src="/app.js" defer></script>
-  <script src="/sportsbook.js" defer></script>
 </head>
 
 <body>
   <a class="skip-link" href="#main-content">Skip to content</a>
   <header class="site-header">
-    <a class="brand" href="/" aria-label="Leaguebuddy Draft Room home">
+    <a class="brand" href="/" aria-label="LEAGUEbuddy home">
       <img class="brand-mark" src="/assets/leaguebuddy-logo.png" alt="">
       <span><strong>LEAGUE<span>buddy</span></strong><small>League hub + draft room</small></span>
     </a>
     <button class="mobile-nav-toggle" id="mobile-nav-toggle" type="button" aria-controls="primary-nav"
-      aria-expanded="false">Sections</button>
+      aria-expanded="false">Menu</button>
     <nav id="primary-nav" aria-label="Primary navigation">
-      <a href="#league-home">Home</a>
-      <a href="#my-week">My Week</a>
-      <a href="#teams">Teams</a>
-      <a href="#players">Players</a>
-      <a href="#league-stats">Stats</a>
-      <a href="#team-stats">Team Stats</a>
-      <a href="#schedule-hub">Schedule</a>
-      <a href="#standings">Standings</a>
-      <a href="#playoffs">Playoffs</a>
-      <a href="#news">News</a>
-      <a href="#sportsbook">Sportsbook</a>
-      <a href="#streams">Watch Live</a>
-      <a href="#player-of-the-week">Weekly Awards</a>
-      <a href="#progression">Progression</a>
-      <a href="#power-rankings">Power Rankings</a>
-      <a href="#board">Draft</a>
-      <a href="#league-admin">Admin</a>
-      <span class="live-pill"><i></i> Board live</span>
+      <a href="#league-home" class="nav-home">Home</a>
+      <details class="nav-group"><summary>League</summary><div class="nav-menu">
+        <a href="#my-week">My Week</a>
+        <a href="#teams">Teams</a>
+        <a href="#players">Players</a>
+        <a href="#schedule-hub">Schedule</a>
+        <a href="#standings">Standings</a>
+        <a href="#playoffs">Playoffs</a>
+      </div></details>
+      <details class="nav-group"><summary>Stats</summary><div class="nav-menu">
+        <a href="#league-stats">Player Stats</a>
+        <a href="#team-stats">Team Stats</a>
+        <a href="#player-of-the-week">Weekly Awards</a>
+        <a href="#power-rankings">Power Rankings</a>
+        <a href="#progression">Progression</a>
+      </div></details>
+      <details class="nav-group"><summary>News & Live</summary><div class="nav-menu">
+        <a href="#news">League News</a>
+        <a href="#streams">Watch Live</a>
+      </div></details>
+      <details class="nav-group"><summary>Draft</summary><div class="nav-menu">
+        <a href="#board">Draft Room</a>
+        <a href="#early-top-ten">Early Top Ten</a>
+        <a href="#big-board">Big Board</a>
+        <a href="#draft-stats">Prospect Stats</a>
+        <a href="#methodology">Scouting Guide</a>
+      </div></details>
+      <details class="nav-group"><summary>Staff</summary><div class="nav-menu">
+        <a href="#league-admin">Staff Workspace</a>
+        <a href="#staff-weekly">Weekly Closeout</a>
+        <a href="#news-review-panel">News Review</a>
+      </div></details>
     </nav>
   </header>
 
@@ -49,15 +63,16 @@
       <div class="section-heading">
         <div>
           <p class="eyebrow">League home</p>
-          <h2>Companion dashboard</h2>
+          <h2>Your league, at a glance</h2>
         </div>
         <span class="section-class-label" id="league-status-pill">Loading league…</span>
       </div>
+      <p class="section-summary">Check your matchup, follow the season, or explore the draft.</p>
+      <div class="home-shortcuts" aria-label="League shortcuts"><a href="#my-week">📅 My Week</a><a href="#schedule-hub">Schedule</a><a href="#standings">Standings</a><a href="#board">Draft Room</a></div>
       <div class="summary-grid" id="summary-grid">
         <article class="summary-card"><span>Teams</span><strong id="summary-teams">—</strong><small>Imported
             franchises</small></article>
-        <article class="summary-card"><span>Players</span><strong id="summary-players">—</strong><small>Normalized
-            player records</small></article>
+        <article class="summary-card"><span>Players</span><strong id="summary-players">—</strong><small>League players</small></article>
         <article class="summary-card"><span>Schedule</span><strong id="summary-weeks">—</strong><small>Weeks /
             games</small></article>
         <article class="summary-card"><span>Owners</span><strong id="summary-owners">—</strong><small>Assigned
@@ -65,67 +80,6 @@
       </div>
     </section>
 
-    <section class="league-summary-section" id="news">
-      <h2>LEAGUEbuddy News</h2><p id="news-status">Staff-approved reporting from verified league records.</p>
-      <label>Search<input id="news-search" type="search" placeholder="Players, teams, headlines or dates"></label>
-      <label>Season<select id="news-season"><option value="">All seasons</option></select></label>
-      <label>Franchise<select id="news-team"><option value="">All teams</option></select></label>
-      <label>Category<select id="news-category"><option value="">All categories</option></select></label>
-      <label>Storyline<select id="news-storyline"><option value="">All storylines</option></select></label>
-      <label>Week<select id="news-week"><option value="">All weeks</option></select></label>
-      <label>Phase<select id="news-phase"><option value="">All phases</option><option value="REGULAR_SEASON">Regular season</option><option value="PLAY_IN">Play-In</option><option value="PLAYOFFS">Playoffs</option><option value="OFFSEASON">Offseason</option><option value="FREE_AGENCY">Free agency</option><option value="DRAFT">Draft</option></select></label>
-      <label>Sort<select id="news-sort"><option value="newest">Newest</option><option value="oldest">Oldest</option><option value="relevance">Relevance</option></select></label><button id="news-refresh" type="button">Refresh News</button>
-      <div id="news-featured" class="summary-grid"></div><h3>Latest headlines</h3><div id="news-headlines" class="summary-grid"></div><h3>Trending stories</h3><div id="news-trending"></div><div id="news-article" aria-live="polite"></div>
-    </section>
-    <section id="sportsbook" class="league-summary-section" aria-labelledby="sportsbook-title">
-      <h2 id="sportsbook-title">🎟️ LEAGUEbuddy Sportsbook</h2>
-      <p>Fictional league dollars · $300 starting career balance · No deposits, withdrawals or real-world prizes.</p>
-      <p id="sportsbook-status" aria-live="polite">Sign in through Discord MyTeam to place bets or see your private history.</p>
-      <button id="sportsbook-refresh" type="button">Refresh markets</button><button id="sportsbook-logout" type="button" hidden>Sign out</button>
-      <div id="sportsbook-profile"></div><h3 id="sportsbook-market-title">Weekly markets</h3>
-      <div id="sportsbook-markets" class="summary-grid"></div>
-      <div class="summary-card" id="sportsbook-slip"><h3>🎟️ Bet slip</h3><div id="sportsbook-legs"></div>
-        <label>Wager ($)<input id="sportsbook-wager" inputmode="decimal" value="10" autocomplete="off"></label>
-        <button id="sportsbook-preview" type="button">Review bet</button><div id="sportsbook-confirmation" aria-live="polite"></div>
-      </div>
-      <h3>My private bets</h3><div id="sportsbook-bets"></div><h3>Career leaderboard</h3><div id="sportsbook-leaderboard"></div>
-    </section>
-    <section class="league-summary-section" id="streams">
-      <h2>Watch Live</h2><p id="streams-status">Game streams and verified matchup previews.</p><button id="streams-refresh" type="button">Refresh streams</button>
-      <div id="streams-games" class="summary-grid"></div><div id="streams-game-detail" aria-live="polite"></div>
-    </section>
-    <section class="league-summary-section" id="power-rankings">
-      <h2>Power Rankings</h2><p id="rankings-status">Rankings publish after finalized league weeks and confirmed preseason progression.</p>
-      <label>Season<select id="rankings-season"><option value="">All seasons</option></select></label>
-      <label>Snapshot<select id="rankings-snapshot"><option value="">Latest snapshot</option></select></label><button id="rankings-refresh" type="button">Refresh rankings</button>
-      <div id="rankings-table"></div>
-    </section>
-    <section class="league-summary-section" id="progression">
-      <h2>Player Progression</h2>
-      <p id="progression-status">Verified NBA 2K offseason changes and career OVR history.</p>
-      <label>Season<select id="progression-season"><option value="">All seasons</option></select></label>
-      <label>Team<select id="progression-team"><option value="">All teams</option></select></label>
-      <label>Player<select id="progression-player"><option value="">All players</option></select></label>
-      <button id="progression-refresh" type="button">Refresh progression</button>
-      <h3>Biggest risers</h3><div id="progression-risers" class="summary-grid"></div>
-      <h3>Biggest fallers</h3><div id="progression-fallers" class="summary-grid"></div>
-      <h3>Team progression rankings</h3><div id="progression-rankings"></div>
-      <h3>All verified changes</h3><div id="progression-history" class="summary-grid"></div>
-    </section>
-    <section class="league-summary-section" id="player-of-the-week">
-      <div class="section-heading"><div><p class="eyebrow">Verified weekly performances</p><h2>🏆 Player of the Week</h2></div><button type="button" id="pow-refresh">Refresh</button></div>
-      <p id="pow-status" role="status">Awards appear after the commissioner finalizes a week.</p>
-      <h3>Current Week Winners</h3><div class="summary-grid" id="pow-current"></div>
-      <h3>Player of the Week History</h3>
-      <div class="admin-form-grid">
-        <label>Season<select id="pow-season"><option value="">All seasons</option></select></label>
-        <label>Week<select id="pow-week"><option value="">All weeks</option></select></label>
-        <label>Conference<select id="pow-conference"><option value="">Both conferences</option><option>East</option><option>West</option></select></label>
-        <label>Team<select id="pow-team"><option value="">All teams</option></select></label>
-        <label>Player<select id="pow-player"><option value="">All players</option></select></label>
-      </div>
-      <div class="summary-grid" id="pow-history"></div>
-    </section>
     <section class="league-schedule-section" id="my-week">
       <div class="section-heading"><div><p class="eyebrow">Coach dashboard</p><h2>My Week</h2>
         <p>Choose your team to see this week’s matchup and next step. Your private trades, offers and waivers are in Discord /myteam → MY WEEK.</p></div>
@@ -134,7 +88,6 @@
       <p id="coach-week-status" role="status">Choose your team.</p>
       <div id="coach-week-output" class="admin-output"></div>
     </section>
-
     <section class="league-directory" id="teams">
       <div class="section-heading">
         <div>
@@ -146,79 +99,6 @@
       </div>
       <div id="team-directory" class="team-directory-grid"></div>
     </section>
-
-    <section class="league-schedule-section" id="standings">
-      <div class="section-heading">
-        <div>
-          <p class="eyebrow">Regular season</p>
-          <h2>Standings</h2><p>Results publish when the commissioner advances the week.</p>
-          <p id="standings-week" role="status"></p>
-        </div><button id="standings-refresh" type="button">Reload published standings</button>
-      </div>
-      <div id="standings-tables"></div>
-    </section>
-    <section class="league-schedule-section" id="playoffs">
-      <div class="section-heading"><div><p class="eyebrow">Postseason</p><h2>Playoffs</h2></div><button id="playoffs-refresh" type="button">Reload bracket</button></div>
-      <label class="sort-picker"><span>Season</span><select id="playoffs-season"><option value="">Current season</option></select></label>
-      <p id="playoffs-status" role="status">Open Playoffs to load the official bracket.</p><div id="playoffs-bracket"></div>
-    </section>
-    <section class="league-stats-section" id="team-stats">
-      <div class="stats-scope-controls"><label class="sort-picker"><span>Statistics</span><select id="team-stats-scope"><option value="REGULAR_SEASON">Regular Season</option><option value="PLAY_IN">Play-In</option><option value="PLAYOFFS">Playoffs</option></select></label><label class="sort-picker"><span>Season</span><select id="team-stats-season"><option value="">Current season</option></select></label></div>
-      <div class="section-heading">
-        <div>
-          <p class="eyebrow">Regular season</p>
-          <h2>Team Stats</h2>
-        </div>
-        <button id="team-stats-refresh" type="button">Reload published team stats</button>
-      </div>
-      <label class="sort-picker team-stats-conference-filter">
-        <span>Conference</span>
-        <select id="team-stats-conference">
-          <option value="">All</option>
-          <option value="East">East</option>
-          <option value="West">West</option>
-        </select>
-      </label>
-      <p id="team-stats-status" role="status">Open Team Stats to load official team numbers.</p>
-      <div class="standings-scroll">
-        <table class="standings-table team-season-stats-table">
-          <thead>
-            <tr>
-              <th><button type="button" data-team-stats-sort="teamName">Team</button></th>
-              <th><button type="button" data-team-stats-sort="GP">GP</button></th>
-              <th><button type="button" data-team-stats-sort="W">W</button></th>
-              <th><button type="button" data-team-stats-sort="L">L</button></th>
-              <th><button type="button" data-team-stats-sort="PCT">PCT</button></th>
-              <th><button type="button" data-team-stats-sort="PPG">PPG</button></th>
-              <th><button type="button" data-team-stats-sort="OPP_PPG">OPP PPG</button></th>
-              <th><button type="button" data-team-stats-sort="AVG_DIFF">DIFF</button></th>
-              <th><button type="button" data-team-stats-sort="RPG">RPG</button></th>
-              <th><button type="button" data-team-stats-sort="APG">APG</button></th>
-              <th><button type="button" data-team-stats-sort="SPG">SPG</button></th>
-              <th><button type="button" data-team-stats-sort="BPG">BPG</button></th>
-              <th><button type="button" data-team-stats-sort="TOV">TOV</button></th>
-              <th><button type="button" data-team-stats-sort="FGPercent">FG%</button></th>
-              <th><button type="button" data-team-stats-sort="threePPercent">3P%</button></th>
-              <th><button type="button" data-team-stats-sort="FTPercent">FT%</button></th>
-              <th>Games</th>
-            </tr>
-          </thead>
-          <tbody id="team-stats-body"></tbody>
-        </table>
-      </div>
-    </section>
-    <section class="league-schedule-section" id="schedule-hub">
-      <div class="section-heading">
-        <div>
-          <p class="eyebrow">Schedule</p>
-          <h2>Preseason review</h2>
-          <p class="section-summary">Preview the active league schedule from the same backend used by the Discord
-            commands.</p>
-        </div>
-      </div>
-      <div id="schedule-preview" class="schedule-preview-grid"></div>
-    </section>
-
     <section class="league-players-section" id="players">
       <div class="section-heading">
         <div>
@@ -272,6 +152,32 @@
         <span id="players-page-status" aria-live="polite"></span>
         <button type="button" id="players-next">Next</button>
       </nav>
+    </section>
+    <section class="league-schedule-section" id="schedule-hub">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Schedule</p>
+          <h2>Preseason review</h2>
+          <p class="section-summary">Preview the active league schedule from the same backend used by the Discord
+            commands.</p>
+        </div>
+      </div>
+      <div id="schedule-preview" class="schedule-preview-grid"></div>
+    </section>
+    <section class="league-schedule-section" id="standings">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Regular season</p>
+          <h2>Standings</h2><p>Results publish when the commissioner advances the week.</p>
+          <p id="standings-week" role="status"></p>
+        </div><button id="standings-refresh" type="button">Reload published standings</button>
+      </div>
+      <div id="standings-tables"></div>
+    </section>
+    <section class="league-schedule-section" id="playoffs">
+      <div class="section-heading"><div><p class="eyebrow">Postseason</p><h2>Playoffs</h2></div><button id="playoffs-refresh" type="button">Reload bracket</button></div>
+      <label class="sort-picker"><span>Season</span><select id="playoffs-season"><option value="">Current season</option></select></label>
+      <p id="playoffs-status" role="status">Open Playoffs to load the official bracket.</p><div id="playoffs-bracket"></div>
     </section>
 
     <section class="league-stats-section" id="league-stats">
@@ -333,140 +239,102 @@
       </nav>
     </section>
 
-    <section class="league-admin-section" id="league-admin">
+    <section class="league-stats-section" id="team-stats">
+      <div class="stats-scope-controls"><label class="sort-picker"><span>Statistics</span><select id="team-stats-scope"><option value="REGULAR_SEASON">Regular Season</option><option value="PLAY_IN">Play-In</option><option value="PLAYOFFS">Playoffs</option></select></label><label class="sort-picker"><span>Season</span><select id="team-stats-season"><option value="">Current season</option></select></label></div>
       <div class="section-heading">
         <div>
-          <p class="eyebrow">Admin</p>
-          <h2>Commissioner view</h2>
-          <p class="section-summary">The website is the visual control center for setup, weekly closeout and game review. Discord
-            stays great for quick commands and notifications.</p>
+          <p class="eyebrow">Regular season</p>
+          <h2>Team Stats</h2>
         </div>
+        <button id="team-stats-refresh" type="button">Reload published team stats</button>
       </div>
-      <div class="admin-panel">
-        <h3>Admin access</h3>
-        <p>Enter the website key from your league host. Your name is used for review, week advancement and cleanup
-          records.</p>
-        <label class="admin-key-label" for="admin-key">Admin key</label>
-        <div class="admin-key-row">
-          <input id="admin-key" type="password" placeholder="Admin key">
-          <button id="admin-key-save" type="button">Unlock</button>
-        </div>
-        <label class="review-operator">Commissioner name <input id="admin-operator" maxlength="100"
-            placeholder="Your name"></label>
-        <small id="admin-key-status">Admin tools are currently locked.</small>
+      <label class="sort-picker team-stats-conference-filter">
+        <span>Conference</span>
+        <select id="team-stats-conference">
+          <option value="">All</option>
+          <option value="East">East</option>
+          <option value="West">West</option>
+        </select>
+      </label>
+      <p id="team-stats-status" role="status">Open Team Stats to load official team numbers.</p>
+      <div class="standings-scroll">
+        <table class="standings-table team-season-stats-table">
+          <thead>
+            <tr>
+              <th><button type="button" data-team-stats-sort="teamName">Team</button></th>
+              <th><button type="button" data-team-stats-sort="GP">GP</button></th>
+              <th><button type="button" data-team-stats-sort="W">W</button></th>
+              <th><button type="button" data-team-stats-sort="L">L</button></th>
+              <th><button type="button" data-team-stats-sort="PCT">PCT</button></th>
+              <th><button type="button" data-team-stats-sort="PPG">PPG</button></th>
+              <th><button type="button" data-team-stats-sort="OPP_PPG">OPP PPG</button></th>
+              <th><button type="button" data-team-stats-sort="AVG_DIFF">DIFF</button></th>
+              <th><button type="button" data-team-stats-sort="RPG">RPG</button></th>
+              <th><button type="button" data-team-stats-sort="APG">APG</button></th>
+              <th><button type="button" data-team-stats-sort="SPG">SPG</button></th>
+              <th><button type="button" data-team-stats-sort="BPG">BPG</button></th>
+              <th><button type="button" data-team-stats-sort="TOV">TOV</button></th>
+              <th><button type="button" data-team-stats-sort="FGPercent">FG%</button></th>
+              <th><button type="button" data-team-stats-sort="threePPercent">3P%</button></th>
+              <th><button type="button" data-team-stats-sort="FTPercent">FT%</button></th>
+              <th>Games</th>
+            </tr>
+          </thead>
+          <tbody id="team-stats-body"></tbody>
+        </table>
       </div>
-      <div class="admin-panel" id="staff-weekly" hidden>
-        <div class="section-heading"><div><p class="eyebrow">Regular season</p><h3>Weekly Staff checklist</h3>
-          <p>Live game progress and pending work. Stats and standings publish when the week advances.</p></div>
-          <button id="staff-week-refresh" type="button">Reload checklist</button></div>
-        <p id="staff-week-status" role="status">Unlock Staff access to load the checklist.</p>
-        <div id="staff-week-output" class="admin-output"></div>
+    </section>
+    <section class="league-summary-section" id="news">
+      <h2>LEAGUEbuddy News</h2><p id="news-status">Staff-approved reporting from verified league records.</p>
+      <details class="filter-panel"><summary>Search and filter news</summary><div class="news-filters">
+      <label>Search<input id="news-search" type="search" placeholder="Players, teams, headlines or dates"></label>
+      <label>Season<select id="news-season"><option value="">All seasons</option></select></label>
+      <label>Franchise<select id="news-team"><option value="">All teams</option></select></label>
+      <label>Category<select id="news-category"><option value="">All categories</option></select></label>
+      <label>Storyline<select id="news-storyline"><option value="">All storylines</option></select></label>
+      <label>Week<select id="news-week"><option value="">All weeks</option></select></label>
+      <label>Phase<select id="news-phase"><option value="">All phases</option><option value="REGULAR_SEASON">Regular season</option><option value="PLAY_IN">Play-In</option><option value="PLAYOFFS">Playoffs</option><option value="OFFSEASON">Offseason</option><option value="FREE_AGENCY">Free agency</option><option value="DRAFT">Draft</option></select></label>
+      <label>Sort<select id="news-sort"><option value="newest">Newest</option><option value="oldest">Oldest</option><option value="relevance">Relevance</option></select></label><button id="news-refresh" type="button">Refresh News</button>
+      </div></details>
+      <div id="news-featured" class="summary-grid"></div><h3>Latest headlines</h3><div id="news-headlines" class="summary-grid"></div><h3>Trending stories</h3><div id="news-trending"></div><div id="news-article" aria-live="polite"></div>
+    </section>
+    <section class="league-summary-section" id="streams">
+      <h2>Watch Live</h2><p id="streams-status">Game streams and verified matchup previews.</p><button id="streams-refresh" type="button">Refresh streams</button>
+      <div id="streams-games" class="summary-grid"></div><div id="streams-game-detail" aria-live="polite"></div>
+    </section>
+    <section class="league-summary-section" id="player-of-the-week">
+      <div class="section-heading"><div><p class="eyebrow">Verified weekly performances</p><h2>🏆 Player of the Week</h2></div><button type="button" id="pow-refresh">Refresh</button></div>
+      <p id="pow-status" role="status">Awards appear after the commissioner finalizes a week.</p>
+      <h3>Current Week Winners</h3><div class="summary-grid" id="pow-current"></div>
+      <h3>Player of the Week History</h3>
+      <div class="admin-form-grid">
+        <label>Season<select id="pow-season"><option value="">All seasons</option></select></label>
+        <label>Week<select id="pow-week"><option value="">All weeks</option></select></label>
+        <label>Conference<select id="pow-conference"><option value="">Both conferences</option><option>East</option><option>West</option></select></label>
+        <label>Team<select id="pow-team"><option value="">All teams</option></select></label>
+        <label>Player<select id="pow-player"><option value="">All players</option></select></label>
       </div>
-      <div class="summary-grid admin-grid">
-        <article class="summary-card"><span>Rosters Imported</span><strong id="admin-rosters">—</strong><small>League
-            roster coverage</small></article>
-        <article class="summary-card"><span>Roster Issues</span><strong id="admin-roster-issues">—</strong><small>Teams
-            needing attention</small></article>
-        <article class="summary-card"><span>Data Warnings</span><strong
-            id="admin-data-warnings">—</strong><small>Non-blocking issues</small></article>
-        <article class="summary-card"><span>Activation</span><strong id="admin-ready">—</strong><small>Setup
-            readiness</small></article>
-      </div>
-      <div class="admin-notes">
-        <h3>Current admin priorities</h3>
-        <ul id="admin-unassigned-list"></ul>
-      </div>
-      <div class="admin-toolbox">
-        <div class="admin-panel" id="roster-import-panel">
-          <h3>Roster import preview</h3>
-          <div class="admin-inline">
-            <select id="import-team-select"></select>
-            <button id="preview-import-button" type="button">Preview import</button>
-            <button id="apply-import-button" type="button" disabled>Apply import</button>
-          </div>
-          <div id="import-preview-output" class="admin-output"></div>
-        </div>
-        <div class="admin-panel" id="backups-panel">
-          <h3>League backup</h3>
-          <p>Backups include league records and original game images. Restore into a new data directory using the documented recovery command.</p>
-          <button id="backup-create" type="button">Create backup</button>
-          <div id="backup-output" aria-live="polite"></div>
-        </div>
-        <div class="admin-panel" id="playoffs-panel">
-          <h3>Playoff handoff</h3>
-          <p>After Week 15, resolve every game and review ten seeds per conference before changing phase.</p>
-          <button id="playoffs-review" type="button">Review playoff seeding</button>
-          <div id="playoffs-output" aria-live="polite"></div>
-        </div>
-        <div class="admin-panel" id="offseason-panel">
-          <h3>Offseason checklist</h3>
-          <p>Review the current step and its blockers. The commissioner confirms each transition.</p>
-          <button id="offseason-review" type="button">Review offseason step</button>
-          <div id="offseason-output" aria-live="polite"></div>
-        </div>
-        <div class="admin-panel" id="retirement-import-panel">
-          <h3>Retirement import</h3>
-          <p>During the retirements step, upload every page, inspect the photos and match each retired player. Nothing changes until confirmation.</p>
-          <input id="retirement-images" type="file" accept="image/jpeg,image/png,image/heic,image/heif,.heic,.heif" multiple aria-label="Retirement images">
-          <button id="retirement-upload" type="button">Upload photos</button>
-          <button id="retirement-reload" type="button">Review saved photos</button>
-          <div id="retirement-output" aria-live="polite"></div>
-        </div>
-        <div class="admin-panel" id="news-review-panel">
-          <h3>News review</h3><p>Review verified source facts. Only approved stories publish; routine stories are spaced three hours apart and capped at four daily.</p>
-          <label>Status<select id="news-review-status"><option value="DRAFT">Drafts</option><option value="APPROVED">Approved queue</option><option value="PUBLISHED">Published and corrections</option><option value="REJECTED">Rejected</option></select></label><button id="news-review-load" type="button">Review News</button><div id="news-review-output" aria-live="polite"></div>
-        </div>
-        <div class="admin-panel" id="sportsbook-staff-panel">
-          <h3>Sportsbook review</h3><p>Review private wager totals and frozen wallets with pending corrected payouts.</p>
-          <button id="sportsbook-staff-load" type="button">Review betting ledger</button><div id="sportsbook-staff-output" aria-live="polite"></div>
-        </div>
-        <div class="admin-panel" id="offseason-fa-panel">
-          <h3>Offseason free agency</h3><p>Coaches submit private offers from the existing Discord Free Agency panel. Staff reviews the ranked offers after each period closes.</p>
-          <button id="offseason-fa-load" type="button">Review offseason market</button>
-          <div id="offseason-fa-output" aria-live="polite"></div>
-        </div>
-        <div class="admin-panel" id="offseason-roster-panel">
-          <h3>Offseason trades and roster cutdowns</h3>
-          <p>Resolve pending transactions, then confirm completion. Cutdowns require exactly 15 players per team; 85+ OVR players are protected.</p>
-          <button id="offseason-rosters-load" type="button">Review rosters</button>
-          <div id="offseason-rosters-output" aria-live="polite"></div>
-        </div>
-        <div class="admin-panel" id="offseason-import-panel">
-          <h3>NBA 2K offseason imports</h3>
-          <p>Upload all pages for the current step. Check the selected table team, which may differ from the franchise header. Match the saved players and review every row before confirmation.</p>
-          <label>Import<select id="offseason-import-kind"><option value="LOTTERY">Official lottery</option><option value="DRAFT">Draft results</option><option value="OPTIONS">Pending options</option><option value="PROGRESSION">Player progression and final rosters</option></select></label>
-          <input id="offseason-import-images" type="file" accept="image/jpeg,image/png,image/heic,image/heif,.heic,.heif" multiple aria-label="Offseason evidence photos">
-          <button id="offseason-import-upload" type="button">Upload photos</button><button id="offseason-import-load" type="button">Review saved import</button>
-          <div id="offseason-import-output" aria-live="polite"></div>
-        </div>
-        <div class="admin-panel" id="season-start-panel">
-          <h3>Start regular season</h3>
-          <p>Start season checks readiness automatically. Use Check readiness to inspect any issues beforehand.</p>
-          <div class="admin-inline">
-            <button id="validate-preseason-button" type="button">Check readiness</button>
-            <button id="start-season-button" type="button">Start season</button>
-          </div>
-          <div id="preseason-validation-output" class="admin-output"></div>
-        </div>
-      </div>
-      <div class="admin-data-grid">
-        <div class="admin-panel">
-          <h3>Data issues</h3>
-          <div id="data-issues-list" class="admin-list"></div>
-        </div>
-        <div class="admin-panel">
-          <h3>Audit log</h3>
-          <div id="audit-log-list" class="admin-list"></div>
-        </div>
-      </div>
-      <div class="admin-panel">
-        <h3>Roster manager</h3>
-        <div class="admin-inline">
-          <select id="roster-team-select"></select>
-          <button id="load-roster-manager" type="button">Refresh roster</button>
-        </div>
-        <div id="roster-manager" class="admin-output"></div>
-      </div>
+      <div class="summary-grid" id="pow-history"></div>
+    </section>
+
+    <section class="league-summary-section" id="power-rankings">
+      <h2>Power Rankings</h2><p id="rankings-status">Rankings publish after finalized league weeks and confirmed preseason progression.</p>
+      <label>Season<select id="rankings-season"><option value="">All seasons</option></select></label>
+      <label>Snapshot<select id="rankings-snapshot"><option value="">Latest snapshot</option></select></label><button id="rankings-refresh" type="button">Refresh rankings</button>
+      <div id="rankings-table"></div>
+    </section>
+
+    <section class="league-summary-section" id="progression">
+      <h2>Player Progression</h2>
+      <p id="progression-status">Verified NBA 2K offseason changes and career OVR history.</p>
+      <label>Season<select id="progression-season"><option value="">All seasons</option></select></label>
+      <label>Team<select id="progression-team"><option value="">All teams</option></select></label>
+      <label>Player<select id="progression-player"><option value="">All players</option></select></label>
+      <button id="progression-refresh" type="button">Refresh progression</button>
+      <h3>Biggest risers</h3><div id="progression-risers" class="summary-grid"></div>
+      <h3>Biggest fallers</h3><div id="progression-fallers" class="summary-grid"></div>
+      <h3>Team progression rankings</h3><div id="progression-rankings"></div>
+      <h3>All verified changes</h3><div id="progression-history" class="summary-grid"></div>
     </section>
 
     <section class="board-section" id="board">
@@ -579,6 +447,145 @@
           <h3>Risk</h3>
           <p>Weaknesses, development runway, and likely outcomes keep the rankings grounded.</p>
         </article>
+      </div>
+    </section>
+
+    <section class="league-admin-section" id="league-admin">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Admin</p>
+          <h2>Commissioner view</h2>
+          <p class="section-summary">The website is the visual control center for setup, weekly closeout and game review. Discord
+            stays great for quick commands and notifications.</p>
+        </div>
+      </div>
+      <div class="admin-panel">
+        <h3>Admin access</h3>
+        <p>Enter the website key from your league host. Your name is used for review, week advancement and cleanup
+          records.</p>
+        <label class="admin-key-label" for="admin-key">Admin key</label>
+        <div class="admin-key-row">
+          <input id="admin-key" type="password" placeholder="Admin key">
+          <button id="admin-key-save" type="button">Unlock</button>
+        </div>
+        <label class="review-operator">Commissioner name <input id="admin-operator" maxlength="100"
+            placeholder="Your name"></label>
+        <small id="admin-key-status">Admin tools are currently locked.</small>
+      </div>
+      <div class="admin-panel" id="staff-weekly" hidden>
+        <div class="section-heading"><div><p class="eyebrow">Regular season</p><h3>Weekly Staff checklist</h3>
+          <p>Live game progress and pending work. Stats and standings publish when the week advances.</p></div>
+          <button id="staff-week-refresh" type="button">Reload checklist</button></div>
+        <p id="staff-week-status" role="status">Unlock Staff access to load the checklist.</p>
+        <div id="staff-week-output" class="admin-output"></div>
+      </div>
+      <div class="summary-grid admin-grid">
+        <article class="summary-card"><span>Rosters Imported</span><strong id="admin-rosters">—</strong><small>League
+            roster coverage</small></article>
+        <article class="summary-card"><span>Roster Issues</span><strong id="admin-roster-issues">—</strong><small>Teams
+            needing attention</small></article>
+        <article class="summary-card"><span>Data Warnings</span><strong
+            id="admin-data-warnings">—</strong><small>Non-blocking issues</small></article>
+        <article class="summary-card"><span>Activation</span><strong id="admin-ready">—</strong><small>Setup
+            readiness</small></article>
+      </div>
+      <div class="admin-notes">
+        <h3>Current admin priorities</h3>
+        <ul id="admin-unassigned-list"></ul>
+      </div>
+      <div class="admin-toolbox">
+        <div class="admin-panel" id="roster-import-panel">
+          <h3>Roster import preview</h3>
+          <div class="admin-inline">
+            <select id="import-team-select"></select>
+            <button id="preview-import-button" type="button">Preview import</button>
+            <button id="apply-import-button" type="button" disabled>Apply import</button>
+          </div>
+          <div id="import-preview-output" class="admin-output"></div>
+        </div>
+        <div class="admin-panel" id="backups-panel">
+          <h3>League backup</h3>
+          <p>Backups include league records and original game images. Restore into a new data directory using the documented recovery command.</p>
+          <button id="backup-create" type="button">Create backup</button>
+          <div id="backup-output" aria-live="polite"></div>
+        </div>
+        <div class="admin-panel" id="playoffs-panel">
+          <h3>Playoff handoff</h3>
+          <p>After Week 15, resolve every game and review ten seeds per conference before changing phase.</p>
+          <button id="playoffs-review" type="button">Review playoff seeding</button>
+          <div id="playoffs-output" aria-live="polite"></div>
+        </div>
+        <div class="admin-panel" id="offseason-panel">
+          <h3>Offseason checklist</h3>
+          <p>Review the current step and its blockers. The commissioner confirms each transition.</p>
+          <button id="offseason-review" type="button">Review offseason step</button>
+          <div id="offseason-output" aria-live="polite"></div>
+        </div>
+        <div class="admin-panel" id="retirement-import-panel">
+          <h3>Retirement import</h3>
+          <p>During the retirements step, upload every page, inspect the photos and match each retired player. Nothing changes until confirmation.</p>
+          <input id="retirement-images" type="file" accept="image/jpeg,image/png,image/heic,image/heif,.heic,.heif" multiple aria-label="Retirement images">
+          <button id="retirement-upload" type="button">Upload photos</button>
+          <button id="retirement-reload" type="button">Review saved photos</button>
+          <div id="retirement-output" aria-live="polite"></div>
+        </div>
+        <div class="admin-panel" id="news-review-panel">
+          <h3>News review</h3><p>Review verified source facts. Only approved stories publish; routine stories are spaced three hours apart and capped at four daily.</p>
+          <label>Status<select id="news-review-status"><option value="DRAFT">Drafts</option><option value="APPROVED">Approved queue</option><option value="PUBLISHED">Published and corrections</option><option value="REJECTED">Rejected</option></select></label><button id="news-review-load" type="button">Review News</button><div id="news-review-output" aria-live="polite"></div>
+        </div>
+        <div class="admin-panel">
+          <h3>Launch checks &amp; practice preview</h3>
+          <p>Commissioner controls. Review roster and ownership blockers, or view the isolated simulation created in Discord.</p>
+          <button id="launch-readiness-load" type="button">Check launch data</button>
+          <button id="simulation-preview-load" type="button">View practice progress</button>
+          <pre id="launch-practice-output" class="admin-output" aria-live="polite"></pre>
+        </div>
+        <div class="admin-panel" id="offseason-fa-panel">
+          <h3>Offseason free agency</h3><p>Coaches submit private offers from the existing Discord Free Agency panel. Staff reviews the ranked offers after each period closes.</p>
+          <button id="offseason-fa-load" type="button">Review offseason market</button>
+          <div id="offseason-fa-output" aria-live="polite"></div>
+        </div>
+        <div class="admin-panel" id="offseason-roster-panel">
+          <h3>Offseason trades and roster cutdowns</h3>
+          <p>Resolve pending transactions, then confirm completion. Cutdowns require exactly 15 players per team; 85+ OVR players are protected.</p>
+          <button id="offseason-rosters-load" type="button">Review rosters</button>
+          <div id="offseason-rosters-output" aria-live="polite"></div>
+        </div>
+        <div class="admin-panel" id="offseason-import-panel">
+          <h3>NBA 2K offseason imports</h3>
+          <p>Upload all pages for the current step. Check the selected table team, which may differ from the franchise header. Match the saved players and review every row before confirmation.</p>
+          <label>Import<select id="offseason-import-kind"><option value="LOTTERY">Official lottery</option><option value="DRAFT">Draft results</option><option value="OPTIONS">Pending options</option><option value="PROGRESSION">Player progression and final rosters</option></select></label>
+          <input id="offseason-import-images" type="file" accept="image/jpeg,image/png,image/heic,image/heif,.heic,.heif" multiple aria-label="Offseason evidence photos">
+          <button id="offseason-import-upload" type="button">Upload photos</button><button id="offseason-import-load" type="button">Review saved import</button>
+          <div id="offseason-import-output" aria-live="polite"></div>
+        </div>
+        <div class="admin-panel" id="season-start-panel">
+          <h3>Start regular season</h3>
+          <p>Start season checks readiness automatically. Use Check readiness to inspect any issues beforehand.</p>
+          <div class="admin-inline">
+            <button id="validate-preseason-button" type="button">Check readiness</button>
+            <button id="start-season-button" type="button">Start season</button>
+          </div>
+          <div id="preseason-validation-output" class="admin-output"></div>
+        </div>
+      </div>
+      <div class="admin-data-grid">
+        <div class="admin-panel">
+          <h3>Data issues</h3>
+          <div id="data-issues-list" class="admin-list"></div>
+        </div>
+        <div class="admin-panel">
+          <h3>Audit log</h3>
+          <div id="audit-log-list" class="admin-list"></div>
+        </div>
+      </div>
+      <div class="admin-panel">
+        <h3>Roster manager</h3>
+        <div class="admin-inline">
+          <select id="roster-team-select"></select>
+          <button id="load-roster-manager" type="button">Refresh roster</button>
+        </div>
+        <div id="roster-manager" class="admin-output"></div>
       </div>
     </section>
   </main>

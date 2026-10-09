@@ -4,7 +4,7 @@ const { randomUUID } = require("crypto");
 
 const TRANSACTION_FILES = new Set([
   'players.json', 'roster-memberships.json', 'draft-picks.json', 'trades.json',
-  'free-agency.json', 'audit-log.json', 'league.json', 'playoffs.json',
+  'free-agency.json', 'audit-log.json', 'league.json', 'playoffs.json', 'thread-cleanup-confirmations.json',
   'coach-web-sessions.json', 'sportsbook.json', 'news.json', 'power-rankings.json', 'player-upgrades.json', 'awards.json', 'championships.json', 'offseason.json',
 ]);
 function validateTransactionFiles(files) {
@@ -544,6 +544,10 @@ function createFantasyHQRepository(options = {}) {
 
   return {
     // Reuse the existing journal and recovery path for additive lifecycle files.
+    loadThreadCleanupConfirmations(leagueId) {
+      recoverLeagueTransactions(leagueId);
+      return readJson(path.join(buildLeaguePaths(dataRoot, leagueId).leagueRoot, 'thread-cleanup-confirmations.json'), {});
+    },
     commitLeagueFiles({ leagueId, files }) {
       recoverLeagueTransactions(leagueId);
       validateTransactionFiles(files);

@@ -178,29 +178,6 @@ function showToast(message) {
   state.toastTimeout = window.setTimeout(() => { elements.siteToast.hidden = true; }, 8000);
 }
 
-function closeMobileNavigation(restoreFocus = false) {
-  elements.primaryNav.dataset.open = "false";
-  elements.mobileNavToggle.setAttribute("aria-expanded", "false");
-  if (restoreFocus) elements.mobileNavToggle.focus();
-}
-
-elements.mobileNavToggle.addEventListener("click", () => {
-  const open = elements.mobileNavToggle.getAttribute("aria-expanded") !== "true";
-  elements.mobileNavToggle.setAttribute("aria-expanded", String(open));
-  elements.primaryNav.dataset.open = String(open);
-});
-elements.primaryNav.addEventListener("click", event => {
-  if (event.target.closest("a")) closeMobileNavigation();
-});
-document.addEventListener("keydown", event => {
-  if (event.key === "Escape" && elements.mobileNavToggle.getAttribute("aria-expanded") === "true") closeMobileNavigation(true);
-});
-document.addEventListener("click", event => {
-  if (elements.mobileNavToggle.getAttribute("aria-expanded") === "true" && !event.target.closest(".site-header")) closeMobileNavigation();
-});
-window.addEventListener("resize", () => {
-  if (window.innerWidth > 820) closeMobileNavigation();
-});
 
 async function requestJson(url, options = {}) {
   const response = await fetch(url, options);
@@ -2282,18 +2259,16 @@ for (const kind of ['player','team']) for(const control of ['scope','season'])do
 (() => {
  let busy=false;
  const matchup=s=>escapeHtml(s.team1Name)+' vs '+escapeHtml(s.team2Name);
- function detail(s){const p=s.preview;return `<article class="summary-card"><h3>${matchup(s)}</h3><p>Week ${s.week} · Season ${escapeHtml(s.seasonId)} · ${escapeHtml(s.status)}</p><p>${p.teams.map(t=>escapeHtml(t.teamName)+' '+t.wins+'-'+t.losses).join(' · ')}</p><h4>🔥 Players to watch</h4>${p.playersToWatch.map(w=>'<p>'+playerPortraitMarkup(w.player||{name:w.name},'league-player-portrait')+'<button data-stream-player="'+escapeHtml(w.playerId)+'">'+escapeHtml(w.name)+'</button> · '+w.PPG.toFixed(1)+' PTS / '+w.RPG.toFixed(1)+' REB / '+w.APG.toFixed(1)+' AST</p>').join('')||'<p>No published player statistics yet.</p>'}<h4>📊 Game breakdown</h4><p>${escapeHtml(p.breakdown)}</p><h4>🔮 Predicted winner</h4><p>${escapeHtml(p.prediction?.teamName||'Unavailable')} · ${escapeHtml(p.prediction?.reason||'')}</p><p><a href="${escapeHtml(s.url)}" target="_blank" rel="noopener noreferrer">📺 Watch live</a></p><p><a href="?gameId=${encodeURIComponent(s.gameId)}#sportsbook">🎟️ View game Sportsbook</a></p><p>Betting ${s.marketLocked?'locked':'open'}${s.status==='FINAL'?' · Game completed':''}</p>${s.result?.scores?'<p>Final: '+Object.entries(s.result.scores).map(([teamId,score])=>escapeHtml(teamId===s.team1Id?s.team1Name:s.team2Name)+' '+score).join(' · ')+'</p>':''}</article>`;}
+ function detail(s){const p=s.preview;return `<article class="summary-card"><h3>${matchup(s)}</h3><p>Week ${s.week} · Season ${escapeHtml(s.seasonId)} · ${escapeHtml(s.status)}</p><p>${p.teams.map(t=>escapeHtml(t.teamName)+' '+t.wins+'-'+t.losses).join(' · ')}</p><h4>🔥 Players to watch</h4>${p.playersToWatch.map(w=>'<p>'+playerPortraitMarkup(w.player||{name:w.name},'league-player-portrait')+'<button data-stream-player="'+escapeHtml(w.playerId)+'">'+escapeHtml(w.name)+'</button> · '+w.PPG.toFixed(1)+' PTS / '+w.RPG.toFixed(1)+' REB / '+w.APG.toFixed(1)+' AST</p>').join('')||'<p>No published player statistics yet.</p>'}<h4>📊 Game breakdown</h4><p>${escapeHtml(p.breakdown)}</p><h4>🔮 Predicted winner</h4><p>${escapeHtml(p.prediction?.teamName||'Unavailable')} · ${escapeHtml(p.prediction?.reason||'')}</p><p><a href="${escapeHtml(s.url)}" target="_blank" rel="noopener noreferrer">📺 Watch live</a></p>${s.status==='FINAL'?'<p>Game completed</p>':''}${s.result?.scores?'<p>Final: '+Object.entries(s.result.scores).map(([teamId,score])=>escapeHtml(teamId===s.team1Id?s.team1Name:s.team2Name)+' '+score).join(' · ')+'</p>':''}</article>`;}
  async function load(){if(busy)return;busy=true;try{const data=await requestJson('/api/league/streams'),selected=new URL(location.href).searchParams.get('gameId');document.querySelector('#streams-games').innerHTML=data.streams.map(s=>'<article class="summary-card"><h3>'+matchup(s)+'</h3><p>Week '+s.week+' · '+escapeHtml(s.status)+'</p><button data-stream-game="'+escapeHtml(s.gameId)+'">Open game page</button> <a href="'+escapeHtml(s.url)+'" target="_blank" rel="noopener noreferrer">Watch live</a></article>').join('')||'<p>No submitted game streams yet.</p>';const game=data.streams.find(s=>s.gameId===selected);document.querySelector('#streams-game-detail').innerHTML=game?detail(game):selected?'<p>This stream has not been submitted or is unavailable.</p>':'';document.querySelector('#streams-status').textContent='The home team is required to stream. Either participating coach can post the link from the game thread.';}catch(e){document.querySelector('#streams-status').textContent=e.message;}finally{busy=false;}}
  document.querySelector('#streams').addEventListener('click',e=>{const game=e.target.closest('[data-stream-game]'),p=e.target.closest('[data-stream-player]');if(game){const url=new URL(location.href);url.searchParams.set('gameId',game.dataset.streamGame);url.hash='streams';history.pushState(null,'',url);load();}if(p)showPlayerDetail(p.dataset.streamPlayer).catch(e=>showToast(e.message));});document.querySelector('#streams-refresh').addEventListener('click',load);window.addEventListener('hashchange',()=>{if(location.hash==='#streams')load();});window.addEventListener('popstate',()=>{if(location.hash==='#streams')load();});if(location.hash==='#streams')load();setInterval(()=>{if(location.hash==='#streams'&&!document.hidden)load();},15000);
 })();
 
+
 (() => {
- const button=document.querySelector('#sportsbook-staff-load'),output=document.querySelector('#sportsbook-staff-output');if(!button)return;
- const amount=cents=>'$'+(cents/100).toFixed(2);
- button.addEventListener('click',async()=>{button.disabled=true;try{
-  const data=await adminRequestJson('/api/league/admin/sportsbook'),pending=data.bets.filter(b=>b.pendingCorrection);
-  output.innerHTML='<p>'+Object.keys(data.wallets).length+' career wallets · '+data.bets.filter(b=>b.status==='OPEN').length+' open bets · '+pending.length+' corrected payouts awaiting Staff resolution</p>'
-   +pending.map(bet=>{const account=data.wallets[bet.userId],correction=bet.pendingCorrection;return '<article class="summary-card"><h4>Coach '+escapeHtml(bet.userId)+'</h4><p>Original result '+escapeHtml(bet.status)+' → verified result '+escapeHtml(correction.status)+'</p><p>Wallet '+amount(account.balanceCents)+' · Correction '+amount(correction.adjustmentCents)+' · Shortfall '+amount(Math.max(0,-correction.adjustmentCents-account.balanceCents))+'</p><p>New wagers are frozen. The original settlement and exact correction are retained for review.</p><p>'+bet.legs.map(leg=>escapeHtml(leg.kind)+' · '+escapeHtml(leg.gameId)).join('<br>')+'</p></article>';}).join('')
-   +'<details><summary>Private wager ledger</summary>'+data.ledger.map(entry=>'<p>'+escapeHtml(entry.at||'Initial wallet')+' · '+escapeHtml(entry.userId)+' · '+escapeHtml(entry.type)+' · '+amount(entry.amountCents)+'</p>').join('')+'</details>';
- }catch(error){output.textContent=error.message;}finally{button.disabled=false;}});
+ const output=document.querySelector('#launch-practice-output');
+ for(const [id,endpoint]of [['launch-readiness-load','launch-readiness'],['simulation-preview-load','simulation-preview']]){
+  const button=document.getElementById(id);if(!button)continue;
+  button.addEventListener('click',async()=>{button.disabled=true;try{output.textContent=JSON.stringify(await adminRequestJson('/api/league/admin/'+endpoint),null,2);}catch(error){output.textContent=error.message;}finally{button.disabled=false;}});
+ }
 })();

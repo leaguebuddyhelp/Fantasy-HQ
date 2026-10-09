@@ -6,7 +6,7 @@ function fixture(t) {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lb-activity-')); t.after(() => fs.rmSync(root, { recursive: true, force: true }));
     const repository = createFantasyHQRepository({ dataRoot: root }), start = Date.parse('2026-01-01T00:00:00Z'); let time = start;
     repository.saveLeague('test', { currentPhase: 'REGULAR_SEASON', currentSeasonId: '1', currentWeek: 1 }); repository.saveTeams('test', [{ teamId: 'a', teamName: 'Team A', abbreviation: 'A', conference: 'East' }, { teamId: 'b', teamName: 'Team B', abbreviation: 'B', conference: 'East' }]); repository.saveGuildLeagueBinding('guild', { leagueId: 'test', seasonId: '1' }); repository.saveOwners('test', [{ teamId: 'a', userId: 'alice' }, { teamId: 'b', userId: 'bob' }]); repository.saveSchedule({ leagueId: 'test', seasonId: '1', weeks: [{ week: 1, weekId: 'week1', status: 'ACTIVE', startedAt: new Date(start).toISOString(), deadlineAt: new Date(start + 48 * 3600000).toISOString(), games: [{ team1Id: 'a', team2Id: 'b' }] }] });
-    const submissions = createGameSubmissionService({ repository, download: async () => Buffer.from([255, 216, 255, 0]) });
+    const submissions = createGameSubmissionService({ repository, download: async () => require('node:fs').readFileSync(require('node:path').join(__dirname,'fixtures','contract-payne-team-option.jpg')) });
     const { game } = submissions.bind({ guildId: 'guild', discordThreadId: 'thread', privateThread: true, weekNumber: 1, teamQuery: 'a' });
     const sent = [], edits = []; const channel = { id: 'thread', type: 12, messages: { fetch: async () => ({ edit: async p => edits.push(p) }) }, send: async p => sent.push(p) };
     const client = { guilds: { fetch: async () => ({ channels: { fetch: async () => channel } }) } };
@@ -67,7 +67,7 @@ test('existing active matchup cards move advanced controls behind Staff tools wi
     await f.submissions.setMessage(f.game.gameId, 'existing-card');
     await f.submissions.mutate(f.game.gameId, r => { r.game.inGameDate = '10/24/2027'; });
     await f.service.tick(f.client);
-    assert.equal(f.submissions.load(f.game.gameId).game.testMode, true);
+    assert.equal(f.submissions.load(f.game.gameId).game.testMode, false); // Legacy canonical flag does not grant practice privileges.
     const ids = f.edits.at(-1).components.flatMap(r => r.components.map(c => c.data.custom_id));
     assert.equal(ids.filter(id => id.startsWith('gametest:')).length, 0);
     assert.equal(ids.filter(id => id.startsWith('gametools:')).length, 1);

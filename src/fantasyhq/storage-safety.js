@@ -15,13 +15,33 @@ function assertWriterLease(file) {
     if (dir === path.dirname(dir)) break;
   }
 }
-function acquireWriterLease(dataRoot) {
+function acquireWriterLease(dataRoot, { waitMs = 0 } = {}) {
+  if (waitMs > 0) {
+    const deadline = Date.now() + waitMs;
+    for (;;) {
+      try { return acquireWriterLease(dataRoot); }
+      catch (error) {
+        if (error.code !== 'LEAGUE_WRITER_BUSY' || Date.now() >= deadline) throw error;
+        // Railway volume handoffs can leave a recent heartbeat from the stopped
+        // container. Wait for release or the existing stale-owner check.
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Math.min(1000, deadline - Date.now()));
+      }
+    }
+  }
   dataRoot = path.resolve(dataRoot);
   fs.mkdirSync(dataRoot, { recursive: true });
+  if (activeLeases.has(dataRoot)) throw Error('League storage already has a writer in this process.');
   const lock = path.join(dataRoot, '.writer-lock'), recovery = path.join(dataRoot, '.writer-recovery');
-  const owner = { token: randomUUID(), pid: process.pid, host: os.hostname(), startedAt: new Date().toISOString(), heartbeatAt: Date.now() };
+  const fingerprint = pid => {
+    try { const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8'); return fs.readFileSync('/proc/sys/kernel/random/boot_id','utf8').trim() + ':' + stat.slice(stat.lastIndexOf(')')+2).split(' ')[19]; } catch { return null; }
+  };
+  const owner = { processIdentity: fingerprint(process.pid), token: randomUUID(), pid: process.pid, host: os.hostname(), startedAt: new Date().toISOString(), heartbeatAt: Date.now() };
   function alive(saved) {
     if (saved.host !== os.hostname()) return !saved.heartbeatAt || Date.now() - saved.heartbeatAt < 120000; // Shared volumes require explicit operator recovery after a host change.
+    const currentIdentity = fingerprint(saved.pid);
+    if (saved.processIdentity && currentIdentity && saved.processIdentity !== currentIdentity) return false;
+    // A previous container can reuse this startup PID. This process has not yet acquired a lease.
+    if (saved.pid === process.pid && Date.parse(saved.startedAt) < Date.now() - 120000) return false;
     try { process.kill(saved.pid, 0); return true; } catch (error) { return error.code !== 'ESRCH'; }
   }
   try { fs.mkdirSync(lock); }
@@ -30,7 +50,10 @@ function acquireWriterLease(dataRoot) {
     fs.mkdirSync(recovery); // Serialize stale-owner recovery against other starters.
     try {
       const saved = JSON.parse(fs.readFileSync(path.join(lock, 'owner.json'), 'utf8'));
-      if (!Number.isInteger(saved.pid) || saved.pid < 1 || alive(saved)) throw Error(`League storage already has a writer (${saved.host}, PID ${saved.pid}). Stop it before starting another bot or website writer.`);
+      if (!Number.isInteger(saved.pid) || saved.pid < 1 || alive(saved)) {
+        const error = Error(`League storage already has a writer (${saved.host}, PID ${saved.pid}). Stop it before starting another bot or website writer.`);
+        error.code = 'LEAGUE_WRITER_BUSY'; throw error;
+      }
       fs.rmSync(lock, { recursive: true }); fs.mkdirSync(lock);
     } finally { fs.rmdirSync(recovery); }
   }

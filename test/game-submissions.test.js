@@ -9,9 +9,10 @@ const { createGameSubmissionService, downloadDiscordImage } = require("../src/fa
 const { createDiscordGameSubmissions, gamePayload } = require("../src/fantasyhq/discord-game-submissions");
 const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a9ioAAAAASUVORK5CYII=", "base64");
 
-function fixture(t, download = async () => png) {
-  const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "game-submissions-"));
-  t.after(() => fs.rmSync(dataRoot, { recursive: true, force: true }));
+function fixture(t, download = async () => png, isolated = false) {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "game-submissions-"));
+  t.after(() => fs.rmSync(base, { recursive: true, force: true }));
+  const dataRoot = isolated ? path.join(base,'simulations','fixture','workspace') : base;
   const repository = createFantasyHQRepository({ dataRoot });
   repository.saveLeague("league", { currentPhase: "REGULAR_SEASON", currentSeasonId: "1" });
   repository.saveTeams("league", [
@@ -214,7 +215,7 @@ test('matchup decisions preserve scores and require the opposing team for forfei
   const f = fixture(t), { createGameDecisionService, cpuState } = require('../src/fantasyhq/game-decisions'), service = createGameDecisionService(f.service); let reply; async function click(action, user = 'gm', staff = false) { await service.handle({ guildId: 'guild', channelId: 'thread', channel: { type: 12 }, user: { id: user }, memberPermissions: { has: () => staff }, member: { roles: [] }, customId: `gamedecision:${action}:${f.game.gameId}`, deferReply: async () => { }, editReply: async r => reply = r }); }
   await click('fair'); assert.equal(f.service.load(f.game.gameId).game.matchupDecision.confirmed, false); await click('fair', 'opponent'); assert.equal(f.service.load(f.game.gameId).game.matchupDecision.confirmed, true); assert.equal(f.service.load(f.game.gameId).game.result, undefined);
   await service.handle({ guildId: 'guild', channelId: 'thread', channel: { type: 12 }, user: { id: 'gm' }, memberPermissions: { has: () => false }, member: { roles: [] }, customId: `gamedecision:forfeit:${f.game.gameId}:a`, deferReply: async () => { }, editReply: async r => reply = r }); assert.match(reply, /cannot award yourself/);
-  f.repository.saveOwners('league', []); assert.equal(cpuState(f.repository, f.game).matchupType, 'CPU_VS_CPU'); f.repository.saveSettings('league', { testMode: true }); assert.equal(cpuState(f.repository, f.game).matchupType, 'TEST');
+  f.repository.saveOwners('league', []); assert.equal(cpuState(f.repository, f.game).matchupType, 'CPU_VS_CPU'); f.repository.saveSettings('league', { testMode: true }); assert.equal(cpuState(f.repository, f.game).matchupType, 'CPU_VS_CPU');
 });
 
 test('game-date modal validates dates, saves history, reveals controls and enforces access', async t => {
@@ -268,8 +269,8 @@ test('Staff Submit and cancel controls enforce staff access; both forfeit button
 
 
 test('solo staff collects two genuine team sides; mode and ownership are rechecked on every upload', async t => {
-  const f = fixture(t), { service, repository, actor, game, attachment } = f;
-  repository.saveSettings('league', { testMode: true });
+  const f = fixture(t,undefined,true), { service, repository, actor, game, attachment } = f;
+  repository.saveSettings('league', { testMode: true, simulationId:'fixture' });
   repository.saveOwners('league', [{ teamId: 'a', userId: 'gm' }]);
   const staff = { ...actor, staff: true };
   await assert.rejects(service.beginSide(game.gameId, { ...actor, testTeamId: 'b' }), /Staff authorization/);
@@ -281,7 +282,7 @@ test('solo staff collects two genuine team sides; mode and ownership are recheck
   repository.saveOwners('league', [{ teamId: 'a', userId: 'gm' }]);
   repository.saveSettings('league', { testMode: false });
   await assert.rejects(service.receiveSide(game.gameId, staff, [attachment('solo-b')], 'two'), /Test Mode/);
-  repository.saveSettings('league', { testMode: true });
+  repository.saveSettings('league', { testMode: true, simulationId:'fixture' });
   await assert.rejects(service.receiveSide(game.gameId, actor, [attachment('solo-b')], 'two'), /Staff authorization/);
   await service.receiveSide(game.gameId, staff, [attachment('solo-b')], 'two');
   const record = service.load(game.gameId);
@@ -305,8 +306,8 @@ test('vacant online leagues do not implicitly enable test mode; public cards kee
 
 
 test('Discord solo side buttons and message uploads preserve current staff checks', async t => {
-  const { service, repository, game, attachment } = fixture(t);
-  repository.saveSettings('league', { testMode: true });
+  const { service, repository, game, attachment } = fixture(t, undefined, true);
+  repository.saveSettings('league', { testMode: true, simulationId:'fixture' });
   repository.saveOwners('league', [{ teamId: 'a', userId: 'gm' }]);
   const adapter = createDiscordGameSubmissions(service, { extractor: null });
   const replies = [], source = { guildId: 'guild', channelId: 'thread', channel: { type: ChannelType.PrivateThread } };

@@ -74,7 +74,7 @@ function createReviewService(submissions) {
       const revision={...output,extractionId:randomUUID(),gameId,submissionId,mediaIds:source.mediaIds,
         parentExtractionId:source.extractionId,rosterSnapshot:source.rosterSnapshot,correctedInput:input,
         ...(reason ? { revisionReason: reason, revisesExtractionId: record.game.result.extractionId } : {}),
-        provider:'commissioner-correction',timestamp:new Date().toISOString(),actor:{principal:'website-commissioner-key',operator},
+        provider:'commissioner-correction',timestamp:new Date().toISOString(),actor:{principal:body.authenticatedPrincipal || 'website-commissioner-key',operator},
         status:output.issues.length?'REVIEW_REQUIRED':'READY_FOR_REVIEW'};
       record.extractions.push(revision); submission.latestExtractionId=revision.extractionId; if (!reason) submission.status=revision.status;
       return revision;
@@ -91,8 +91,8 @@ function createReviewService(submissions) {
       if(output.issues.length)throw new Error('Resolve all validation warnings before approval.');
       const operator=String(body.operator || '').trim(); if(!operator || operator.length>100)throw new Error('Enter your commissioner name.');
       if (reason) { archive(record, body, 'CORRECTED'); record.game.finalizedAt = null; record.game.locked = false; record.game.previousApprovalNotice = record.game.approvalNotice || record.game.previousApprovalNotice; delete record.game.approvalNotice; }
-      finalizeValidatedSubmission(record,source.extractionId, { testMode: submissions.repository.loadSettings(record.game.leagueId)?.testMode === true, owners: submissions.repository.loadOwners(record.game.leagueId) });
-      record.game.approval={extractionId:source.extractionId,at:new Date().toISOString(),principal:'website-commissioner-key',operator};
+      finalizeValidatedSubmission(record,source.extractionId, { testMode: require('../simulation-guard').isSimulationRepository(submissions.repository,record.game.leagueId), owners: submissions.repository.loadOwners(record.game.leagueId) });
+      record.game.approval={extractionId:source.extractionId,at:new Date().toISOString(),principal:body.authenticatedPrincipal || 'website-commissioner-key',operator};
       return record.game;
     });
     const saved = submissions.load(gameId);

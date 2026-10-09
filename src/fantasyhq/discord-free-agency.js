@@ -180,11 +180,14 @@ function createDiscordFreeAgency({ repository, service = createFreeAgencyService
       if (action === 'upload') {
         await interaction.deferReply({ flags: EPHEMERAL });
         const upload = interaction.fields.getUploadedFiles('screenshot', true).first();
-        if (!upload || upload.size > 20 * 1024 * 1024 || !['image/png','image/jpeg','image/webp'].includes(upload.contentType)) throw Error('Upload a PNG, JPEG or WebP screenshot under 20 MB.');
-        const response = await fetcher(upload.url, { signal: AbortSignal.timeout(20000) }); if (!response.ok) throw Error('Screenshot download failed.');
-        const bytes = Buffer.from(await response.arrayBuffer()); if (bytes.length > 20 * 1024 * 1024) throw Error('Screenshot exceeds 20 MB.');
+        if (!upload || upload.size > 20 * 1024 * 1024 || !['image/png','image/jpeg','image/webp','image/heic','image/heif'].includes(upload.contentType)) throw Error('Upload a PNG, JPEG, WebP or HEIC photo or screenshot under 20 MB.');
+        const attachmentUrl = new URL(upload.url);
+        if (attachmentUrl.protocol !== 'https:' || !['cdn.discordapp.com','media.discordapp.net'].includes(attachmentUrl.hostname) || !attachmentUrl.pathname.startsWith('/attachments/')) throw Error('Invalid Discord attachment URL.');
+        const response = await fetcher(upload.url, { redirect: 'error', signal: AbortSignal.timeout(20000) }); if (!response.ok) throw Error('Screenshot download failed.');
+        const chunks=[];let length=0;for await(const chunk of response.body){length+=chunk.length;if(length>20*1024*1024)throw Error('Screenshot exceeds 20 MB.');chunks.push(chunk);}
+        const bytes = Buffer.concat(chunks); if (bytes.length > 20 * 1024 * 1024) throw Error('Screenshot exceeds 20 MB.');
         // Decode before retaining it, preserving the original bytes for Staff audit.
-        await require('sharp')(bytes, { limitInputPixels: 40000000 }).metadata();
+        await require('./offseason-image').metadata(bytes);
         const file = path.join(repository.buildLeaguePaths(repository.dataRoot, leagueId).leagueRoot, 'free-agency-proof', `${d.id}${path.extname(upload.name).toLowerCase() || '.png'}`);
         fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, bytes, { flag: 'wx' });
         let text = '', error = null; try { text = await ocr(bytes); } catch (e) { error = e.message; }

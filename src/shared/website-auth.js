@@ -18,6 +18,17 @@ function websitePrincipal(request) {
 function bindWebsiteOperator(request, body) {
   const principal = websitePrincipal(request);
   if (principal?.operator) body.operator = principal.operator;
+  if (principal) Object.defineProperty(body,'authenticatedPrincipal',{value:principal.principal,enumerable:false});
   return body;
 }
-module.exports = { websitePrincipal, bindWebsiteOperator };
+function websiteActor(request, context, { commissioner = false, operator } = {}) {
+  const principal = websitePrincipal(request);
+  if (!principal) throw Error('Staff authorization required.');
+  const commissionerId = context.league.commissionerUserId;
+  if ((commissioner || !principal.operator) && !commissionerId) throw Error('Configure the league commissioner Discord ID before using commissioner website controls.');
+  if (commissioner && principal.operator && principal.operator !== commissionerId) throw Error('Commissioner website credentials required.');
+  return { id: principal.operator || commissionerId, principal: principal.principal,
+    operator: principal.operator || operator || 'Commissioner', authorized: true, staffAuthorized: true,
+    commissionerUserId: commissionerId };
+}
+module.exports = { websitePrincipal, bindWebsiteOperator, websiteActor };

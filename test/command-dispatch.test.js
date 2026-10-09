@@ -1,0 +1,5 @@
+const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
+test('registered guild commands serialize uniquely and exactly match active dispatch handlers',()=>{
+ const source=fs.readFileSync('deploy-commands.js','utf8').split('async function main()')[0],context={require:name=>{if(name==='discord.js')return require('discord.js');if(name==='dotenv')return {config(){}};if(name==='./src/config')return {requireEnv(){throw Error('Command audit must never request credentials.');}};throw Error('Unexpected dependency');}};
+ vm.runInNewContext(source+'\nglobalThis.schemas=commands;',context);const names=Array.from(context.schemas,c=>c.name),index=fs.readFileSync('src/index.js','utf8'),block=index.match(/const handlers = \{([\s\S]*?)\n\};/)[1],handlers=[...block.matchAll(/^  (\w+):/gm)].map(m=>m[1]);assert.equal(new Set(names).size,names.length);assert.deepEqual(handlers.sort(),names.sort());for(const name of ['setup','teams','recruiting','transferportal'])assert.equal(handlers.includes(name),false);
+});

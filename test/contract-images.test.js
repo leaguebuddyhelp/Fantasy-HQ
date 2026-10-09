@@ -32,3 +32,9 @@ test('finance salaries and Promise cannot supply missing offer fields', () => {
   assert.equal(parseContractText('Salary Cap: $190.96M\nPending Salary: $0\nYears: 1\nType: Flat\nPromise: None').salary, '');
   assert.equal(parseContractText('Salary: $1M\nYears: 1\nType: Flat\nPromise: None').option, '');
 });
+
+test('contract OCR reads bordered, tilted and EXIF-oriented phone JPEGs without changing originals',{timeout:180000},async()=>{
+ const sharp=require('sharp'),source=fs.readFileSync(path.join(__dirname,'fixtures','contract-payne-team-option.jpg')),screen=await sharp(source).resize({width:1600}).jpeg().toBuffer();
+ const phone=await sharp({create:{width:1900,height:1300,channels:3,background:'#363636'}}).composite([{input:screen,left:150,top:180}]).jpeg({quality:93}).toBuffer();
+ for(const image of [phone,await sharp(phone).rotate(4,{background:'#363636'}).jpeg().toBuffer(),await sharp(phone).rotate(-90).withMetadata({orientation:6}).jpeg().toBuffer()]){const original=Buffer.from(image);assert.deepEqual(parseContractText(await recognizeContractText(image)),{salary:'$3.90M',years:'1+1',structure:'Flat',option:'Team'});assert.deepEqual(image,original);}
+});
