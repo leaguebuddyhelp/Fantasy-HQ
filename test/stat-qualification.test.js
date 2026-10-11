@@ -34,3 +34,15 @@ test('Discord percentage leaders exclude low-volume shooters while counting cate
   assert.doesNotMatch(e.fields.find(f => f.name.includes('FG%')).value, /Low Volume/);
   assert.match(e.fields.find(f => f.name.includes('FG%')).value, /Qualified/);
 });
+
+test('regular-season minimum starts at ten attempts before Week 1 and matches the pin', () => {
+  for (const currentWeek of [undefined, null, 0, 1]) {
+    const q = percentageQualification({ GP: 1, FGA: 9, '3PA': 10, FTA: 11 }, { currentWeek });
+    assert.equal(q.FGPercent.minimumAttempts, 10);
+    assert.equal(q.FGPercent.eligible, false);
+    assert.equal(q.threePPercent.eligible, true);
+    assert.equal(q.FTPercent.eligible, true);
+    const embed = statsPayload([], { league: { currentWeek, seasonNumber: 1 } }).embeds[0].toJSON();
+    assert.match(embed.description, /Minimum 10 attempts per category/);
+  }
+});

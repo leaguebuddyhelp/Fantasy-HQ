@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { seasonDraftClass } = require('../src/shared/season-draft-class');
+const { seasonDraftClass, seasonDraftBoard } = require('../src/shared/season-draft-class');
 
 test('each installed Big Board and Early Top Ten maps exclusively to its numbered season', () => {
     const files = fs.readdirSync('draft_class');
@@ -17,7 +17,7 @@ test('each installed Big Board and Early Top Ten maps exclusively to its numbere
     assert.throws(() => seasonDraftClass([...files, 'other_CUS01 - Big Board.json'], 1), /requires one/);
 });
 
-test('website class list and both prospect endpoints follow the bound season, ignoring old class URLs', t => {
+test('website boards follow every season and phase, rejecting closed boards and ignoring old class URLs', t => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lb-season-web-'));
     const prior = { FANTASYHQ_DATA_ROOT: process.env.FANTASYHQ_DATA_ROOT, GUILD_ID: process.env.GUILD_ID };
     process.env.FANTASYHQ_DATA_ROOT = root; process.env.GUILD_ID = 'season-guild';
@@ -32,16 +32,30 @@ test('website class list and both prospect endpoints follow the bound season, ig
         return { status, body };
     }
     for (let season = 1; season <= 4; season++) {
-        repository.saveLeague('season-test', { seasonNumber: season, currentSeasonId: '1' });
-        const list = get('/api/draft-classes'); assert.equal(list.status, 200); assert.equal(list.body.seasonNumber, season);
-        for (const board of list.body.boards) {
-            assert.equal(board.classes.length, 1); assert.equal(board.classes[0].label, `2k27_CUS0${season}`);
-            const result = get(`/api/prospects?board=${board.id}&class=2k27_CUS04`);
-            assert.equal(result.status, 200); assert.equal(result.body.draftClass.label, `2k27_CUS0${season}`);
-            assert.ok(result.body.prospects.length > 0);
+        for (const phase of ['SETUP', 'PRESEASON', 'REGULAR_SEASON', 'PLAYOFFS', 'OFFSEASON', 'DRAFT', 'FREE_AGENCY']) {
+            repository.saveLeague('season-test', { seasonNumber: season, currentSeasonId: '1', currentPhase: phase });
+            const active = ['SETUP', 'PRESEASON'].includes(phase) ? 'top-ten' : 'big-board';
+            const list = get('/api/draft-classes');
+            assert.equal(list.status, 200); assert.equal(list.body.seasonNumber, season);
+            assert.equal(list.body.activeBoard, active); assert.equal(list.body.boards.length, 1);
+            const board = list.body.boards[0];
+            assert.equal(board.id, active); assert.equal(board.classes[0].label, `2k27_CUS0${season}`);
+            for (const url of [`/api/prospects?board=${active}&class=2k27_CUS04`, '/api/prospects']) {
+                const result = get(url);
+                assert.equal(result.status, 200); assert.equal(result.body.draftClass.label, `2k27_CUS0${season}`);
+                assert.ok(result.body.prospects.length > 0);
+                if (active === 'top-ten') assert.equal(result.body.prospects.length, 10);
+            }
+            assert.equal(get(`/api/prospects?board=${active === 'top-ten' ? 'big-board' : 'top-ten'}`).status, 403);
         }
     }
     repository.saveLeague('season-test', { seasonNumber: 5, currentSeasonId: '1' });
     assert.equal(get('/api/draft-classes').status, 404);
     assert.equal(get('/api/prospects?board=big-board').status, 404);
+});
+
+
+test('scouting board fails closed for an unknown phase', () => {
+    assert.throws(() => seasonDraftBoard('UNKNOWN'), /phase is invalid/);
+    assert.throws(() => seasonDraftBoard(undefined), /phase is invalid/);
 });

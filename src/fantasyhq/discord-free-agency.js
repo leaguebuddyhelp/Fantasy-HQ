@@ -18,6 +18,7 @@ const contractText = details => `Salary: **${typeof details.salary === 'number' 
 const isStaff = interaction => Boolean(interaction.member?.roles?.cache?.some(role => STAFF_ROLES.has(role.name)));
 function permanentPayload(settings = {}, phase = 'REGULAR_SEASON') {
   if (phase === 'FREE_AGENCY') return { embeds:[embed('LEAGUEbuddy OFFSEASON FREE AGENCY','Exclusive re-signing, then three rating stages. Each period normally lasts **24 hours**.\n\nKeep up to **5 private active offers**, with unique priorities **1–5**. Open stages allow **3 signings per team per stage**, **9 total**. Exclusive re-signings do not use those limits.\n\nStaff confirms winning offers after the deadline. Use the buttons below for the current stage.')],components:[row(button('sign','SIGN FREE AGENT',ButtonStyle.Primary),button('active','MY ACTIVE OFFERS'))],allowedMentions:{parse:[]} };
+  if (!['REGULAR_SEASON', 'FREE_AGENCY'].includes(phase)) return { embeds: [embed('LEAGUEbuddy FREE AGENCY', 'New signing requests are closed in this phase. You can still view existing offers and finish eligible pending windows.')], components: [row(button('sign', 'SIGN FREE AGENT', ButtonStyle.Primary).setDisabled(true), button('active', 'MY ACTIVE OFFERS'))], allowedMentions: { parse: [] } };
   const duration = offerWindowDuration(settings);
   const clock = duration === 3600000 ? '**1 hour**' : `**${duration / 1000} seconds (Test Mode)**`;
   return { embeds: [embed('LEAGUEbuddy FREE AGENCY', `Submit an official NBA 2K contract offer for an available free agent.\n\nNew offer windows remain open for ${clock}. Existing windows keep their saved deadlines. Contract details stay private until the player signs.\n\nRegular season: maximum **5 signings** and **2 active targets** per team.`)], components: [row(button('sign', 'SIGN FREE AGENT', ButtonStyle.Primary), button('active', 'MY ACTIVE OFFERS'))], allowedMentions: { parse: [] } };
@@ -138,6 +139,7 @@ function createDiscordFreeAgency({ repository, service = createFreeAgencyService
         else service.reviewOffer(leagueId, { offerId: id, decision: action === 'approve' ? 'APPROVE' : 'REJECT', actorUserId: interaction.user.id, staffAuthorized: true });
         await interaction.editReply({ content: 'Staff decision saved.' }); await tick(); return;
       }
+      if (['sign', 'waive'].includes(action) && (context.league.currentPhase !== 'REGULAR_SEASON' || context.league.regularSeasonStatus === 'COMPLETED')) throw Error('New signing and waiver requests require an active REGULAR_SEASON.');
       if (['sign', 'active', 'waive'].includes(action)) {
         await interaction.deferReply({ flags: EPHEMERAL }); await interaction.editReply(await begin(interaction, context, action)); return;
       }

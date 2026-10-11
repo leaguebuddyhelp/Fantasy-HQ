@@ -75,12 +75,7 @@ function createGameSubmissionService(options = {}) {
   }
   function check(record, { guildId, discordThreadId, userId, privateThread, staff = false }) {
     const game = record.game;
-    if(repository.loadLeague(game.leagueId).seasonId!==String(game.seasonId))throw Error('This game belongs to an archived season. Use the active season game thread.');
-    if (game.seriesId) {
-      const state = require('./postseason-service').createPostseasonService({repository,submissions:{records,load}}).inspect(game.leagueId);
-      const series = state.series.find(s => s.id === game.seriesId);
-      if (state.conflicts.length || state.stage !== game.stage || series?.winnerTeamId || series?.gameIds.at(-1) !== game.gameId) throw Error('This postseason game is not open for submissions.');
-    }
+    require('./competition-window').requireCompetitionGame(repository, game, { records, load });
     if (!privateThread || game.guildId !== guildId || game.discordThreadId !== discordThreadId) {
       throw new Error("Use Submit Game in this game's private thread.");
     }
@@ -285,12 +280,7 @@ function createGameSubmissionService(options = {}) {
   function setFinalizationHandler(handler) { finalizationHandler = typeof handler === "function" ? handler : null; }
   function authorizeExtraction(gameId, actor, staff = false) {
     const record = load(gameId);
-    if(repository.loadLeague(record.game.leagueId).seasonId!==String(record.game.seasonId))throw Error('This game belongs to an archived season.');
-    if (!staff) check(record, actor);
-    else if (!actor.privateThread || record.game.guildId !== actor.guildId || record.game.discordThreadId !== actor.discordThreadId
-      || record.game.locked || record.game.finalizedAt || ["FINAL", "FINALIZED", "LOCKED"].includes(record.game.status)) {
-      throw new Error("Use the unlocked game's private thread.");
-    }
+    check(record, { ...actor, staff: staff || actor.staff === true });
   }
   function staffActor(actor) { if (!actor.staff) throw new Error("Commissioner authorization required for Staff Submit."); return actor; }
   return { ensurePostseasonGame, beginStaff: (id, actor) => begin(id, staffActor(actor)), receiveStaff: (id, actor, attachments, messageId) => receive(id, staffActor(actor), attachments, messageId), bind, storageIssues, ensureGame: params => bind(params, true), records, begin, beginSide: (id, actor) => begin(id, actor, true), cancel, receive, receiveSide: (id, actor, attachments, messageId) => receive(id, actor, attachments, messageId, true), load, findThread, setMessage, readOriginal, mutate, setFinalizationHandler, authorizeExtraction, repository };

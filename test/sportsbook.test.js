@@ -2,17 +2,25 @@ const test=require('node:test'),assert=require('node:assert/strict');
 const {fixture}=require('./helpers/free-agency');
 const {createSportsbookService}=require('../src/fantasyhq/sportsbook-service');
 const {createGameSubmissionService}=require('../src/fantasyhq/game-submissions');
-async function setup(t) {
+async function setup(t, historical = false) {
  const f=fixture(t);f.repository.saveLeague('league',{currentWeek:1,commissionerUserId:'commissioner'});
  f.repository.saveRoleOwnership('league',{roleIds:{a:'ra',b:'rb',c:'rc'}});
- f.repository.saveSchedule({leagueId:'league',seasonId:'1',weeks:Array.from({length:3},(_,i)=>({week:i+1,weekId:'w'+(i+1),status:'ACTIVE',games:[{team1Id:'a',team2Id:'b'}],byes:['c']}))});
+ f.repository.saveSchedule({leagueId:'league',seasonId:'1',weeks:Array.from({length:3},(_,i)=>({week:i+1,weekId:'w'+(i+1),status:i === 0 ? 'ACTIVE' : 'UPCOMING',games:[{team1Id:'a',team2Id:'b'}],byes:['c']}))});
  const submissions=createGameSubmissionService({repository:f.repository});
  const games=[1,2,3].map(weekNumber=>submissions.ensureGame({guildId:'guild',weekNumber,teamQuery:'a'}).game.gameId);
+ if (!historical) {
+  const teams=f.repository.loadLeague('league').teams;
+  f.repository.saveTeams('league',[...teams,...['d','e'].map(teamId=>({...teams[1],teamId,teamName:'Team '+teamId,abbreviation:teamId}))]);
+  const schedule=f.repository.loadSchedule('league','1');
+  schedule.weeks[0].games=[{team1Id:'a',team2Id:'b'},{team1Id:'a',team2Id:'d'},{team1Id:'a',team2Id:'e'}];
+  f.repository.saveSchedule(schedule);
+  for(let i=1;i<3;i++)await submissions.mutate(games[i],r=>Object.assign(r.game,{weekNumber:1,weekId:'w1',team2Id:i===1?'d':'e'}));
+ }
  let clock=Date.parse('2026-10-08T12:00:00Z');const service=createSportsbookService({repository:f.repository,submissions,now:()=>clock});
  const actor={id:'coach-c',member:{roles:{cache:new Map([['rc',{}]])}}};
  const ids=(kind='MONEYLINE',selection='a',gameId=games[0])=>service.refresh('league').markets.find(m=>m.gameId===gameId&&m.kind===kind&&m.selection===selection).id;
  async function final(gameId,{a=110,b=100,forfeit=false}={}) {
-  await submissions.mutate(gameId,r=>{r.submissions=[{submissionId:'s',status:'FINAL',mode:'STAFF_ADMIN'}];r.extractions=[{extractionId:'e',submissionId:'s',status:'READY_FOR_REVIEW',issues:[]}];Object.assign(r.game,{status:'FINAL',finalizedAt:new Date(clock).toISOString(),result:{submissionId:'s',extractionId:'e',scores:forfeit?undefined:{a,b},...(forfeit?{type:'FORFEIT',winnerTeamId:'a',administrative:{approvedBy:'commissioner'}}:{})}});});
+  await submissions.mutate(gameId,r=>{r.submissions=[{submissionId:'s',status:'FINAL',mode:'STAFF_ADMIN'}];r.extractions=[{extractionId:'e',submissionId:'s',status:'READY_FOR_REVIEW',issues:[]}];Object.assign(r.game,{status:'FINAL',finalizedAt:new Date(clock).toISOString(),result:{submissionId:'s',extractionId:'e',scores:forfeit?undefined:{[r.game.team1Id]:a,[r.game.team2Id]:b},...(forfeit?{type:'FORFEIT',winnerTeamId:'a',administrative:{approvedBy:'commissioner'}}:{})}});});
  }
  const bet=ids=>{const preview=service.preview('league',actor,{marketIds:ids,wager:'10'});return service.confirm('league',actor,preview.id);};
  return {...f,submissions,games,service,actor,ids,final,bet,advance:()=>clock+=300001};
@@ -51,7 +59,7 @@ test('parlays wait for every verified game, remove voided scoring legs and refun
  const f=await setup(t),parlay=f.bet([f.ids(),f.ids('SPREAD','a',f.games[1])]);
  await f.final(f.games[0]);f.service.settle('league');assert.equal(f.service.mine('league',f.actor).bets[0].status,'OPEN');
  await f.final(f.games[1],{forfeit:true});f.service.settle('league');const settled=f.service.mine('league',f.actor).bets[0];assert.equal(settled.status,'WON');assert.equal(settled.settlements[0].results[1].status,'VOID');assert.equal(settled.settlements[0].returnCents,require('../src/fantasyhq/sportsbook-money').payout(1000,[parlay.legs[0].odds]));
- const canceled=f.bet([f.ids('SPREAD','b',f.games[2])]);await f.submissions.mutate(f.games[2],r=>{r.game.status='CANCELED';});f.service.settle('league');assert.equal(f.service.mine('league',f.actor).bets.find(b=>b.id===canceled.id).status,'VOID');
+ const canceled=f.bet([f.ids('SPREAD','e',f.games[2])]);await f.submissions.mutate(f.games[2],r=>{r.game.status='CANCELED';});f.service.settle('league');assert.equal(f.service.mine('league',f.actor).bets.find(b=>b.id===canceled.id).status,'VOID');
 });
 test('stale odds and expired previews require new confirmation and career balances survive season rollover',async t=>{
  const f=await setup(t),preview=f.service.preview('league',f.actor,{marketIds:[f.ids()],wager:'10'});const players=f.repository.loadPlayers('league');for(const p of players.filter(p=>p.teamId==='b'))p.overall=99;f.repository.savePlayers('league',players);
@@ -59,7 +67,7 @@ test('stale odds and expired previews require new confirmation and career balanc
  const placed=f.bet([f.ids()]);f.repository.saveLeague('league',{currentSeasonId:'2'});assert.equal(f.service.mine('league',f.actor).profile.balanceCents,29000);assert.equal(f.repository.loadSportsbook('league').bets[0].id,placed.id);
 });
 test('reliable props and higher-threshold specials reuse verified game logs; unsupported players receive no props',async t=>{
- const f=await setup(t),schedule=f.repository.loadSchedule('league','1');schedule.weeks.push({week:4,weekId:'w4',status:'ACTIVE',games:[{team1Id:'a',team2Id:'b'}],byes:['c']});f.repository.saveSchedule(schedule);f.repository.saveLeague('league',{currentWeek:4});
+ const f=await setup(t,true),schedule=f.repository.loadSchedule('league','1');schedule.weeks.forEach(w=>w.status='COMPLETED');schedule.weeks.push({week:4,weekId:'w4',status:'ACTIVE',games:[{team1Id:'a',team2Id:'b'}],byes:['c']});f.repository.saveSchedule(schedule);f.repository.saveLeague('league',{currentWeek:4});
  const next=f.submissions.ensureGame({guildId:'guild',weekNumber:4,teamQuery:'a'}).game.gameId;
  assert.equal(f.service.refresh('league').markets.some(m=>m.gameId===next&&m.kind.startsWith('PROP_')),false);
  for(let i=0;i<3;i++){await f.final(f.games[i]);await f.submissions.mutate(f.games[i],r=>{r.playerGameStats=[{playerId:'a-0',gameId:r.game.gameId,teamId:'a',MIN:35,PTS:[20,30,40][i],REB:[8,12,16][i],AST:[6,10,14][i],STL:1,BLK:1,TO:2,FGM:[8,12,16][i],FGA:22,'3PM':[2,4,6][i],'3PA':9,FTM:2,FTA:2,OR:2,FLS:2}];});}
@@ -101,4 +109,28 @@ test('Staff correction clears freeze once, preserves history, and future credits
  const p=f.service.prepareCorrection('league',actor,b.id);assert.ok(p.debtCents>0);assert.throws(()=>f.service.confirmCorrection('league',{id:'other',staffAuthorized:true},p.id),/changed|expired/);f.service.confirmCorrection('league',actor,p.id);f.service.confirmCorrection('league',actor,p.id);
  let account=f.service.mine('league',f.actor).profile;assert.equal(account.frozen,false);assert.equal(account.balanceCents,0);assert.equal(account.debtCents,p.debtCents);assert.equal(f.repository.loadSportsbook('league').bets[0].settlements.length,2);
  await f.final(f.games[1]);f.service.settle('league');account=f.service.mine('league',f.actor).profile;assert.equal(account.debtCents,0);assert.ok(account.balanceCents>0);require('../src/fantasyhq/sportsbook-service').validateSportsbook(f.repository.loadSportsbook('league'));
+});
+
+
+test('phase and active-week changes reject stale wagers without charging wallets', async t => {
+ const f=await setup(t),id=f.ids(),preview=f.service.preview('league',f.actor,{marketIds:[id],wager:'10'});
+ for(const currentPhase of ['SETUP','PRESEASON','PLAYOFFS','OFFSEASON','DRAFT','FREE_AGENCY']) {
+  f.repository.saveLeague('league',{currentPhase});
+  assert.throws(()=>f.service.confirm('league',f.actor,preview.id),/REGULAR_SEASON/);
+  assert.equal(f.service.refresh('league').markets.some(m=>m.status==='OPEN'),false);
+  assert.equal(f.service.mine('league',f.actor).profile.balanceCents,30000);
+ }
+ f.repository.saveLeague('league',{currentPhase:'REGULAR_SEASON',currentWeek:2});
+ assert.throws(()=>f.service.confirm('league',f.actor,preview.id),/active league week/);
+ f.repository.saveLeague('league',{currentWeek:1,regularSeasonStatus:'COMPLETED'});
+ assert.throws(()=>f.service.confirm('league',f.actor,preview.id),/REGULAR_SEASON/);
+ assert.equal(f.repository.loadSportsbook('league').bets.length,0);
+});
+
+test('settlement and original bet history remain available after competition closes', async t => {
+ const f=await setup(t),placed=f.bet([f.ids()]); await f.final(f.games[0]);
+ f.repository.saveLeague('league',{currentPhase:'OFFSEASON',regularSeasonStatus:'COMPLETED'});
+ f.service.settle('league');
+ assert.equal(f.service.mine('league',f.actor).bets[0].id,placed.id);
+ assert.equal(f.service.mine('league',f.actor).bets[0].status,'WON');
 });

@@ -26,7 +26,7 @@ function createScoutingService({ repository, draftClassDir = path.join(process.c
         if (!guildId) throw new Error('Scouting is only available in the league server.');
         const context = repository.loadLeagueContext({ guildId });
         let week = null;
-        if (context.league.currentPhase === 'REGULAR_SEASON') {
+        if (context.league.currentPhase === 'REGULAR_SEASON' && context.league.regularSeasonStatus !== 'COMPLETED') {
             try {
                 const schedule = repository.loadSchedule(context.league.leagueId, context.seasonId);
                 const activeWeeks = schedule.weeks.filter(item => item.status === 'ACTIVE');
@@ -42,12 +42,13 @@ function createScoutingService({ repository, draftClassDir = path.join(process.c
         return repository.loadSettings(context.league.leagueId)?.discordChannels?.scouting || null;
     }
 
-    function boardFileForSeason(seasonNumber) {
-        return require('../shared/season-draft-class').seasonDraftClass(fs.readdirSync(draftClassDir), seasonNumber);
+    function boardFileForSeason(seasonNumber, boardLabel) {
+        return require('../shared/season-draft-class').seasonDraftClass(fs.readdirSync(draftClassDir), seasonNumber, boardLabel);
     }
 
     function boardForContext(context) {
-        const file = boardFileForSeason(context.league.seasonNumber);
+        const boardLabel = require('../shared/season-draft-class').seasonDraftBoard(context.league.currentPhase);
+        const file = boardFileForSeason(context.league.seasonNumber, boardLabel);
         const raw = JSON.parse(fs.readFileSync(path.join(draftClassDir, file), 'utf8'));
         const prospects = Object.values(raw || {}).map(prospect => ({
             ...prospect,
@@ -74,7 +75,7 @@ function createScoutingService({ repository, draftClassDir = path.join(process.c
         }
         collect(imageRoot);
         return {
-            file,
+            file, boardLabel,
             seasonNumber: context.league.seasonNumber,
             prospects: prospects.map(prospect => {
                 // The board's image mapping remains authoritative when rankings change.
@@ -126,7 +127,7 @@ function createScoutingService({ repository, draftClassDir = path.join(process.c
     function inspect(guildId, userId, boardNumber) {
         const context = contextFor(guildId), board = boardForContext(context);
         const prospect = board.prospects.find(item => item.board_number === Number(boardNumber));
-        if (!prospect) throw new Error('Choose a prospect from this season’s Big Board.');
+        if (!prospect) throw new Error('Choose a prospect from this season’s available scouting board.');
         const state = loadState(context.league.leagueId), user = context.week ? userState(state, context, userId) : { spent: 0, prospects: {} };
         const level = Math.max(0, Math.min(REVEALS.length, Number(user.prospects[String(prospect.board_number)] || 0)));
         const remaining = context.week ? Math.max(0, WEEKLY_POINTS - Number(user.spent || 0)) : null;
@@ -137,7 +138,7 @@ function createScoutingService({ repository, draftClassDir = path.join(process.c
             weekNumber: context.week?.week ?? null,
             weekId: context.week?.weekId ?? null,
             scoutingAvailable: Boolean(context.week),
-            boardFile: board.file,
+            boardFile: board.file, boardLabel: board.boardLabel,
             prospect,
             level,
             spent: Number(user.spent || 0),
@@ -156,7 +157,7 @@ function createScoutingService({ repository, draftClassDir = path.join(process.c
             const level = Math.max(0, Math.min(REVEALS.length, Number(user.prospects[String(prospect.board_number)] || 0)));
             return {
                 ...context,
-                boardFile: board.file,
+                boardFile: board.file, boardLabel: board.boardLabel,
                 prospect,
                 level,
                 spent: context.week ? Number(user.spent || 0) : null,
@@ -165,7 +166,7 @@ function createScoutingService({ repository, draftClassDir = path.join(process.c
                 reveals: REVEALS.map((reveal, index) => ({ ...reveal, unlocked: level > index })),
             };
         });
-        return { boardFile: board.file, seasonNumber: context.league.seasonNumber, page, totalPages, start, total: board.prospects.length, prospects };
+        return { boardFile: board.file, boardLabel: board.boardLabel, seasonNumber: context.league.seasonNumber, page, totalPages, start, total: board.prospects.length, prospects };
     }
 
     function prospects(guildId, focused = '', position = null) {

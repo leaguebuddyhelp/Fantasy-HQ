@@ -73,10 +73,18 @@ function classLabel(fileName) {
     .replace(/\s+-\s+(Early Top Ten|Big Board)$/i, "");
 }
 
-function draftSeasonNumber() {
+function draftLeague() {
   const guildId = process.env.GUILD_ID;
-  if (!guildId || (!leagueService.repository.loadGuildLeagueBinding(guildId) && !process.env.FANTASYHQ_LEAGUE_ID)) return 1;
-  return boundLeagueContext().league.seasonNumber;
+  if (!guildId || (!leagueService.repository.loadGuildLeagueBinding(guildId) && !process.env.FANTASYHQ_LEAGUE_ID)) {
+    return { seasonNumber: 1, currentPhase: 'SETUP' };
+  }
+  return boundLeagueContext().league;
+}
+
+function draftSeasonNumber() { return draftLeague().seasonNumber; }
+
+function activeDraftBoardId() {
+  return require('./shared/season-draft-class').seasonDraftBoard(draftLeague().currentPhase) === 'Early Top Ten' ? 'top-ten' : 'big-board';
 }
 
 function resolveDraftClass(selection, boardId = "top-ten") {
@@ -564,21 +572,29 @@ function unsafeRequestHandler(request, response) {
   if (url.pathname === "/api/draft-classes") {
     try {
       const seasonNumber = draftSeasonNumber();
-      const boards = Object.values(BOARD_TYPES).map(board => {
+      const activeBoard = activeDraftBoardId();
+      const boards = [BOARD_TYPES[activeBoard]].map(board => {
         const file = resolveDraftClass(null, board.id);
         return { id: board.id, label: board.label, target: board.target, classes: [{ file, label: classLabel(file) }] };
       });
-      sendJson(response, 200, { seasonNumber, boards });
+      sendJson(response, 200, { seasonNumber, phase: draftLeague().currentPhase, activeBoard, boards });
     } catch (error) { sendJson(response, 404, { error: error.message }); }
     return;
   }
 
   if (url.pathname === "/api/prospects") {
-    const boardId = BOARD_TYPES[url.searchParams.get("board")]?.id || "top-ten";
-    const board = BOARD_TYPES[boardId];
-    let file;
-    try { file = resolveDraftClass(null, boardId); }
+    let boardId, file;
+    try {
+      const activeBoard = activeDraftBoardId();
+      boardId = url.searchParams.get('board') || activeBoard;
+      if (boardId !== activeBoard) {
+        sendJson(response, 403, { error: `This season's available board is ${BOARD_TYPES[activeBoard].label}.`, activeBoard });
+        return;
+      }
+      file = resolveDraftClass(null, boardId);
+    }
     catch (error) { sendJson(response, 404, { error: error.message }); return; }
+    const board = BOARD_TYPES[boardId];
     if (!file) {
       sendJson(response, 404, { error: "Draft class not found" });
       return;
@@ -859,6 +875,17 @@ function unsafeRequestHandler(request, response) {
     return;
   }
 
+  if (url.pathname === '/api/league/admin/rosters/correction-preview' && request.method === 'POST') {
+    if (!isAdminRequest(request, url)) { sendJson(response, 403, { error: 'Admin authorization required.' }); return; }
+    parseJsonBody(request).then(body => {
+      const context = boundLeagueContext();
+      const args = { ...body.payload, leagueId: context.league.leagueId, seasonId: context.seasonId,
+        actingUserId: require('./shared/website-auth').websiteActor(request, context, { commissioner: true }).id };
+      sendJson(response, 200, require('./fantasyhq/roster-corrections').prepareRosterCorrection(leagueService.repository, body.action, args, body.reason));
+    }).catch(error => sendJson(response, 400, { error: error.message }));
+    return;
+  }
+
   if (adminPlayerMatch && request.method === "PATCH") {
     if (!isAdminRequest(request, url)) {
       sendJson(response, 403, { error: "Admin authorization required." });
@@ -866,8 +893,9 @@ function unsafeRequestHandler(request, response) {
     }
     parseJsonBody(request)
       .then((body) => {
-        const context = boundLeagueContext(), operator = websiteOperator(body), { operator: ignoredOperator, ...patch } = body;
+        const context = boundLeagueContext(), operator = websiteOperator(body), { operator: ignoredOperator, correctionToken: ignoredCorrection, ...patch } = body;
         const player = playerService.updatePlayer({
+          correctionToken: body.correctionToken,
           leagueId: context.league.leagueId,
           seasonId: context.seasonId,
           playerId: decodeURIComponent(adminPlayerMatch[1]),
@@ -891,8 +919,9 @@ function unsafeRequestHandler(request, response) {
     }
     parseJsonBody(request)
       .then((body) => {
-        const context = boundLeagueContext(), operator = websiteOperator(body), { operator: ignoredOperator, ...playerInput } = body;
+        const context = boundLeagueContext(), operator = websiteOperator(body), { operator: ignoredOperator, correctionToken: ignoredCorrection, ...playerInput } = body;
         const player = playerService.addPlayer({
+          correctionToken: body.correctionToken,
           leagueId: context.league.leagueId,
           seasonId: context.seasonId,
           teamId: body.teamId,
@@ -918,6 +947,7 @@ function unsafeRequestHandler(request, response) {
       .then((body) => {
         const context = boundLeagueContext(), operator = websiteOperator(body);
         const membership = rosterService.movePlayer({
+          correctionToken: body.correctionToken,
           leagueId: context.league.leagueId,
           seasonId: context.seasonId,
           playerId: body.playerId,
@@ -944,6 +974,7 @@ function unsafeRequestHandler(request, response) {
       .then((body) => {
         const context = boundLeagueContext(), operator = websiteOperator(body);
         const membership = rosterService.removePlayer({
+          correctionToken: body.correctionToken,
           leagueId: context.league.leagueId,
           seasonId: context.seasonId,
           playerId: body.playerId,
@@ -969,6 +1000,7 @@ function unsafeRequestHandler(request, response) {
       .then((body) => {
         const context = boundLeagueContext(), operator = websiteOperator(body);
         const result = rosterService.bulkUpdateRoster({
+          correctionToken: body.correctionToken,
           leagueId: context.league.leagueId,
           seasonId: context.seasonId,
           teamId: body.teamId,

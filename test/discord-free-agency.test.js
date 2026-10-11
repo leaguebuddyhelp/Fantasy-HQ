@@ -163,3 +163,13 @@ test('MINIMUM confirmation requires an exact dollar correction before enabling s
  assert.equal(corrected.payload.components[0].toJSON().components[0].disabled,false);
  assert.equal(f.state().drafts.at(-1).ocrOriginal.salary,'MINIMUM');
 });
+
+
+test('closed-phase FA pin disables new signing while preserving active-offer access', () => {
+ for (const phase of ['SETUP','PRESEASON','PLAYOFFS','OFFSEASON','DRAFT']) {
+  const payload=permanentPayload({},phase);
+  const controls=payload.components[0].toJSON().components;
+  assert.equal(controls.find(c=>c.custom_id==='fa:sign').disabled,true);
+  assert.notEqual(controls.find(c=>c.custom_id==='fa:active').disabled,true);
+ }
+});

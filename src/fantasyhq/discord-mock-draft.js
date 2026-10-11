@@ -95,7 +95,8 @@ function createDiscordMockDraft({ repository, simulations, live, client = null }
             let settings = repository.loadSettings(leagueId) || {}, channelId = settings.discordChannels?.scouting;
             if (!channelId) throw Error('Repair league channels to configure Scouting Hub.');
             const ch = await guild.channels.fetch(channelId);
-            const payload = { embeds: [embed('🏀 LEAGUEbuddy LIVE MOCK DRAFT', 'Run a private 30-pick first-round mock with league coaches and CPU teams.\n\n👥 Invite coaches → 📋 Choose Base Order or 🎲 Run Lottery → 🔒 Lock Order → ▶️ Start Mock\n\nUses the current Big Board, rosters, pick ownership and saved 1,000-mock market snapshot.')], components: [row(button('mock:start', 'START LIVE MOCK', ButtonStyle.Primary))], allowedMentions: { parse: [] } };
+            const early = require('../shared/season-draft-class').seasonDraftBoard(repository.loadLeague(leagueId).league.currentPhase) === 'Early Top Ten';
+            const payload = { embeds: [embed('🏀 LEAGUEbuddy LIVE MOCK DRAFT', early ? 'Live mocks open with the Big Board when the regular season starts. Use /toptenpreview or /bigboard to browse the Early Top Ten.' : 'Run a private 30-pick first-round mock with league coaches and CPU teams.\n\n👥 Invite coaches → 📋 Choose Base Order or 🎲 Run Lottery → 🔒 Lock Order → ▶️ Start Mock\n\nUses the current Big Board, rosters, pick ownership and saved 1,000-mock market snapshot.')], components: [row(button('mock:start', 'START LIVE MOCK', ButtonStyle.Primary).setDisabled(early))], allowedMentions: { parse: [] } };
             let msg = null;
             if (settings.discordPins?.liveMockMessageId) try { msg = await ch.messages.fetch(settings.discordPins.liveMockMessageId); } catch (e) { if (e.code !== 10008) throw e; }
             if (!msg) {
@@ -410,8 +411,11 @@ function createDiscordMockDraft({ repository, simulations, live, client = null }
             const leagueId = c.league.leagueId;
             if ((nextRefresh.get(leagueId) || 0) <= Date.now()) {
                 nextRefresh.set(leagueId, Date.now() + 30000);
-                try { simulations.reconcileRequests(leagueId); } catch (e) { console.error('Mock refresh inputs:', e.message); }
-                simulations.refresh(leagueId).catch(e => console.error('Mock simulations:', e.message));
+                try { await ensurePin(guild, leagueId); } catch (e) { console.error('Live Mock pin:', e.message); }
+                if (require('../shared/season-draft-class').seasonDraftBoard(c.league.currentPhase) === 'Big Board') {
+                    try { simulations.reconcileRequests(leagueId); } catch (e) { console.error('Mock refresh inputs:', e.message); }
+                    simulations.refresh(leagueId).catch(e => console.error('Mock simulations:', e.message));
+                }
             }
             for (const m of live.all(leagueId).filter(m => m.guildId === guild.id && m.status === 'CLEANED' && m.participants.some(p => { const d = m.dmDelivery[p.userId]; return d && !d.delivered && !d.permanent && (d.attempts || 0) < 3 && (!d.nextRetryAt || d.nextRetryAt <= Date.now()); }))) {
                 await serial(key(leagueId, m.id), () => deliverRecaps(guild, live.get(leagueId, m.id))).catch(e => console.error('Mock recap recovery:', e.message));

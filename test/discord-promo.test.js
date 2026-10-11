@@ -1,9 +1,37 @@
 const test=require('node:test'),assert=require('node:assert/strict');
 const {promoPayload,handlePromo}=require('../src/fantasyhq/discord-promo');
-const {DIVISIONS}=require('../src/fantasyhq/discord-available-teams');
-const teams=Object.entries(DIVISIONS).flatMap(([conference,divisions])=>Object.values(divisions).flatMap(ids=>ids.map(abbreviation=>({teamId:abbreviation,abbreviation,teamName:abbreviation,conference}))));
-test('promo contains recruitment text, invite and only teams without an active real coach in one embed',()=>{
- const owners=[{teamId:'BOS',userId:'coach'},{teamId:'LAL',userId:'coach2'},{teamId:'CHI',userId:'old',active:false},{teamId:'DAL',userId:'simulation:placeholder'}];const p=promoPayload({teams},owners),embed=p.embeds[0].toJSON(),fields=embed.fields.map(f=>f.value).join('\n');assert.equal(p.embeds.length,1);assert.match(embed.title,/LEAGUEbuddy/);assert.match(embed.description,/48-Hour Game Windows/);assert.match(embed.description,/discord.gg\/QRdcXrWn2M/);assert.match(embed.description,/28 available/);assert.doesNotMatch(fields,/\*\*BOS\*\*|\*\*LAL\*\*/);assert.match(fields,/\*\*CHI\*\*/);assert.match(fields,/\*\*DAL\*\*/);assert.ok(embed.fields.some(f=>f.name.includes('East')));assert.ok(embed.fields.some(f=>f.name.includes('West')));assert.deepEqual(p.allowedMentions,{parse:[]});assert.ok(embed.description.length<4096);assert.ok(embed.fields.reduce((n,f)=>n+f.name.length+f.value.length,embed.description.length+embed.title.length+embed.footer.text.length)<6000);
+const nbaTeams=require('../web/assets/nba/teams.json');
+const teams=nbaTeams.map(team=>({teamId:team.abbreviation,abbreviation:team.abbreviation,teamName:team.name}));
+test('promo is a regular message with recruitment text and a vertical list of open team names',()=>{
+ const owners=[{teamId:'BOS',userId:'coach'},{teamId:'LAL',userId:'coach2'},
+  {teamId:'CHI',userId:'old',active:false},{teamId:'DAL',userId:'simulation:placeholder'},
+  {teamId:'ATL',userId:'former',endedAt:'2026-10-01'}];
+ const p=promoPayload({teams},owners);
+ assert.deepEqual(p.embeds,[]);
+ assert.match(p.content,/LEAGUEbuddy/);
+ assert.match(p.content,/48-hour game windows & automated scheduling/);
+ const list=p.content.split('**OPEN TEAMS (28)**\n')[1];
+ assert.ok(list);
+ assert.deepEqual(list.split('\n'),teams.filter(t=>!['BOS','LAL'].includes(t.teamId)).map(t=>t.teamName).sort((a,b)=>a.localeCompare(b)));
+ assert.deepEqual(p.allowedMentions,{parse:[]});
 });
-test('promo scans ownership before reading vacancy data on every invocation',async()=>{const events=[];let owners=[];const dependencies={repository:{loadLeagueContext:()=>{events.push('read');return {league:{leagueId:'league'},teams};},loadOwners:()=>owners},ownership:{invalidateMembers:()=>events.push('invalidate'),sync:async()=>events.push('sync')}};const responses=[],i={guildId:'guild',guild:{id:'guild'},editReply:async p=>responses.push(p)};await handlePromo(i,dependencies);owners=[{teamId:'BOS',userId:'coach'}];await handlePromo(i,dependencies);assert.deepEqual(events,['invalidate','sync','read','invalidate','sync','read']);assert.match(responses[0].embeds[0].data.description,/30 available/);assert.match(responses[1].embeds[0].data.description,/29 available/);});
-test('full league promo offers waiting list without claiming vacancies',()=>{const p=promoPayload({teams},teams.map(t=>({teamId:t.teamId,userId:'coach:'+t.teamId})));assert.match(p.embeds[0].data.description,/waiting list/);assert.equal(p.embeds[0].data.fields,undefined);});
+test('promo with all 30 full NBA names fits in one Discord message',()=>{
+ const p=promoPayload({teams},[]);
+ assert.ok(p.content.length<=2000);
+ assert.equal(p.content.split('**OPEN TEAMS (30)**\n')[1].split('\n').length,30);
+});
+test('promo scans ownership before reading vacancy data on every invocation',async()=>{
+ const events=[];let owners=[];
+ const dependencies={repository:{loadLeagueContext:()=>{events.push('read');return {league:{leagueId:'league'},teams};},loadOwners:()=>owners},ownership:{invalidateMembers:()=>events.push('invalidate'),sync:async()=>events.push('sync')}};
+ const responses=[],i={guildId:'guild',guild:{id:'guild'},editReply:async p=>responses.push(p)};
+ await handlePromo(i,dependencies);owners=[{teamId:'BOS',userId:'coach'}];await handlePromo(i,dependencies);
+ assert.deepEqual(events,['invalidate','sync','read','invalidate','sync','read']);
+ assert.match(responses[0].content,/OPEN TEAMS \(30\)/);
+ assert.match(responses[1].content,/OPEN TEAMS \(29\)/);
+});
+test('full league promo offers waiting list without claiming vacancies',()=>{
+ const p=promoPayload({teams},teams.map(t=>({teamId:t.teamId,userId:'coach:'+t.teamId})));
+ assert.match(p.content,/waiting list/);
+ assert.doesNotMatch(p.content,/OPEN TEAMS/);
+ assert.deepEqual(p.embeds,[]);
+});

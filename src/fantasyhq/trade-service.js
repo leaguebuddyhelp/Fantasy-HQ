@@ -312,12 +312,24 @@ function createTradeService(options = {}) {
         return owner;
     }
 
+    function expirationStatus(trade) {
+        if (!ACTIVE_STATUSES.has(trade.status) || trade.status === 'PENDING_PROOF_REVIEW' || !trade.expiresAt || Date.parse(trade.expiresAt) > now()) return null;
+        return trade.status === 'PENDING_GM_APPROVAL' ? 'EXPIRED_GM_RESPONSE' : trade.status === 'PENDING_COMMITTEE' ? 'EXPIRED_COMMITTEE' : 'EXPIRED_PROOF';
+    }
+    function requireResponseDeadline(leagueId, trade) {
+        const status = expirationStatus(trade);
+        if (!status) return;
+        transition(leagueId, trade, status, 'system', status);
+        throw new Error('This trade response deadline has expired.');
+    }
+
     function decideGM({ leagueId, tradeId, version, actorUserId, actorTeamId, decision, eligibleVoterIds = [] }) {
         const trade = repository.loadTrades(leagueId).find(entry => entry.tradeId === tradeId);
         if (!trade || trade.status !== "PENDING_GM_APPROVAL" || trade.version !== Number(version)) throw new Error("This GM response is no longer active.");
         const state = currentContext(leagueId, trade.seasonId);
         responseTeam(state, trade, actorTeamId, actorUserId);
         if (actorTeamId === trade.initiatingTeamId) throw new Error("The proposer already approved by submitting this version.");
+        requireResponseDeadline(leagueId, trade);
         if (!new Set(["APPROVE", "DENY"]).has(decision)) throw new Error("Choose Approve or Deny.");
         const decisions = trade.currentVersion.gmDecisions;
         if (decisions.some(entry => entry.teamId === actorTeamId)) throw new Error("Your team has already responded to this version.");
@@ -353,6 +365,7 @@ function createTradeService(options = {}) {
         const state = currentContext(leagueId, trade.seasonId);
         responseTeam(state, trade, actorTeamId, actorUserId);
         if (actorTeamId === trade.initiatingTeamId) throw new Error("Only another involved team can counter this proposal.");
+        requireResponseDeadline(leagueId, trade);
         trade.currentVersion.status = "COUNTERED";
         trade.currentVersion.counteredAt = timestamp();
         trade.versions ||= [];
@@ -373,6 +386,7 @@ function createTradeService(options = {}) {
         if (!trade || trade.status !== "PENDING_COMMITTEE" || trade.version !== Number(version)) throw new Error("Committee voting is no longer open.");
         const committee = trade.currentVersion.committee;
         if (!committee.eligibleVoterIds.includes(String(actorUserId))) throw new Error("You are not an eligible voter for this trade.");
+        requireResponseDeadline(leagueId, trade);
         if (!new Set(["APPROVE", "DENY"]).has(decision)) throw new Error("Choose Approve or Deny.");
         if (committee.votes.some(vote => vote.userId === String(actorUserId))) throw new Error("You have already voted on this trade.");
         committee.votes.push({ userId: String(actorUserId), decision, timestamp: timestamp() });
@@ -549,8 +563,8 @@ function createTradeService(options = {}) {
         reconcileOwnership(leagueId);
         const expired = [];
         for (const trade of repository.loadTrades(leagueId)) {
-            if (!ACTIVE_STATUSES.has(trade.status) || trade.status === "PENDING_PROOF_REVIEW" || !trade.expiresAt || Date.parse(trade.expiresAt) > now()) continue;
-            const status = trade.status === "PENDING_GM_APPROVAL" ? "EXPIRED_GM_RESPONSE" : trade.status === "PENDING_COMMITTEE" ? "EXPIRED_COMMITTEE" : "EXPIRED_PROOF";
+            const status = expirationStatus(trade);
+            if (!status) continue;
             if (seasonId && String(trade.seasonId) !== String(seasonId)) continue;
             transition(leagueId, trade, status, "system", status);
             expired.push({ tradeId: trade.tradeId, status, participatingTeams: trade.participatingTeams });

@@ -480,7 +480,11 @@ function topTenPreviewActionRow(index, total, draftClassFile, prospect = {}) {
 }
 
 async function handleTopTenPreview(interaction, index = 0, draftClassSelection = null) {
-  const season = scoutingService.contextFor(interaction.guildId).league.seasonNumber;
+  const league = scoutingService.contextFor(interaction.guildId).league;
+  if (require('./shared/season-draft-class').seasonDraftBoard(league.currentPhase) !== 'Early Top Ten') {
+    throw Error('Early Top Ten closes when the regular season starts. Use /bigboard for this season’s Big Board.');
+  }
+  const season = league.seasonNumber;
   const draftClassFile = require('./shared/season-draft-class').seasonDraftClass(topTenDraftClassFiles(), season, 'Early Top Ten');
   if (draftClassSelection && draftClassSelection !== draftClassFile) throw Error('The draft class changed with the league season. Run /toptenpreview again.');
   const prospects = topTenPreviewProspects(draftClassFile);

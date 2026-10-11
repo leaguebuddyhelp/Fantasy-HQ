@@ -66,10 +66,10 @@ async function fixture(t, provider, isolated=false) {
   const base=fs.mkdtempSync(path.join(os.tmpdir(),'box-score-')),root=isolated?path.join(base,'simulations','fixture','workspace'):base;
   t.after(() => fs.rmSync(base,{recursive:true,force:true}));
   const repository=createFantasyHQRepository({dataRoot:root});
-  repository.saveLeague('test',{currentPhase:'REGULAR_SEASON',currentSeasonId:'1'});
+  repository.saveLeague('test',{currentPhase:'REGULAR_SEASON',currentSeasonId:'1',currentWeek:1});
   repository.saveTeams('test',teams); repository.saveOwners('test',[{teamId:'mil',userId:'owner'}]);
   repository.saveGuildLeagueBinding('guild',{leagueId:'test',seasonId:'1'});
-  repository.saveSchedule({leagueId:'test',seasonId:'1',weeks:[{week:1,weekId:'test:1:week:1',games:[{team1Id:'mil',team2Id:'cle'}]}]});
+  repository.saveSchedule({leagueId:'test',seasonId:'1',weeks:[{week:1,weekId:'test:1:week:1',status:'ACTIVE',games:[{team1Id:'mil',team2Id:'cle'}]}]});
   const ctx=context(); repository.savePlayers('test',Object.values(ctx.rosters).flat());
   repository.saveRosterMemberships('test',Object.entries(ctx.rosters).flatMap(([teamId,players]) => players.map(p => ({playerId:p.playerId,teamId,seasonId:'1',active:true}))));
   const bytes=require('node:fs').readFileSync(require('node:path').join(__dirname,'fixtures','contract-payne-team-option.jpg'));

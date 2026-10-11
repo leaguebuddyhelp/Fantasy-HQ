@@ -90,6 +90,7 @@ function createPlayerService(options = {}) {
   }
 
   function updatePlayer({ leagueId, seasonId, playerId, patch, actingUserId, operator }) {
+    const correction = require('./roster-corrections').authorizeRosterEdit(repository, 'update', arguments[0]);
     const validated = validatePlayerPatch(patch);
     const context = repository.loadLeague(leagueId, seasonId);
     if (validated.teamId && !context.teams.some(t => t.teamId === validated.teamId)) throw Error('Choose a valid league team.');
@@ -111,7 +112,11 @@ function createPlayerService(options = {}) {
     let activeMembership = memberships.find((entry) => entry.playerId === playerId && entry.active !== false && !entry.endedAt && String(entry.seasonId) === String(context.seasonId));
     if (activeMembership) {
       if ("teamId" in validated && validated.teamId && validated.teamId !== activeMembership.teamId) {
-        activeMembership.teamId = validated.teamId;
+        const at = new Date().toISOString();
+        const next = { ...activeMembership, teamId: validated.teamId, active: true, startedAt: at, updatedAt: at };
+        delete next.endedAt; delete next.endedReason;
+        activeMembership.active = false; activeMembership.endedAt = at; activeMembership.endedReason = 'ADMIN_CORRECTION';
+        memberships.push(next); activeMembership = next;
       }
       if ("jerseyNumber" in validated) activeMembership.jerseyNumber = validated.jerseyNumber;
       if ("position1" in validated) activeMembership.position1 = validated.position1;
@@ -125,7 +130,7 @@ function createPlayerService(options = {}) {
     const changes = diffObject(current, updated, EDITABLE_PLAYER_FIELDS);
     repository.commitRosterTransaction({ leagueId, players, rosterMemberships: memberships, auditEntry: {
       action: "player.updated",
-      userId: String(actingUserId || context.league.commissionerUserId || "system"),
+      correction, userId: String(actingUserId || context.league.commissionerUserId || "system"),
       ...(operator ? { operator: String(operator) } : {}),
       leagueId,
       timestamp: new Date().toISOString(),
@@ -150,6 +155,7 @@ function createPlayerService(options = {}) {
   }
 
   function addPlayer({ leagueId, seasonId, teamId, player, actingUserId, operator }) {
+    const correction = require('./roster-corrections').authorizeRosterEdit(repository, 'add', arguments[0]);
     if (!repository.loadLeague(leagueId, seasonId).teams.some(t => t.teamId === teamId)) throw Error('Choose a valid league team.');
     const validated = validatePlayerPatch(player);
     const duplicates = findDuplicateCandidates(leagueId, validated);
@@ -187,7 +193,7 @@ function createPlayerService(options = {}) {
     });
     repository.commitRosterTransaction({ leagueId, players, rosterMemberships: memberships, auditEntry: {
       action: "player.added",
-      userId: String(actingUserId || "system"),
+      correction, userId: String(actingUserId || "system"),
       ...(operator ? { operator: String(operator) } : {}),
       leagueId,
       timestamp: now,

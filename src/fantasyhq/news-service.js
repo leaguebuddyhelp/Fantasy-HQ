@@ -8,11 +8,11 @@ function performanceArticle(facts,variant=0){if(facts.type==='VERIFIED_EVENT')re
 function createNewsService({repository,submissions,now=Date.now}){
  const stamp=()=>new Date(now()).toISOString();
  function save(leagueId,state,action,actor={id:'system'},metadata={}){repository.commitLeagueFiles({leagueId,files:[{name:'news.json',value:state},{name:'audit-log.json',value:[...repository.loadAuditLog(leagueId),{action,userId:actor.id,timestamp:stamp(),metadata}]}]});}
- function sources(leagueId, {analysisDue=true} = {}) {
-  const context = repository.loadLeague(leagueId);
+ function sources(leagueId, {analysisDue=true, seasonId=null, trackedOnly=false, records=submissions.records()} = {}) {
+  const context = repository.loadLeague(leagueId, seasonId);
   const players = new Map(repository.loadPlayers(leagueId).map(player => [player.playerId, player]));
   const memberships = repository.loadRosterMemberships(leagueId);
-  const records=submissions.records(),snapshotSubmissions={records:()=>records};
+  const snapshotSubmissions={records:()=>records};
   const games = new Map(records.map(record => [record.game.gameId, record.game]));
   const simulationId = repository.loadSettings(leagueId).simulationId || null;
   const existing = new Map(repository.loadNews(leagueId).articles
@@ -37,7 +37,7 @@ function createNewsService({repository,submissions,now=Date.now}){
     prior.push(log); previous.set(log.playerId, prior);
     // A corrected performance remains a valid source even below the original news threshold.
     // Only new stories compete for the two-player daily game selection.
-    if (!strong && !tracked) continue;
+    if ((!strong || trackedOnly) && !tracked) continue;
     const scenario = strong || {...tracked.facts.scenario, context: 'GAME'};
     const facts = {name: player.name, log, scenario};
     const value = metrics(log)[scenario.metric];
@@ -55,15 +55,27 @@ function createNewsService({repository,submissions,now=Date.now}){
      .slice(0, Math.max(0, 2 - trackedCount)));
    }
   }
+  if(trackedOnly)return stories;
   const schedule=repository.scheduleExists(leagueId,context.seasonId)?repository.loadSchedule(leagueId,context.seasonId):null;
   return [...stories,...require('./news-events').verifiedEventSources(repository,leagueId),...require('./news-analysis').analysisSources({leagueId,seasonId:context.seasonId,simulationId,logs:analysisLogs,teams:context.teams,currentWeek:context.league.currentWeek||schedule?.statsPublication?.throughWeek||1,throughWeek:schedule?.statsPublication?.throughWeek||0,existing:[...existing.values()],allowNew:analysisDue})];
  }
- function detect(leagueId){const state=repository.loadNews(leagueId),settings=repository.loadSettings(leagueId),analysisKey=repository.loadLeague(leagueId).seasonId+':'+(settings.simulationId||'live'),lastAnalysis=state.analysis?.[analysisKey],analysisDue=!lastAnalysis||now()-Date.parse(lastAnalysis.at)>=4*HOUR,eligible=sources(leagueId,{analysisDue}),byId=new Map(eligible.map(s=>[s.id,s])),testMode=!!settings.simulationId;let changed=false;if(analysisDue){state.analysis ||= {};state.analysis[analysisKey]={at:stamp(),intervalHours:4};changed=true;}
+ function detect(leagueId){const state=repository.loadNews(leagueId),settings=repository.loadSettings(leagueId),analysisKey=repository.loadLeague(leagueId).seasonId+':'+(settings.simulationId||'live'),lastAnalysis=state.analysis?.[analysisKey],analysisDue=!lastAnalysis||now()-Date.parse(lastAnalysis.at)>=4*HOUR,records=submissions.records(),eligible=sources(leagueId,{analysisDue,records}),testMode=!!settings.simulationId;let changed=false;
+  const activeSeason=repository.loadLeague(leagueId).seasonId,checkedSeasons=new Set([activeSeason]);
+  // Only tracked historical performance stories need revalidation; never generate old-season drafts.
+  // Persist source fingerprints so unchanged archives do not repeat stats aggregation every sweep.
+  const historical=state.articles.filter(a=>a.seasonId!==activeSeason&&!!a.testMode===testMode&&(a.simulationId||null)===(settings.simulationId||null)&&a.facts?.log&&a.sourceGameIds?.length);
+  for(const seasonId of new Set(historical.map(a=>a.seasonId))){
+   const key=seasonId+':'+(settings.simulationId||'live'),digest=hash([records.filter(r=>r.game.leagueId===leagueId&&String(r.game.seasonId)===String(seasonId)),repository.loadPlayers(leagueId),repository.loadRosterMemberships(leagueId),repository.scheduleExists(leagueId,seasonId)?repository.loadSchedule(leagueId,seasonId):null,repository.loadPlayoffs(leagueId,seasonId),historical.filter(a=>a.seasonId===seasonId).map(a=>a.id)]);
+   if(state.historicalSourceChecks?.[key]===digest)continue;
+   eligible.push(...sources(leagueId,{seasonId,trackedOnly:true,analysisDue:false,records}));checkedSeasons.add(seasonId);
+   state.historicalSourceChecks ||= {};state.historicalSourceChecks[key]=digest;changed=true;
+  }
+  const byId=new Map(eligible.map(s=>[s.id,s]));if(analysisDue){state.analysis ||= {};state.analysis[analysisKey]={at:stamp(),intervalHours:4};changed=true;}
   for(const source of eligible){let article=state.articles.find(a=>a.id===source.id&&!!a.testMode===testMode);if(!article){article={...source,...performanceArticle(source.facts),status:'DRAFT',createdAt:stamp(),updatedAt:stamp(),generation:0,revisions:[],testMode,simulationId:settings.simulationId||null,breaking:false,featured:false,reactions:{}};state.articles.push(article);changed=true;}
    else if(article.sourceDigest!==source.sourceDigest||article.sourceUnavailable){if(article.status==='PUBLISHED'){if(article.pendingSource?.sourceDigest!==source.sourceDigest){article.pendingSource=source;article.revalidationRequired=true;article.correctionNotice='Underlying verified league data changed. Staff review is pending.';article.updatedAt=stamp();changed=true;}}
     else {article.revisions.push({at:stamp(),reason:'SOURCE_CHANGED',headline:article.headline,article:article.article,sourceDigest:article.sourceDigest});Object.assign(article,source,performanceArticle(source.facts),{status:'DRAFT',updatedAt:stamp()});changed=true;}}
   }
-  for(const a of state.articles.filter(a=>a.seasonId===repository.loadLeague(leagueId).seasonId&&!!a.testMode===testMode&&!byId.has(a.id))){if(!a.revalidationRequired||a.pendingSource){delete a.pendingSource;a.sourceUnavailable=true;a.revalidationRequired=true;a.correctionNotice='The original source is no longer eligible. Staff must review this article.';if(a.status==='APPROVED')a.status='DRAFT';changed=true;}}
+  for(const a of state.articles.filter(a=>checkedSeasons.has(a.seasonId)&&!!a.testMode===testMode&&(a.seasonId===activeSeason||historical.some(h=>h.id===a.id))&&!byId.has(a.id))){if(!a.revalidationRequired||a.pendingSource){delete a.pendingSource;a.sourceUnavailable=true;a.revalidationRequired=true;a.correctionNotice='The original source is no longer eligible. Staff must review this article.';if(a.status==='APPROVED')a.status='DRAFT';changed=true;}}
   if(changed)save(leagueId,state,'news.detected');return state;
  }
  function staffList(leagueId,actor,{detect:refresh=true}={}){requirePostseasonStaff(repository.loadLeague(leagueId),actor);return (refresh?detect(leagueId):repository.loadNews(leagueId)).articles.filter(a=>!!a.testMode===!!repository.loadSettings(leagueId).simulationId);}
@@ -109,6 +121,13 @@ function createNewsService({repository,submissions,now=Date.now}){
   save(leagueId, state, 'news.reactions', {id: 'system'}, {id}); return story;
  }
  function publication(leagueId,id,delivery){const state=repository.loadNews(leagueId),a=state.articles.find(a=>a.id===id);if(!a||a.status!=='PUBLISHED')throw Error('Only published articles can be delivered.');a.publication=delivery;save(leagueId,state,'news.publication',{id:'system'},{id,...delivery});return a;}
- return {sources,detect,staffList,review,publishDue,list,publication,reactions};
+ function deliveryIssue(leagueId,id,issue){
+  const state=repository.loadNews(leagueId),story=state.articles.find(a=>a.id===id);
+  if(!story||story.status!=='PUBLISHED')throw Error('Only published articles have delivery status.');
+  if(!issue){if(!story.deliveryIssue)return;delete story.deliveryIssue;}
+  else {if(story.deliveryIssue?.code===issue.code&&story.deliveryIssue?.message===issue.message)return;story.deliveryIssue={...issue,at:stamp()};}
+  save(leagueId,state,issue?'news.delivery.failed':'news.delivery.recovered',{id:'system'},{id,code:issue?.code||null});
+ }
+ return {sources,detect,staffList,review,publishDue,list,publication,reactions,deliveryIssue};
 }
 module.exports={createNewsService,validateNews,performanceArticle};

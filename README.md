@@ -79,7 +79,7 @@ New league data is stored in `draft-picks.json` and `trades.json`; approved proo
 - `/team assign` and `/team unassign` — Staff controls for role-based ownership.
 - `/mockdraft` — Run a private first-round mock with a configurable lottery and coach-controlled picks.
 - `/toptenpreview` — Browse custom draft prospects with portraits and website profiles.
-- `/bigboard` — Browse the complete season Big Board in private, ten prospects per page with portrait cards and your personal scouting unlocks.
+- `/bigboard` — Browse the current season’s scouting board in private: Early Top Ten in setup/preseason, then Big Board from regular-season start through offseason. Scouting points can only be spent during an active regular-season week.
 - `/scout position:<PG|SG|SF|PF|C> prospect:<name>` — Choose a position, then search matching prospects. Spend 10 of your 60 weekly points to reveal the next rating: Draft Grade, OVR, then Potential. Points are personal, reset each league week, and do not roll over.
 - `/schedule generate` — Create a paged preview; use its Confirm, Regenerate, or Cancel buttons.
 - `/schedule preview` — Reopen an existing pending preview.
@@ -232,3 +232,15 @@ Individual website credentials use `WEBSITE_ADMIN_KEYS` as a JSON mapping of Dis
 `/promo` posts the LEAGUEbuddy recruitment message and invite with currently unassigned teams grouped by East/West and division. It rescans Discord coach assignments every time and sends one public embed without pinging members.
 
 `/website` posts the configured league website link and an Open Website button. Set `WEBSITE_URL` or use Railway's public domain.
+
+### Railway deployment shutdown
+
+Set the production service variable `RAILWAY_DEPLOYMENT_DRAINING_SECONDS=30` so the bot receives time to release its writer lock before Railway force-stops the container. Railway otherwise defaults to zero shutdown grace. This setting was applied to the production service on October 9, 2026 without triggering a deployment.
+
+The website starts after acquiring the storage lease and completing the startup backup. An unclean stop can therefore cause `/health` retries while the previous heartbeat expires (up to two minutes). Keep the writer protection and the five-minute health-check window: do not remove a live lock or report readiness before storage is safe. Clean SIGTERM/SIGINT shutdown releases the lock immediately; regression tests exercise a real child process followed by immediate replacement lease acquisition. A forced crash can still require the stale-lock recovery wait, and normal container/network startup can still produce an initial health-check retry.
+
+The new shutdown setting still needs verification across a production deployment handoff; successful local signal tests do not prove Railway's teardown behavior.
+
+Scouting boards follow the league phase on Discord and the website. CUS01 belongs to Season 1, CUS02 to Season 2, and so on. Season rollover opens the next class’s Early Top Ten; missing classes fail closed. `/toptenpreview` is available only in setup/preseason.
+
+Routine scanner roster imports and manual roster edits are limited to setup/preseason. During later phases, website roster edits require a commissioner correction reason, preview and confirmation; the confirmation expires after five minutes or when the underlying data changes. Historical game review and Sportsbook settlement remain available after competition closes.

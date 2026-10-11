@@ -30,7 +30,7 @@ const commands = [
     .addSubcommand(sub => sub.setName("setup").setDescription("Link this private thread to a scheduled game and post Submit Game.")
       .addIntegerOption(option => option.setName("week").setDescription("Scheduled week.").setRequired(true).setMinValue(1).setMaxValue(15))
       .addStringOption(option => option.setName("team").setDescription("One team's exact name or abbreviation.").setRequired(true))),
-  new SlashCommandBuilder().setName("bigboard").setDescription("Browse this season's full Big Board, ten prospects per page."),
+  new SlashCommandBuilder().setName("bigboard").setDescription("Browse this season's scouting board: early preview before the season, then Big Board."),
   new SlashCommandBuilder().setName("scout").setDescription("Spend 10 scouting points to unlock a prospect's next rating.")
     .addStringOption(option => option.setName("position").setDescription("Filter prospects by position.").setRequired(true).addChoices(...["PG", "SG", "SF", "PF", "C"].map(value => ({ name: value, value }))))
     .addStringOption(option => option.setName("prospect").setDescription("Search prospects at the selected position by name or team.").setRequired(true).setAutocomplete(true)),

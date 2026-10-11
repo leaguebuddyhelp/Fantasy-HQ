@@ -10,8 +10,11 @@ function teamAbbreviation(team) {
   const aliases={PHO:'PHX',PHE:'PHX',GS:'GSW',UTH:'UTA',NO:'NOP',SAN:'SAS',WSH:'WAS'};
   return aliases[key] || nbaTeams.find(t=>[t.slug,t.name].some(n=>n.toLowerCase()===String(team.teamName||team.teamId).toLowerCase()))?.abbreviation || key;
 }
+function activeOwnersByTeam(owners = []) {
+  return new Map(owners.filter(o=>o.userId && !String(o.userId).startsWith('simulation:') && o.active!==false && !o.endedAt).map(o=>[o.teamId,o]));
+}
 function availableTeamsPayload(context, owners, { openOnly = false } = {}) {
-  const ownerByTeam = new Map(owners.filter(o=>o.userId && !String(o.userId).startsWith('simulation:') && o.active!==false && !o.endedAt).map(o=>[o.teamId,o]));
+  const ownerByTeam = activeOwnersByTeam(owners);
   const open=context.teams.filter(t=>!ownerByTeam.has(t.teamId));
   const embed=new EmbedBuilder().setColor(0xffdc21).setTitle(openOnly?'🟢 Available Teams':'🏀 Team Ownership • Available Teams')
     .setDescription(`**${open.length} available** · ${context.teams.length-open.length} owned\n${openOnly?'Choose an open team and contact Staff to join.':'🟢 Open = available to claim · Owner names show assigned coaches.'}`)
@@ -39,4 +42,4 @@ async function handleAvailableTeams(interaction,{repository,ownership,feeds}) {
   await interaction.editReply(availableTeamsPayload(context,repository.loadOwners(context.league.leagueId),{openOnly:true}));
   await feeds.ensurePins(interaction.guild,context.league.leagueId);
 }
-module.exports={DIVISIONS,availableTeamsPayload,handleAvailableTeams};
+module.exports={DIVISIONS,activeOwnersByTeam,availableTeamsPayload,handleAvailableTeams};

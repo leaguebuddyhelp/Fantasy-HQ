@@ -387,12 +387,14 @@ test("existing roster release and admin team movement hooks invalidate pending r
     for (let week = 1; week <= 4; week += 1) f.addGame(`roster-hook-game-${week}`, week);
     f.service.reconcileFinalizedGames({ leagueId: "league", seasonId: "2026" });
     const releasedRequest = normalRequest(f.service);
+    f.repository.saveLeague('league', { commissionerUserId: 'staff' });
+    const { prepareRosterCorrection } = require('../src/fantasyhq/roster-corrections');
     const roster = createRosterService({ repository: f.repository, onRosterMovement: event => f.service.invalidatePlayerRequests(event) });
-    roster.removePlayer({ leagueId: "league", seasonId: "2026", playerId: "player-bos", teamId: "bos", actingUserId: "staff" });
+    { const args = { leagueId: "league", seasonId: "2026", playerId: "player-bos", teamId: "bos", actingUserId: "staff" }; const preview = prepareRosterCorrection(f.repository, 'remove', args, 'Correct imported roster assignment'); roster.removePlayer({...args, correctionToken:preview.token}); }
     assert.equal(f.repository.loadPlayerUpgradeState("league").requests.find(entry => entry.requestId === releasedRequest.requestId).expirationReason, "PLAYER_NO_LONGER_ON_ROSTER");
     const movedRequest = normalRequest(f.service, { playerId: "player-nyk", teamId: "nyk", coachUserId: "coach-nyk" });
     const players = createPlayerService({ repository: f.repository, onRosterMovement: event => f.service.invalidatePlayerRequests(event) });
-    players.updatePlayer({ leagueId: "league", seasonId: "2026", playerId: "player-nyk", patch: { teamId: "bos" }, actingUserId: "staff" });
+    { const args = { leagueId: "league", seasonId: "2026", playerId: "player-nyk", patch: { teamId: "bos" }, actingUserId: "staff" }; const preview = prepareRosterCorrection(f.repository, 'update', args, 'Correct imported roster assignment'); players.updatePlayer({...args, correctionToken:preview.token}); }
     assert.equal(f.repository.loadPlayerUpgradeState("league").requests.find(entry => entry.requestId === movedRequest.requestId).expirationReason, "PLAYER_NO_LONGER_ON_ROSTER");
 });
 

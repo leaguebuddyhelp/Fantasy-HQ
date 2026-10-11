@@ -107,3 +107,14 @@ test('round confirmation is idempotent and rejects changed state', t => {
   const next=f.service.prepareAdvance('l',f.actor);f.service.advance('l',f.actor,next.token);f.service.advance('l',f.actor,next.token);
   assert.equal(f.service.inspect('l').rounds.length,2);
 });
+
+
+test('shared competition guard accepts only the current open postseason game', t => {
+ const f=fixture(t), requireGame=require('../src/fantasyhq/competition-window').requireCompetitionGame;
+ const series=f.service.inspect('l').series[0],record=f.game(series.id,null,false);
+ const submissions={records:()=>structuredClone(f.records)};
+ assert.doesNotThrow(()=>requireGame(f.repository,record.game,submissions));
+ assert.throws(()=>requireGame(f.repository,{...record.game,gameId:randomUUID()},submissions),/not open/);
+ f.repository.saveLeague('l',{currentPhase:'OFFSEASON'});
+ assert.throws(()=>requireGame(f.repository,record.game,submissions),/PLAYOFFS/);
+});

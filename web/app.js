@@ -747,7 +747,7 @@ async function toggleTeamGameLog(teamId) {
 
 function updateAdminPanelVisibility(phase, hasLeague = true) {
   const preseason = hasLeague && phase === "PRESEASON";
-  document.querySelector("#roster-import-panel").hidden = !hasLeague || phase === "REGULAR_SEASON";
+  document.querySelector("#roster-import-panel").hidden = !hasLeague || !["SETUP", "PRESEASON"].includes(phase);
   document.querySelector("#season-start-panel").hidden = !preseason;
 }
 
@@ -852,8 +852,17 @@ function issuesMarkup(issues) {
 }
 
 async function refreshLeagueSite() {
+  const previous = state.leagueSite?.league;
   state.leagueSite = await requestJson("/api/league-site");
   renderLeagueSite();
+  const current = state.leagueSite?.league;
+  if (current && state.boards.length && (previous?.seasonNumber !== current.seasonNumber || previous?.currentPhase !== current.currentPhase)) {
+    const draft = await requestJson('/api/draft-classes');
+    state.boards = draft.boards;
+    state.draftSeasonNumber = draft.seasonNumber;
+    if (elements.dialog.open) closeProfile();
+    await loadDraftClass();
+  }
 }
 
 async function loadAdminPanels() {
@@ -1168,12 +1177,24 @@ function normalizePatchValues(payload) {
   return next;
 }
 
+async function rosterCorrection(action, payload) {
+  if (['SETUP', 'PRESEASON'].includes(state.leagueSite?.league?.currentPhase)) return {};
+  const reason = window.prompt('Routine roster edits are closed. Commissioner correction reason (at least 10 characters):');
+  if (!reason) throw Error('Roster correction cancelled.');
+  const preview = await adminRequestJson('/api/league/admin/rosters/correction-preview', {
+    method: 'POST', body: JSON.stringify({ action, payload, reason }),
+  });
+  if (!window.confirm(`Confirm ${preview.action} correction?\nReason: ${preview.reason}\n\n${JSON.stringify(preview.details, null, 2)}`)) throw Error('Roster correction cancelled.');
+  return { correctionToken: preview.token };
+}
+
 async function savePlayerFromDialog(form) {
   const playerId = form.dataset.playerId;
   const payload = normalizePatchValues(serializeForm(form));
+  const correction = await rosterCorrection('update', { playerId, patch: payload });
   const response = await adminRequestJson(`/api/league/admin/players/${encodeURIComponent(playerId)}`, {
     method: "PATCH",
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ ...payload, ...correction }),
   });
   state.playerDetailCache.set(playerId, response.player);
   state.teamDetailCache.clear();
@@ -1192,9 +1213,10 @@ async function saveBulkRosterEdits() {
     position1: row.querySelector('[data-field="position1"]').value.trim() || null,
     position2: row.querySelector('[data-field="position2"]').value.trim() || null,
   }));
+  const correction = await rosterCorrection('bulk', { teamId: state.currentRosterDetail.teamId, updates });
   await adminRequestJson("/api/league/admin/rosters/bulk-update", {
     method: "PATCH",
-    body: JSON.stringify({ teamId: state.currentRosterDetail.teamId, updates }),
+    body: JSON.stringify({ teamId: state.currentRosterDetail.teamId, updates, ...correction }),
   });
   state.teamDetailCache.delete(state.currentRosterDetail.teamId);
   await refreshLeagueSite();
@@ -1203,9 +1225,10 @@ async function saveBulkRosterEdits() {
 }
 
 async function moveRosterPlayer(playerId, fromTeamId, toTeamId) {
+  const correction = await rosterCorrection('move', { playerId, fromTeamId, toTeamId });
   await adminRequestJson("/api/league/admin/rosters/move-player", {
     method: "POST",
-    body: JSON.stringify({ playerId, fromTeamId, toTeamId }),
+    body: JSON.stringify({ playerId, fromTeamId, toTeamId, ...correction }),
   });
   state.teamDetailCache.clear();
   state.playerDetailCache.delete(playerId);
@@ -1215,9 +1238,10 @@ async function moveRosterPlayer(playerId, fromTeamId, toTeamId) {
 }
 
 async function removeRosterPlayer(playerId, teamId) {
+  const correction = await rosterCorrection('remove', { playerId, teamId });
   await adminRequestJson("/api/league/admin/rosters/remove-player", {
     method: "POST",
-    body: JSON.stringify({ playerId, teamId }),
+    body: JSON.stringify({ playerId, teamId, ...correction }),
   });
   state.teamDetailCache.delete(teamId);
   state.playerDetailCache.delete(playerId);
@@ -1228,9 +1252,10 @@ async function removeRosterPlayer(playerId, teamId) {
 
 async function addPlayerToRoster(form) {
   const payload = normalizePatchValues(serializeForm(form));
+  const correction = await rosterCorrection('add', { teamId: payload.teamId, player: payload });
   await adminRequestJson("/api/league/admin/rosters/add-player", {
     method: "POST",
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ ...payload, ...correction }),
   });
   state.teamDetailCache.delete(payload.teamId);
   await refreshLeagueSite();
@@ -1244,6 +1269,13 @@ async function loadDraftClass(selection) {
   const labels = classLabels();
   state.classLabel = labels[0];
   renderClassSwitcher();
+  const early = state.boards.some(board => board.id === 'top-ten');
+  for (const [id, visible] of [['early-top-ten', early], ['big-board', !early], ['draft-stats', !early]]) {
+    document.getElementById(id).hidden = !visible;
+    document.querySelectorAll(`a[href="#${id}"]`).forEach(link => { link.hidden = !visible; });
+  }
+  if (['#early-top-ten', '#big-board', '#draft-stats'].includes(location.hash)
+      && document.querySelector(location.hash)?.hidden) history.replaceState({}, '', '#board');
   elements.grid.innerHTML = "";
   elements.topTenGrid.innerHTML = "";
   elements.resultCount.textContent = "Loading prospects…";
@@ -1261,8 +1293,8 @@ async function loadDraftClass(selection) {
   elements.topTenClassLabel.textContent = state.classLabel;
   elements.bigBoardClassLabel.textContent = state.classLabel;
   elements.statsClassLabel.textContent = state.classLabel;
-  if (elements.prospectCount) elements.prospectCount.textContent = state.prospects.length;
-  if (elements.prospectLabel) elements.prospectLabel.textContent = state.prospects.length ? "on the big board" : "big board pending";
+  if (elements.prospectCount) elements.prospectCount.textContent = early ? state.topTenProspects.length : state.prospects.length;
+  if (elements.prospectLabel) elements.prospectLabel.textContent = early ? "in the early preview" : "on the big board";
   renderTopTen();
   renderFilters();
   renderBoard();
@@ -1700,6 +1732,11 @@ async function refreshOwnerLabels() {
   try {
     const payload = await requestJson("/api/league-site");
     if (payload.league?.leagueId !== state.leagueSite.league.leagueId) return;
+    if (payload.league.seasonNumber !== state.leagueSite.league.seasonNumber
+        || payload.league.currentPhase !== state.leagueSite.league.currentPhase) {
+      await refreshLeagueSite();
+      return;
+    }
     const teams = new Map((payload.teams || []).map((team) => [team.teamId, team]));
     for (const team of state.leagueSite.teams || []) {
       const current = teams.get(team.teamId);
@@ -2227,7 +2264,7 @@ for (const kind of ['player','team']) for(const control of ['scope','season'])do
 
 (() => {
  const output=document.querySelector('#news-review-output');let articles=[];
- const render=()=>{const status=document.querySelector('#news-review-status').value;output.innerHTML=articles.filter(a=>a.status===status).map(a=>`<details data-news-review="${escapeHtml(a.id)}"><summary>${escapeHtml(a.headline)}${a.revalidationRequired?' · SOURCE REVIEW REQUIRED':''}</summary><p>${escapeHtml(a.category)} · Season ${escapeHtml(a.seasonId)} · Week ${a.week}</p><pre>${escapeHtml(JSON.stringify(a.pendingSource?.facts||a.facts,null,2))}</pre><label>Headline<input data-news-edit="headline" value="${escapeHtml(a.headline)}"></label><label>Article<textarea data-news-edit="article" rows="8">${escapeHtml(a.article)}</textarea></label><label>Reason / correction notice<input data-news-edit="reason"></label><label><input data-news-edit="breaking" type="checkbox"${a.breaking?' checked':''}> Breaking news</label><label><input data-news-edit="featured" type="checkbox"${a.featured?' checked':''}> Feature / pin this story</label><div class="admin-inline">${(a.status==='PUBLISHED'?['correct']:['edit','regenerate','approve','reject']).map(action=>'<button data-news-review-action="'+action+'">'+({correct:'Save correction',edit:'Save draft',regenerate:'Regenerate from verified facts',approve:'Approve publication',reject:'Reject story'}[action])+'</button>').join('')}</div><p>${a.correctionNotice?escapeHtml(a.correctionNotice):''}</p><p>${a.revisions.length} retained revisions</p></details>`).join('')||'<p>No stories in this status.</p>';};
+ const render=()=>{const status=document.querySelector('#news-review-status').value;output.innerHTML=articles.filter(a=>a.status===status).map(a=>`<details data-news-review="${escapeHtml(a.id)}"><summary>${escapeHtml(a.headline)}${a.revalidationRequired?' · SOURCE REVIEW REQUIRED':''}${a.deliveryIssue?' · DISCORD DELIVERY NEEDS ATTENTION':''}</summary>${a.deliveryIssue?'<p>'+escapeHtml(a.deliveryIssue.message)+'</p>':''}<p>${escapeHtml(a.category)} · Season ${escapeHtml(a.seasonId)} · Week ${a.week}</p><pre>${escapeHtml(JSON.stringify(a.pendingSource?.facts||a.facts,null,2))}</pre><label>Headline<input data-news-edit="headline" value="${escapeHtml(a.headline)}"></label><label>Article<textarea data-news-edit="article" rows="8">${escapeHtml(a.article)}</textarea></label><label>Reason / correction notice<input data-news-edit="reason"></label><label><input data-news-edit="breaking" type="checkbox"${a.breaking?' checked':''}> Breaking news</label><label><input data-news-edit="featured" type="checkbox"${a.featured?' checked':''}> Feature / pin this story</label><div class="admin-inline">${(a.status==='PUBLISHED'?['correct']:['edit','regenerate','approve','reject']).map(action=>'<button data-news-review-action="'+action+'">'+({correct:'Save correction',edit:'Save draft',regenerate:'Regenerate from verified facts',approve:'Approve publication',reject:'Reject story'}[action])+'</button>').join('')}</div><p>${a.correctionNotice?escapeHtml(a.correctionNotice):''}</p><p>${a.revisions.length} retained revisions</p></details>`).join('')||'<p>No stories in this status.</p>';};
  async function load(){articles=(await adminRequestJson('/api/league/admin/news')).articles;render();}
  output.addEventListener('click',async e=>{const button=e.target.closest('[data-news-review-action]');if(!button)return;const card=button.closest('[data-news-review]'),action=button.dataset.newsReviewAction,body={id:card.dataset.newsReview,action};for(const key of ['headline','article','reason','breaking','featured']){const input=card.querySelector('[data-news-edit="'+key+'"]');body[key]=input.type==='checkbox'?input.checked:input.value;}button.disabled=true;try{await adminRequestJson('/api/league/admin/news',{method:'POST',body:JSON.stringify(body)});await load();showToast('News review saved.');}catch(e){showToast(e.message);button.disabled=false;}});
  document.querySelector('#news-review-load').addEventListener('click',()=>load().catch(e=>showToast(e.message)));document.querySelector('#news-review-status').addEventListener('change',render);

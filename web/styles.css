@@ -3058,3 +3058,6 @@ main section[id], #news-review-panel { scroll-margin-top: 110px; }
   #primary-nav .nav-group:last-child .nav-menu { right: auto; }
 }
 @media (max-width: 520px) { .news-filters { grid-template-columns: 1fr; } .home-shortcuts a { flex: 1 1 38%; text-align: center; } }
+
+/* Phase-closed draft views must stay hidden despite layout display rules. */
+#early-top-ten[hidden], #big-board[hidden], #draft-stats[hidden], .nav-menu a[hidden] { display: none; }

@@ -52,7 +52,7 @@ function bigBoardPagePayload(page) {
         return `**#${prospect.board_number} ${prospect.name || 'Prospect'}** · ${positions || '—'} · ${source}`;
     });
     const embed = new EmbedBuilder().setColor(0xffdc21)
-        .setTitle(`Season ${page.seasonNumber} Big Board`)
+        .setTitle(`Season ${page.seasonNumber} ${page.boardLabel || 'Big Board'}`)
         .setDescription(rows.join('\n') || 'No prospects are available for this season.')
         .setFooter({ text: `Page ${page.page + 1}/${page.totalPages} · Prospects ${page.start + 1}-${Math.min(page.start + page.prospects.length, page.total)} of ${page.total}` });
     const current = page.page;
@@ -103,7 +103,7 @@ async function handleBigBoardSelect(interaction, scoutingService) {
     }
     const info = scoutingService.inspect(interaction.guildId, interaction.user.id, prospectNumber);
     const back = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`bigboard:return:${pageNumber}`).setLabel('Back to Big Board').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`bigboard:return:${pageNumber}`).setLabel(`Back to ${boardPage.boardLabel || 'Big Board'}`).setStyle(ButtonStyle.Secondary),
     );
     await interaction.editReply({ ...scoutingCard(info), components: [back] });
 }

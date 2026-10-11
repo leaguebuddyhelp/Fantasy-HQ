@@ -3,7 +3,7 @@ const {requireCoachIdentity} = require('./coach-identity');
 const {requirePostseasonStaff} = require('./postseason-state');
 const {cents,payout} = require('./sportsbook-money');
 const digest = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
-const closed = game => !!(game.sportsbookLockedAt || game.streamlink?.url || ['FINAL','CANCELED','CANCELLED'].includes(game.status));
+const closed = game => !!(game.locked || game.finalizedAt || game.sportsbookLockedAt || game.streamlink?.url || ['FINAL','FINALIZED','LOCKED','CANCELED','CANCELLED'].includes(game.status));
 function validateSportsbook(state) {
  if (state?.version !== 1 || !Array.isArray(state.bets) || !Array.isArray(state.markets)
   || !Array.isArray(state.ledger) || !Array.isArray(state.previews) || !state.wallets
@@ -54,6 +54,11 @@ function createSportsbookService({repository,submissions,now=Date.now}) {
   for (const {game} of records) {
    const saved=state.markets.filter(m=>m.gameId===game.gameId&&m.simulationId===simulationId);
    if (closed(game)) {for(const m of saved)if(m.status==='OPEN'){m.status='LOCKED';m.lockedAt=game.sportsbookLockedAt||game.streamlink?.submittedAt||game.finalizedAt||stamp();changed=true;}continue;}
+   try { require('./competition-window').requireCompetitionGame(repository, game, submissions); }
+   catch {
+    for (const m of saved) if (m.status === 'OPEN') { m.status = 'LOCKED'; changed = true; }
+    continue;
+   }
    streamAnalysis ||= streamService.analysis(leagueId,c.seasonId,allRecords);
    const facts=streamService.facts(game,streamAnalysis);
    const teamIds=[game.team1Id,game.team2Id],ranks=teamIds.map(id=>facts.teams.find(t=>t.teamId===id));
@@ -137,6 +142,7 @@ function createSportsbookService({repository,submissions,now=Date.now}) {
   if(new Set(legs.map(m=>m.group)).size!==legs.length)throw Error('A parlay cannot contain conflicting selections from the same market.');
   for(const leg of legs) {
    const game=currentGame(leg.gameId).game;
+   require('./competition-window').requireCompetitionGame(repository, game, submissions);
    if(game.leagueId!==leagueId||game.seasonId!==repository.loadLeague(leagueId).seasonId||closed(game)||leg.status!=='OPEN')throw Error('Betting is closed or this market is unavailable.');
    if(leg.teamIds.includes(coach.teamId))throw Error('You cannot bet on your own team, players or games.');
    if(leg.playerId&&repository.loadPlayers(leagueId).find(p=>p.playerId===leg.playerId)?.teamId===coach.teamId)throw Error('You cannot bet on your own players.');

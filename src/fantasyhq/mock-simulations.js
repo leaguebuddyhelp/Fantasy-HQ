@@ -61,6 +61,7 @@ function createMockSimulationService({ repository, scoutingService, standingsSer
     rosterService ||= require('./roster-service').createRosterService({ repository });
     function inputFor(leagueId, classNumber = null) {
         const c = repository.loadLeague(leagueId);
+        if (require('../shared/season-draft-class').seasonDraftBoard(c.league.currentPhase) !== 'Big Board') throw Error('Mock drafts open with the Big Board when the regular season starts. Use the Early Top Ten preview for now.');
         if (classNumber != null && classNumber !== Number(c.league.seasonNumber)) throw Error('Draft classes are assigned automatically by league season. Start a new mock for the current season.');
         const board = scoutingService.boardForContext(c), draftClassId = board.file.replace(/\.json$/i, '');
         if (board.prospects.length < 30) throw Error('The current Big Board needs at least 30 prospects.');

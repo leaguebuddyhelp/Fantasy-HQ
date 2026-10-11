@@ -43,9 +43,10 @@ function createRosterService(options = {}) {
   }
 
   function movePlayer({ leagueId, seasonId, playerId, fromTeamId, toTeamId, actingUserId, operator }) {
+    const correction = require('./roster-corrections').authorizeRosterEdit(repository, 'move', arguments[0]);
     const memberships = repository.loadRosterMemberships(leagueId);
     const players = repository.loadPlayers(leagueId);
-    const membership = memberships.find((entry) => entry.playerId === playerId
+    let membership = memberships.find((entry) => entry.playerId === playerId
       && entry.active !== false
       && !entry.endedAt
       && String(entry.seasonId) === String(seasonId)
@@ -54,12 +55,17 @@ function createRosterService(options = {}) {
     if (!repository.loadLeague(leagueId, seasonId).teams.some(t => t.teamId === toTeamId)) throw Error('Choose a valid league team.');
     const lock = require('./transaction-locks').playerTransactionLock(repository, leagueId, String(seasonId), playerId); if (lock) throw Error(lock);
     const previousTeamId = membership.teamId;
-    membership.teamId = toTeamId;
-    membership.updatedAt = new Date().toISOString();
+    const at = new Date().toISOString();
+    if (previousTeamId !== toTeamId) {
+      const next = { ...membership, teamId: toTeamId, active: true, startedAt: at, updatedAt: at };
+      delete next.endedAt; delete next.endedReason;
+      membership.active = false; membership.endedAt = at; membership.endedReason = 'ADMIN_CORRECTION'; membership.updatedAt = at;
+      memberships.push(next); membership = next;
+    }
     const player = players.find(p => p.playerId === playerId); if (player) player.teamId = toTeamId;
     repository.commitRosterTransaction({ leagueId, players, rosterMemberships: memberships, auditEntry: {
       action: "roster.player.moved",
-      userId: String(actingUserId || "system"),
+      correction, userId: String(actingUserId || "system"),
       ...(operator ? { operator: String(operator) } : {}),
       leagueId,
       timestamp: new Date().toISOString(),
@@ -74,6 +80,7 @@ function createRosterService(options = {}) {
   }
 
   function removePlayer({ leagueId, seasonId, playerId, teamId, actingUserId, operator }) {
+    const correction = require('./roster-corrections').authorizeRosterEdit(repository, 'remove', arguments[0]);
     const memberships = repository.loadRosterMemberships(leagueId);
     const players = repository.loadPlayers(leagueId);
     const membership = memberships.find((entry) => entry.playerId === playerId
@@ -91,7 +98,7 @@ function createRosterService(options = {}) {
     const player = players.find(p => p.playerId === playerId); if (player) { player.teamId = null; delete player.contract; }
     repository.commitRosterTransaction({ leagueId, players, rosterMemberships: memberships, auditEntry: {
       action: "roster.player.removed",
-      userId: String(actingUserId || "system"),
+      correction, userId: String(actingUserId || "system"),
       ...(operator ? { operator: String(operator) } : {}),
       leagueId,
       timestamp: membership.endedAt,
@@ -105,6 +112,7 @@ function createRosterService(options = {}) {
   }
 
   function bulkUpdateRoster({ leagueId, seasonId, teamId, updates, actingUserId, operator }) {
+    const correction = require('./roster-corrections').authorizeRosterEdit(repository, 'bulk', arguments[0]);
     const memberships = repository.loadRosterMemberships(leagueId);
     const players = repository.loadPlayers(leagueId);
     const playerMap = new Map(players.map((player) => [player.playerId, player]));
@@ -151,7 +159,7 @@ function createRosterService(options = {}) {
 
     repository.commitRosterTransaction({ leagueId, players: [...playerMap.values()], rosterMemberships: memberships, auditEntry: {
       action: "roster.bulk-updated",
-      userId: String(actingUserId || "system"),
+      correction, userId: String(actingUserId || "system"),
       ...(operator ? { operator: String(operator) } : {}),
       leagueId,
       timestamp: new Date().toISOString(),
@@ -250,6 +258,9 @@ function createRosterService(options = {}) {
   }
 
   function applyRosterImport({ leagueId, seasonId, teamId, actingUserId, operator }) {
+    const context = repository.loadLeague(leagueId);
+    if (String(seasonId) !== context.seasonId) throw Error('Roster imports require the active league season.');
+    require('./phase-guards').requirePhase(context.league, ['SETUP', 'PRESEASON']);
     const preview = diffRosterImport({ leagueId, seasonId, teamId });
     if (preview.unresolved.length) {
       throw new Error("Cannot apply roster import while unresolved player identity matches remain.");

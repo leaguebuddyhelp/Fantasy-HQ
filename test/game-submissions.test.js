@@ -14,7 +14,7 @@ function fixture(t, download = async () => png, isolated = false) {
   t.after(() => fs.rmSync(base, { recursive: true, force: true }));
   const dataRoot = isolated ? path.join(base,'simulations','fixture','workspace') : base;
   const repository = createFantasyHQRepository({ dataRoot });
-  repository.saveLeague("league", { currentPhase: "REGULAR_SEASON", currentSeasonId: "1" });
+  repository.saveLeague("league", { currentPhase: "REGULAR_SEASON", currentSeasonId: "1", currentWeek: 1 });
   repository.saveTeams("league", [
     { teamId: "a", teamName: "Team A", abbreviation: "A", conference: "East" },
     { teamId: "b", teamName: "Team B", abbreviation: "B", conference: "East" },
@@ -23,7 +23,7 @@ function fixture(t, download = async () => png, isolated = false) {
   repository.saveGuildLeagueBinding("guild", { leagueId: "league", seasonId: "1" });
   repository.saveSchedule({
     leagueId: "league", seasonId: "1", weeks: [{
-      week: 1, weekId: "week-one", games: [{ team1Id: "a", team2Id: "b" }], byes: [],
+      week: 1, weekId: "week-one", status: "ACTIVE", games: [{ team1Id: "a", team2Id: "b" }], byes: [],
     }]
   });
   const actor = { guildId: "guild", discordThreadId: "thread", userId: "gm", privateThread: true };
@@ -236,7 +236,7 @@ test('game-date modal validates dates, saves history, reveals controls and enfor
   await handle({ ...save, channelId: 'other' }); assert.match(reply.content, /private thread/);
   await handle({ ...save, fields: { getTextInputValue: () => '2/30/2027' } }); assert.match(reply.content || reply, /valid calendar date/); assert.equal(f.service.load(f.game.gameId).game.inGameDate, 'Oct 24');
   f.repository.saveOwners('league', []); await handle({ ...save, user: { id: 'staff' }, memberPermissions: { has: () => true }, fields: { getTextInputValue: () => 'Nov 18' } }); assert.equal(f.service.load(f.game.gameId).game.inGameDate, 'Nov 18'); assert.equal(f.service.load(f.game.gameId).game.inGameDateHistory.length, 2);
-  await f.service.mutate(f.game.gameId, r => { r.game.locked = true; }); await handle({ ...save, user: { id: 'staff' }, memberPermissions: { has: () => true } }); assert.match(reply.content, /unlocked/);
+  await f.service.mutate(f.game.gameId, r => { r.game.locked = true; }); await handle({ ...save, user: { id: 'staff' }, memberPermissions: { has: () => true } }); assert.match(reply.content, /locked/);
 });
 
 test('old submission and decision buttons cannot bypass required game date', async t => {
@@ -338,7 +338,7 @@ test('Staff tools stay private and reject unauthorized, wrong-thread and finaliz
  await service.mutate(game.gameId,record=>{record.game.status='FINAL';});
  await adapter.button(source);
  assert.equal(reply.components.length,0);
- assert.match(reply.content,/private thread/);
+ assert.match(reply.content,/locked/);
 });
 
 test('archived game controls cannot submit or extract against a reset season',async t=>{
@@ -346,4 +346,27 @@ test('archived game controls cannot submit or extract against a reset season',as
  await assert.rejects(f.service.beginSide(f.game.gameId,f.actor),/archived season/);
  assert.throws(()=>f.service.authorizeExtraction(f.game.gameId,{...f.actor,staff:true},true),/archived season/);
  assert.equal(f.service.load(f.game.gameId).submissions.length,0);
+});
+
+
+test('coach and Staff stale game controls recheck phase, completion and active week', async t => {
+  const f = fixture(t);
+  for (const currentPhase of ['SETUP','PRESEASON','PLAYOFFS','OFFSEASON','DRAFT','FREE_AGENCY']) {
+    f.repository.saveLeague('league', { currentPhase });
+    await assert.rejects(f.service.begin(f.game.gameId, f.actor), /REGULAR_SEASON/);
+    assert.throws(() => f.service.authorizeExtraction(f.game.gameId, f.actor, true), /REGULAR_SEASON/);
+  }
+  f.repository.saveLeague('league', { currentPhase:'REGULAR_SEASON', regularSeasonStatus:'COMPLETED' });
+  await assert.rejects(f.service.beginStaff(f.game.gameId, {...f.actor, staff:true}), /REGULAR_SEASON/);
+  f.repository.saveLeague('league', { regularSeasonStatus:null, currentWeek:2 });
+  assert.throws(() => f.service.authorizeExtraction(f.game.gameId, f.actor), /active league week/);
+  assert.equal(f.service.load(f.game.gameId).submissions.length, 0);
+});
+
+test('upload is rejected if phase changes during image download, preserving previous originals', async t => {
+  let f;
+  f = fixture(t, async () => { f.repository.saveLeague('league', { currentPhase:'PLAYOFFS' }); return png; });
+  await f.service.begin(f.game.gameId, f.actor);
+  await assert.rejects(f.service.receive(f.game.gameId, f.actor, [f.attachment('late')], 'message'), /REGULAR_SEASON/);
+  assert.equal(f.service.load(f.game.gameId).media.length, 0);
 });

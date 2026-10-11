@@ -19,6 +19,7 @@ function fixture(t) {
             return [String(boardNumber), boardNumber === 1 ? { ...player, overall: value, potential: value + 10, 'draft score': value + 20 } : player];
         }));
         fs.writeFileSync(path.join(draftClassDir, `2k27_CUS${String(season).padStart(2, '0')} - Big Board.json`), JSON.stringify(board));
+        fs.writeFileSync(path.join(draftClassDir, `2k27_CUS${String(season).padStart(2, '0')} - Early Top Ten.json`), JSON.stringify(Object.fromEntries(Object.entries(board).slice(0, 10))));
     }
     const repository = createFantasyHQRepository({ dataRoot });
     const teams = ['East', 'West'].flatMap(conference => Array.from({ length: 15 }, (_, index) => ({ teamId: `${conference}-${index}`, teamName: `${conference} ${index}`, abbreviation: `${conference[0]}${index}`, conference })));
@@ -49,7 +50,7 @@ test('season number selects matching board and prospect autocomplete narrows by 
 test('CUS04 portraits follow the explicit player image mapping rather than board rank', t => {
     const f = fixture(t);
     const service = createScoutingService({ repository: f.repository, draftClassDir: path.join(__dirname, '..', 'draft_class') });
-    const board = service.boardForContext({ league: { seasonNumber: 4 } });
+    const board = service.boardForContext({ league: { seasonNumber: 4, currentPhase: 'REGULAR_SEASON' } });
     for (const name of ['Marteese Jefferson', 'Eliott Tissot']) {
         const prospect = board.prospects.find(player => player.name === name);
         assert.equal(prospect.imagePath, path.resolve(__dirname, '..', 'draft_class', prospect.image));
@@ -104,5 +105,27 @@ test('scouting budget resets on league week advancement and refuses inactive lea
     assert.equal(board.scoutingAvailable, false);
     assert.equal(board.remaining, null);
     assert.equal(f.service.boardPage('guild', 'coach-a').prospects.length, 10);
+    assert.throws(() => f.service.scout('guild', 'coach-a', 1), /active regular-season week/);
+});
+
+
+test('Discord board swaps at season start and rollover, with no offseason scouting spend', t => {
+    const f = fixture(t);
+    for (const season of [1, 2]) {
+        for (const phase of ['SETUP', 'PRESEASON', 'REGULAR_SEASON', 'PLAYOFFS', 'OFFSEASON', 'DRAFT', 'FREE_AGENCY']) {
+            f.repository.saveLeague('league', { seasonNumber: season, currentPhase: phase, regularSeasonStatus: null });
+            const page = f.service.boardPage('guild', 'coach-a', 99);
+            const early = ['SETUP', 'PRESEASON'].includes(phase);
+            assert.equal(page.total, early ? 10 : 25);
+            assert.equal(page.boardLabel, early ? 'Early Top Ten' : 'Big Board');
+            assert.match(page.boardFile, new RegExp(`CUS0${season}`));
+            assert.equal(f.service.inspect('guild', 'coach-a', 1).scoutingAvailable, phase === 'REGULAR_SEASON');
+            if (phase !== 'REGULAR_SEASON') assert.throws(() => f.service.scout('guild', 'coach-a', 1), /active regular-season week/);
+        }
+    }
+    f.repository.saveLeague('league', { currentPhase: 'PRESEASON' });
+    assert.equal(f.service.boardPage('guild', 'coach-a').boardLabel, 'Early Top Ten');
+    f.repository.saveLeague('league', { currentPhase: 'REGULAR_SEASON', regularSeasonStatus: 'COMPLETED' });
+    assert.equal(f.service.inspect('guild', 'coach-a', 1).scoutingAvailable, false);
     assert.throws(() => f.service.scout('guild', 'coach-a', 1), /active regular-season week/);
 });

@@ -30,7 +30,7 @@ function createLiveMockService({ repository, simulations, now = () => Date.now()
         return locked(rootFor(repository, leagueId), () => { const state = read(file(leagueId), { schemaVersion: 1, mocks: {} }); const result = action(state); atomicWrite(file(leagueId), state); return structuredClone(result); });
     }
     function mutate(leagueId, id, action) { return transaction(leagueId, state => { const m = state.mocks[id]; if (!m) throw Error('Unknown mock.'); action(m); m.updatedAt = new Date(now()).toISOString(); return m; }); }
-    function assertCurrent(m) { const c = repository.loadLeague(m.leagueId); if (c.seasonId !== m.seasonId) throw Error('This mock belongs to an earlier league season.'); }
+    function assertCurrent(m) { const c = repository.loadLeague(m.leagueId); if (require('../shared/season-draft-class').seasonDraftBoard(c.league.currentPhase) !== 'Big Board') throw Error('Live mocks open when the regular season starts.'); if (c.seasonId !== m.seasonId) throw Error('This mock belongs to an earlier league season.'); }
     function host(m, actor) { assertCurrent(m); if (actor.id !== m.hostUserId && !actor.staff) throw Error('Only the host or league staff can use this control.'); }
     function coach(leagueId, userId) {
         const matches = repository.loadOwners(leagueId).filter(o => o.userId === userId);
@@ -138,8 +138,9 @@ function createLiveMockService({ repository, simulations, now = () => Date.now()
     }
     function pause(leagueId, id, actor) { return mutate(leagueId, id, m => { host(m, actor); if (m.status !== 'ACTIVE') throw Error('Mock is not active.'); m.remainingMs = m.deadlineAt == null ? null : Math.max(0, m.deadlineAt - now()); m.deadlineAt = null; m.status = 'PAUSED'; }); }
     function resume(leagueId, id, actor) { return mutate(leagueId, id, m => { host(m, actor); if (m.status !== 'PAUSED') throw Error('Mock is not paused.'); m.status = 'ACTIVE'; m.deadlineAt = m.remainingMs == null ? null : now() + m.remainingMs; m.remainingMs = null; }); }
-    function setAvailable(leagueId, id, userId, available) { return mutate(leagueId, id, m => { const p = m.participants.find(p => p.userId === userId); if (!p) throw Error('Not a participant.'); p.available = available; }); }
+    function setAvailable(leagueId, id, userId, available) { return mutate(leagueId, id, m => { assertCurrent(m); const p = m.participants.find(p => p.userId === userId); if (!p) throw Error('Not a participant.'); p.available = available; }); }
     function available(m, query = '') {
+        assertCurrent(m);
         const q = String(query).normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().trim();
         return m.input.prospects.filter(p => !m.selections.some(s => s.prospectId === p.prospectId) && (!q || [p.name, p.team, p.position_1, p.position_2, String(p.board_number)].some(v => String(v || '').normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().includes(q))));
     }

@@ -54,13 +54,16 @@ test('completed regular season rejects new offers and waiver requests', t => {
 
 test('admin player move recovers after interruption without losing rating, roster or audit', t => {
   const f = fixture(t), service = createPlayerService({ repository: f.repository });
+  f.repository.saveLeague('league', { commissionerUserId: 'staff' });
+  const args = { leagueId:'league',seasonId:'1',playerId:'a-0',patch:{teamId:'b',overall:90},actingUserId:'staff' };
+  const preview = require('../src/fantasyhq/roster-corrections').prepareRosterCorrection(f.repository, 'update', args, 'Repair imported roster assignment');
   const original = fs.renameSync; let interrupted = false;
   fs.renameSync = (from, to) => { if (!interrupted && to.endsWith('roster-memberships.json')) { interrupted = true; throw Error('Disk failure'); } return original(from, to); };
-  try { assert.throws(() => service.updatePlayer({ leagueId: 'league', seasonId: '1', playerId: 'a-0', patch: { teamId: 'b', overall: 90 }, actingUserId: 'staff' }), /Disk failure/); }
+  try { assert.throws(() => service.updatePlayer({...args, correctionToken:preview.token}), /Disk failure/); }
   finally { fs.renameSync = original; }
   const recovered = f.repository.loadPlayers('league').find(p => p.playerId === 'a-0');
   assert.equal(recovered.teamId, 'b'); assert.equal(recovered.overall, 90);
-  assert.equal(f.repository.loadRosterMemberships('league').find(m => m.playerId === 'a-0').teamId, 'b');
+  assert.equal(f.repository.loadRosterMemberships('league').find(m => m.playerId === 'a-0' && m.active !== false && !m.endedAt).teamId, 'b');
   assert.equal(f.repository.loadAuditLog('league').filter(e => e.action === 'player.updated').length, 1);
   assert.equal(fs.existsSync(path.join(f.repository.loadLeague('league').paths.leagueRoot, 'trade-transaction.json')), false);
 });

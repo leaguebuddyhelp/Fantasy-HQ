@@ -1,26 +1,20 @@
-const {availableTeamsPayload}=require('./discord-available-teams');
-const PROMO_TEXT=`Looking for an organized, competitive NBA 2K league with more than just playing games? **Welcome to LEAGUEbuddy!**
-
-🤖 **CUSTOM DISCORD BOT + WEBSITE**
-📅 Automated schedules, private game threads & standings
-📊 Box-score tracking, player stats & leaderboards
-🔄 Interactive trades, committee voting & free agency
-📈 Player upgrades & offseason progression
-🎓 Custom draft classes, scouting reports & live mock drafts
-📰 League news, Power Rankings & weekly awards
-🎥 Stream integration & matchup previews
-💵 Virtual Sportsbook with odds, props & parlays
-🏆 Full playoffs, NBA Draft & offseason management
-
-🔥 **30 NBA Teams | 48-Hour Game Windows | Active Competition**
-We're building a complete NBA franchise experience with a custom-built system that handles the league from preseason to the NBA Finals and beyond.
-
-🎮 **JOIN LEAGUEbuddy TODAY!**
-🔗 **Discord:** https://discord.gg/QRdcXrWn2M`;
+const {activeOwnersByTeam}=require('./discord-available-teams');
+const PROMO_TEXT=`🏀 **LEAGUEbuddy | NBA 2K MyNBA Online League**
+We're starting a new NBA 2K online league built around a custom Discord bot and companion website!
+**League Features:**
+📅 48-hour game windows & automated scheduling
+📊 Box-score tracking, standings & player stats
+🔄 Trades, free agency & player upgrades
+🎓 Custom draft classes, scouting & mock drafts
+🏆 Playoffs, awards & full offseason management
+📰 League news & Power Rankings`;
 function promoPayload(context,owners){
- const payload=availableTeamsPayload(context,owners,{openOnly:true}),embed=payload.embeds[0],availability=embed.data.description;
- embed.setTitle('🏀 LEAGUEbuddy | NBA 2K MyNBA Online League 🏆').setDescription(PROMO_TEXT+'\n\n**🟢 OPEN TEAMS**\n'+availability).setFooter({text:'Open teams refreshed from current Discord coach assignments · /promo'});
- return payload;
+ const ownerByTeam=activeOwnersByTeam(owners);
+ const open=context.teams.filter(team=>!ownerByTeam.has(team.teamId))
+   .map(team=>team.teamName||team.abbreviation||team.teamId).sort((a,b)=>a.localeCompare(b));
+ const availability=open.length ? `**OPEN TEAMS (${open.length})**\n${open.join('\n')}`
+   : 'All teams currently have owners. Contact Staff to join the waiting list.';
+ return {content:`${PROMO_TEXT}\n\n${availability}`,embeds:[],allowedMentions:{parse:[]}};
 }
 async function handlePromo(i,{repository,ownership}){
  if(!i.guildId||!i.guild)throw Error('Use /promo inside your league Discord server.');
