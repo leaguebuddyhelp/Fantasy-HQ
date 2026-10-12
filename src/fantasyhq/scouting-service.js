@@ -46,9 +46,9 @@ function createScoutingService({ repository, draftClassDir = path.join(process.c
         return require('../shared/season-draft-class').seasonDraftClass(fs.readdirSync(draftClassDir), seasonNumber, boardLabel);
     }
 
-    function boardForContext(context) {
+    function boardForContext(context, { fullMock = false } = {}) {
         const boardLabel = require('../shared/season-draft-class').seasonDraftBoard(context.league.currentPhase);
-        const file = boardFileForSeason(context.league.seasonNumber, boardLabel);
+        const file = boardFileForSeason(context.league.seasonNumber, fullMock ? 'Big Board' : boardLabel);
         const raw = JSON.parse(fs.readFileSync(path.join(draftClassDir, file), 'utf8'));
         const prospects = Object.values(raw || {}).map(prospect => ({
             ...prospect,

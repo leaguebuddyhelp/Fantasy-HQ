@@ -43,7 +43,7 @@ function discordFixture(f) {
         const messages = new Collection(), members = new Set();
         const ch = {
             id, client, type: thread ? ChannelType.PrivateThread : ChannelType.GuildText, messages: { fetch: async arg => { if (typeof arg === 'string') { if (!messages.has(arg)) throw Object.assign(Error('Unknown message'), { code: 10008 }); return messages.get(arg); } return messages; }, fetchPins: async () => new Collection([...messages].filter(([, m]) => m.pinned)) }, send: async payload => {
-                const msg = { id: `msg${++seq}`, nonce: payload.nonce, author: { id: botId }, pinned: false, embeds: [], components: [], edit: async p => { msg.embeds = (p.embeds || []).map(e => e.toJSON ? e.toJSON() : e); msg.components = (p.components || []).map(r => ({ components: r.components.map(c => ({ customId: c.data.custom_id })) })); return msg; }, delete: async () => { messages.delete(msg.id); }, pin: async () => { msg.pinned = true; } }; await msg.edit(payload); messages.set(msg.id, msg); return msg;
+                const msg = { id: `msg${++seq}`, nonce: payload.nonce, author: { id: botId }, pinned: false, embeds: [], components: [], edit: async p => { msg.embeds = (p.embeds || []).map(e => e.toJSON ? e.toJSON() : e); msg.components = (p.components || []).map(r => ({ components: r.components.map(c => ({ customId: c.data.custom_id, disabled: !!c.data.disabled })) })); return msg; }, delete: async () => { messages.delete(msg.id); }, pin: async () => { msg.pinned = true; } }; await msg.edit(payload); messages.set(msg.id, msg); return msg;
             }, members: { add: async userId => { members.add(userId); }, fetch: async userId => { if (!members.has(userId)) throw Object.assign(Error('Unknown member'), { code: 10007 }); return { id: userId }; } }, delete: async () => { if (failDelete) throw Error('Delete failed'); channels.delete(id); deleted = true; }, setArchived: async () => { ch.archived = false; }
         };
         ch.threads = { fetchActive: async () => ({ threads: new Collection([...channels].filter(([, t]) => t.type === ChannelType.PrivateThread)) }), fetchArchived: async () => ({ threads: new Collection() }), create: async options => { assert.equal(options.type, ChannelType.PrivateThread); assert.equal(options.invitable, false); const thread = channel(`thread${++seq}`, true); thread.name = options.name; thread.ownerId = botId; channels.set(thread.id, thread); return thread; } };
@@ -588,6 +588,9 @@ test('all four installed boards load normalized ranks, including id_number board
     const scouting = createScoutingService({ repository: f.repository, draftClassDir: path.resolve('draft_class') });
     for (const n of [1, 2, 3, 4]) {
         const board = scouting.boardForContext({ league: { seasonNumber: n, currentPhase: 'REGULAR_SEASON' } });
+        const preseason = { league: { seasonNumber: n, currentPhase: 'PRESEASON' } };
+        assert.match(scouting.boardForContext(preseason).file, /Early Top Ten/);
+        assert.equal(scouting.boardForContext(preseason, { fullMock: true }).file, board.file);
         assert.ok(board.prospects.length >= 30);
         assert.equal(board.prospects[0].board_number, 1);
         assert.equal(new Set(board.prospects.map(p => p.board_number)).size, board.prospects.length);
@@ -752,10 +755,24 @@ test('weekly second round includes picks 31–60, honors asset owners, never rep
 });
 
 
-test('preseason mock projections and stale live controls close until Big Board release', async t => {
- const f=fixture(t), mock=f.ready();
+test('preseason live mocks run all 30 picks while weekly projections stay behind board release', async t => {
+ const f=fixture(t);
  f.repository.saveLeague('l',{currentPhase:'PRESEASON'});
- assert.throws(()=>f.simulations.inputFor('l'),/Early Top Ten/);
- assert.throws(()=>f.live.start('l',mock.id,{id:'u0'}),/regular season/);
- assert.throws(()=>f.live.available(mock),/regular season/);
+ assert.equal(f.simulations.inputFor('l').prospects.length,f.input.prospects.length);
+ assert.throws(()=>f.simulations.weeklyProjection('l'),/Early Top Ten/);
+ let mock=f.ready();mock=f.live.start('l',mock.id,{id:'u0'});
+ assert.equal(f.live.available(mock).length,f.input.prospects.length);
+ for(let pick=1;pick<=30;pick++) {
+  const player=f.live.available(mock)[0];const controller=f.live.controller(mock);
+  mock=f.live.commit('l',mock.id,{expectedPick:pick,userId:controller?.userId,prospectId:player.prospectId,type:controller?'HUMAN':'CPU'});
+ }
+ assert.equal(mock.status,'COMPLETED');assert.equal(mock.selections.length,30);
+ const d=discordFixture(f);await d.workflow.ensurePin(d.guild,'l');
+ const pin=[...d.channels.get('hub')._messages.values()][0];
+ assert.match(pin.embeds[0].description,/Available before and during/);
+ assert.equal(pin.components[0].components[0].disabled,false);
+ const started=await d.start();assert.doesNotMatch(started.replies[0]?.content||'',/Early Top Ten|regular season/);
+ assert.ok(f.live.all('l').some(m=>m.status==='SETUP'));
+ f.repository.saveLeague('l',{currentSeasonId:'2',seasonNumber:2});
+ assert.throws(()=>f.live.available(mock),/earlier league season/);
 });

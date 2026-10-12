@@ -95,8 +95,7 @@ function createDiscordMockDraft({ repository, simulations, live, client = null }
             let settings = repository.loadSettings(leagueId) || {}, channelId = settings.discordChannels?.scouting;
             if (!channelId) throw Error('Repair league channels to configure Scouting Hub.');
             const ch = await guild.channels.fetch(channelId);
-            const early = require('../shared/season-draft-class').seasonDraftBoard(repository.loadLeague(leagueId).league.currentPhase) === 'Early Top Ten';
-            const payload = { embeds: [embed('🏀 LEAGUEbuddy LIVE MOCK DRAFT', early ? 'Live mocks open with the Big Board when the regular season starts. Use /toptenpreview or /bigboard to browse the Early Top Ten.' : 'Run a private 30-pick first-round mock with league coaches and CPU teams.\n\n👥 Invite coaches → 📋 Choose Base Order or 🎲 Run Lottery → 🔒 Lock Order → ▶️ Start Mock\n\nUses the current Big Board, rosters, pick ownership and saved 1,000-mock market snapshot.')], components: [row(button('mock:start', 'START LIVE MOCK', ButtonStyle.Primary).setDisabled(early))], allowedMentions: { parse: [] } };
+            const payload = { embeds: [embed('🏀 LEAGUEbuddy LIVE MOCK DRAFT', 'Run a private 30-pick first-round mock with league coaches and CPU teams.\n\n👥 Invite coaches → 📋 Choose Base Order or 🎲 Run Lottery → 🔒 Lock Order → ▶️ Start Mock\n\nAvailable before and during the season. Uses this season’s full draft class, rosters, pick ownership and saved 1,000-mock market snapshot.')], components: [row(button('mock:start', 'START LIVE MOCK', ButtonStyle.Primary))], allowedMentions: { parse: [] } };
             let msg = null;
             if (settings.discordPins?.liveMockMessageId) try { msg = await ch.messages.fetch(settings.discordPins.liveMockMessageId); } catch (e) { if (e.code !== 10008) throw e; }
             if (!msg) {
@@ -336,7 +335,6 @@ function createDiscordMockDraft({ repository, simulations, live, client = null }
                 await validateCoach(guild, leagueId, interaction.user.id);
                 const classNumber = Number(c.league.seasonNumber);
                 await simulations.refresh(leagueId);
-                await simulations.weeklyProjection(leagueId);
                 await serial(key(leagueId, `host:${interaction.user.id}`), async () => { const m = live.create(leagueId, interaction.user.id, guild.id, classNumber); await serial(key(leagueId, m.id), () => pump(guild, leagueId, m.id)); const current = live.get(leagueId, m.id); await interaction.editReply({ content: `Your private Live Mock is ready: <#${current.threadId}>`, embeds: [], components: [] }); });
                 return;
             }
@@ -412,10 +410,8 @@ function createDiscordMockDraft({ repository, simulations, live, client = null }
             if ((nextRefresh.get(leagueId) || 0) <= Date.now()) {
                 nextRefresh.set(leagueId, Date.now() + 30000);
                 try { await ensurePin(guild, leagueId); } catch (e) { console.error('Live Mock pin:', e.message); }
-                if (require('../shared/season-draft-class').seasonDraftBoard(c.league.currentPhase) === 'Big Board') {
-                    try { simulations.reconcileRequests(leagueId); } catch (e) { console.error('Mock refresh inputs:', e.message); }
-                    simulations.refresh(leagueId).catch(e => console.error('Mock simulations:', e.message));
-                }
+                try { simulations.reconcileRequests(leagueId); } catch (e) { console.error('Mock refresh inputs:', e.message); }
+                simulations.refresh(leagueId).catch(e => console.error('Mock simulations:', e.message));
             }
             for (const m of live.all(leagueId).filter(m => m.guildId === guild.id && m.status === 'CLEANED' && m.participants.some(p => { const d = m.dmDelivery[p.userId]; return d && !d.delivered && !d.permanent && (d.attempts || 0) < 3 && (!d.nextRetryAt || d.nextRetryAt <= Date.now()); }))) {
                 await serial(key(leagueId, m.id), () => deliverRecaps(guild, live.get(leagueId, m.id))).catch(e => console.error('Mock recap recovery:', e.message));

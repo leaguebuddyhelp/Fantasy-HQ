@@ -61,9 +61,9 @@ function createMockSimulationService({ repository, scoutingService, standingsSer
     rosterService ||= require('./roster-service').createRosterService({ repository });
     function inputFor(leagueId, classNumber = null) {
         const c = repository.loadLeague(leagueId);
-        if (require('../shared/season-draft-class').seasonDraftBoard(c.league.currentPhase) !== 'Big Board') throw Error('Mock drafts open with the Big Board when the regular season starts. Use the Early Top Ten preview for now.');
+        require('../shared/season-draft-class').seasonDraftBoard(c.league.currentPhase); // Validate phase; live practice is available before board publication.
         if (classNumber != null && classNumber !== Number(c.league.seasonNumber)) throw Error('Draft classes are assigned automatically by league season. Start a new mock for the current season.');
-        const board = scoutingService.boardForContext(c), draftClassId = board.file.replace(/\.json$/i, '');
+        const board = scoutingService.boardForContext(c, { fullMock: true }), draftClassId = board.file.replace(/\.json$/i, '');
         if (board.prospects.length < 30) throw Error('The current Big Board needs at least 30 prospects.');
         const entries = rosterService.currentRosterEntries(leagueId, c.seasonId);
         return { leagueId, seasonId: c.seasonId, officialOrder: repository.loadOffseason(leagueId)?.seasons[c.seasonId]?.receipts?.LOTTERY?.order || null, draftClassId, currentWeek: c.league.currentWeek, draftYear: leagueSeasonStartYear(c.league.seasonNumber) + 1, teams: c.teams, prospects: board.prospects.map(p => ({ ...p, prospectId: `${draftClassId}:${p.board_number}` })), rosters: Object.fromEntries(c.teams.map(t => [t.teamId, entries.filter(e => e.membership.teamId === t.teamId).map(e => ({ ...e.player, position1: e.membership.position1 || e.player?.position1, position2: e.membership.position2 || e.player?.position2 }))])), standings: standingsService.getStandings(leagueId, c.seasonId), picks: repository.loadDraftPicks(leagueId).filter(p => [1,2].includes(Number(p.round)) && Number(p.draftYear) === leagueSeasonStartYear(c.league.seasonNumber) + 1), settings: { mockDraft: repository.loadSettings(leagueId)?.mockDraft || {} } };
@@ -101,14 +101,14 @@ function createMockSimulationService({ repository, scoutingService, standingsSer
             validateSnapshot(snapshot);
             // Never activate work generated for an old class/season; queued newer events remain pending.
             const current = repository.loadLeague(leagueId);
-            if (current.seasonId !== input.seasonId || scoutingService.boardForContext(current).file.replace(/\.json$/i, '') !== input.draftClassId) throw Error('Season changed during simulation generation.');
+            if (current.seasonId !== input.seasonId || scoutingService.boardForContext(current, { fullMock: true }).file.replace(/\.json$/i, '') !== input.draftClassId) throw Error('Season changed during simulation generation.');
             snapshot.metadata.processedEvents = [...new Set([...processed, ...events.map(e => e.id)])];
             locked(root, () => {
                 atomicWrite(path.join(root, 'snapshots', `${snapshot.id}.json`), snapshot);
                 atomicWrite(path.join(root, 'active.json'), { id: snapshot.id, generatedAt: snapshot.generatedAt });
             });
             // Weekly command output freezes independently from intraweek market refreshes.
-            try { weeklyProjection(leagueId); } catch (error) { console.error('Weekly mock projection (retryable):', error.message); }
+            try { if (require('../shared/season-draft-class').seasonDraftBoard(current.league.currentPhase) === 'Big Board') weeklyProjection(leagueId); } catch (error) { console.error('Weekly mock projection (retryable):', error.message); }
             return snapshot;
         } finally { locked(root, () => { if (read(generationFile)?.claim === claim) atomicWrite(generationFile, { pid: null }); }); }
     }
@@ -119,6 +119,7 @@ function createMockSimulationService({ repository, scoutingService, standingsSer
         return saved;
     }
     function weeklyProjection(leagueId) {
+        if (require('../shared/season-draft-class').seasonDraftBoard(repository.loadLeague(leagueId).league.currentPhase) !== 'Big Board') throw Error('Weekly mock drafts open with the Big Board when the regular season starts. Use the Early Top Ten preview for now.');
         const input = inputFor(leagueId), root = rootFor(repository, leagueId), file = path.join(root, 'weekly-projection.json');
         return locked(root, () => {
             const existing = read(file);

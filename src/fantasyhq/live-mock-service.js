@@ -30,7 +30,7 @@ function createLiveMockService({ repository, simulations, now = () => Date.now()
         return locked(rootFor(repository, leagueId), () => { const state = read(file(leagueId), { schemaVersion: 1, mocks: {} }); const result = action(state); atomicWrite(file(leagueId), state); return structuredClone(result); });
     }
     function mutate(leagueId, id, action) { return transaction(leagueId, state => { const m = state.mocks[id]; if (!m) throw Error('Unknown mock.'); action(m); m.updatedAt = new Date(now()).toISOString(); return m; }); }
-    function assertCurrent(m) { const c = repository.loadLeague(m.leagueId); if (require('../shared/season-draft-class').seasonDraftBoard(c.league.currentPhase) !== 'Big Board') throw Error('Live mocks open when the regular season starts.'); if (c.seasonId !== m.seasonId) throw Error('This mock belongs to an earlier league season.'); }
+    function assertCurrent(m) { const c = repository.loadLeague(m.leagueId); require('../shared/season-draft-class').seasonDraftBoard(c.league.currentPhase); if (c.seasonId !== m.seasonId) throw Error('This mock belongs to an earlier league season.'); }
     function host(m, actor) { assertCurrent(m); if (actor.id !== m.hostUserId && !actor.staff) throw Error('Only the host or league staff can use this control.'); }
     function coach(leagueId, userId) {
         const matches = repository.loadOwners(leagueId).filter(o => o.userId === userId);
