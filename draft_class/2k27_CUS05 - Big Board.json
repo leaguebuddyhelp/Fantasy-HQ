@@ -23,7 +23,8 @@
     "board_number": 4,
     "position_1": "SG",
     "name": "Brycen Terrell",
-    "team": "USC"
+    "team": "USC",
+    "image": "images/2k27-cus05-big-board/SG/004-brycen-terrell.png"
   },
   "5": {
     "board_number": 5,
@@ -43,7 +44,8 @@
     "board_number": 7,
     "position_1": "SG",
     "name": "Brennan Allen",
-    "team": "Wisconsin"
+    "team": "Wisconsin",
+    "image": "images/2k27-cus05-big-board/SG/007-brennan-allen.png"
   },
   "8": {
     "board_number": 8,
@@ -90,7 +92,8 @@
     "board_number": 14,
     "position_1": "SG",
     "name": "Naeem Dayo",
-    "team": "Georgia Tech"
+    "team": "Georgia Tech",
+    "image": "images/2k27-cus05-big-board/SG/014-naeem-dayo.png"
   },
   "15": {
     "board_number": 15,
@@ -182,7 +185,8 @@
     "board_number": 28,
     "position_1": "SG",
     "name": "Tre'Mont Willams",
-    "team": "Arizona"
+    "team": "Arizona",
+    "image": "images/2k27-cus05-big-board/SG/028-tre-mont-willams.png"
   },
   "29": {
     "board_number": 29,
@@ -236,13 +240,15 @@
     "board_number": 36,
     "position_1": "SG",
     "name": "Tyler Lamb",
-    "team": "Santa Clara"
+    "team": "Santa Clara",
+    "image": "images/2k27-cus05-big-board/SG/036-tyler-lamb.png"
   },
   "37": {
     "board_number": 37,
     "position_1": "SG",
     "name": "Quintin Allen",
-    "team": "Villanova"
+    "team": "Villanova",
+    "image": "images/2k27-cus05-big-board/SG/037-quintin-allen.png"
   },
   "38": {
     "board_number": 38,
@@ -324,7 +330,8 @@
     "board_number": 49,
     "position_1": "SG",
     "name": "Terrence Smith",
-    "team": "Wisconsin"
+    "team": "Wisconsin",
+    "image": "images/2k27-cus05-big-board/SG/049-terrence-smith.png"
   },
   "50": {
     "board_number": 50,
@@ -356,7 +363,8 @@
     "board_number": 54,
     "position_1": "SG",
     "name": "Issa M'Bemba",
-    "team": "France"
+    "team": "France",
+    "image": "images/2k27-cus05-big-board/SG/054-issa-m-bemba.png"
   },
   "55": {
     "board_number": 55,
@@ -375,7 +383,8 @@
     "board_number": 57,
     "position_1": "SG",
     "name": "Jonas Schweizer",
-    "team": "Duke"
+    "team": "Duke",
+    "image": "images/2k27-cus05-big-board/SG/057-jonas-schweizer.png"
   },
   "58": {
     "board_number": 58,
@@ -402,7 +411,8 @@
     "board_number": 61,
     "position_1": "SG",
     "name": "Andy Tavares",
-    "team": "Florida"
+    "team": "Florida",
+    "image": "images/2k27-cus05-big-board/SG/061-andy-tavares.png"
   },
   "62": {
     "board_number": 62,
@@ -415,7 +425,8 @@
     "board_number": 63,
     "position_1": "SG",
     "name": "Dyllan Swartz",
-    "team": "Yale"
+    "team": "Yale",
+    "image": "images/2k27-cus05-big-board/SG/063-dyllan-swartz.png"
   },
   "64": {
     "board_number": 64,
@@ -441,7 +452,8 @@
     "board_number": 67,
     "position_1": "SG",
     "name": "Sam Beasley",
-    "team": "Tulane"
+    "team": "Tulane",
+    "image": "images/2k27-cus05-big-board/SG/067-sam-beasley.png"
   },
   "68": {
     "board_number": 68,
@@ -473,7 +485,8 @@
     "board_number": 72,
     "position_1": "SG",
     "name": "K'eon Adams",
-    "team": "USF"
+    "team": "USF",
+    "image": "images/2k27-cus05-big-board/SG/072-k-eon-adams.png"
   },
   "73": {
     "board_number": 73,
