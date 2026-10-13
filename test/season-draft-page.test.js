@@ -53,5 +53,25 @@ test('website replaces draft class tabs with a season label and ignores stale cl
     });
     assert.deepEqual(correction, { correctionToken: 'preview-token' });
     assert.deepEqual(dialogs, ['prompt', 'confirm']);
+    const early = {id:'top-ten',classes:[{label:'2k27_CUS01',file:'2k27_CUS01 - Early Top Ten.json'}]};
+    const full = {id:'big-board',classes:Array.from({length:5},(_,i)=>({label:`2k27_CUS0${i+1}`,file:`2k27_CUS0${i+1} - Big Board.json`}))};
+    await page.route('http://draft.test/api/draft-classes', route => route.fulfill({json:{seasonNumber:1,canBrowseAll:route.request().headers()['x-leaguebuddy-admin-key']==='commissioner-key',boards:route.request().headers()['x-leaguebuddy-admin-key']==='commissioner-key'?[early,full]:[early]}}));
+    await page.route('http://draft.test/api/prospects?**',route=>{
+      const url=new URL(route.request().url());requests.push(url);
+      const prospects=url.searchParams.get('class')?.includes('CUS05')?Object.values(JSON.parse(fs.readFileSync('draft_class/2k27_CUS05 - Big Board.json','utf8'))).map(p=>({...p,rank:p.board_number})):[];
+      return route.fulfill({json:{prospects}});
+    });
+    await page.evaluate(()=>{state.leagueSite={league:null};state.adminKey='';state.canBrowseAllDraftClasses=false;});
+    await page.locator('#admin-key').fill('commissioner-key');await page.locator('#admin-key-save').click();
+    await page.waitForFunction(()=>document.querySelectorAll('#commissioner-draft-class option').length===5);
+    await page.locator('#commissioner-draft-class').selectOption('2k27_CUS05');
+    await page.waitForFunction(()=>state.classLabel==='2k27_CUS05'&&state.prospects.length===75);
+    assert.equal(await page.locator('#big-board').isVisible(),true);
+    assert.equal(await page.locator('#early-top-ten').isVisible(),false);
+    assert.ok(requests.some(url=>url.searchParams.get('class')==='2k27_CUS05 - Big Board.json'));
+    await page.locator('#admin-key').fill('');await page.locator('#admin-key-save').click();
+    await page.waitForFunction(()=>!state.canBrowseAllDraftClasses&&state.classLabel==='2k27_CUS01');
+    assert.equal(await page.locator('#commissioner-draft-class').count(),0);
+    assert.equal(await page.locator('#big-board').isVisible(),false);
     assert.deepEqual(errors, []);
 });

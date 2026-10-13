@@ -12,23 +12,25 @@ test('each installed Big Board and Early Top Ten maps exclusively to its numbere
             assert.equal(seasonDraftClass(files, season, board), `2k27_CUS0${season} - ${board}.json`);
         }
     }
-    assert.throws(() => seasonDraftClass(files, 5), /CUS05/);
+    assert.equal(seasonDraftClass(files, 5), '2k27_CUS05 - Big Board.json');
+    assert.throws(() => seasonDraftClass(files, 5, 'Early Top Ten'), /CUS05/);
+    assert.throws(() => seasonDraftClass(files, 6), /CUS06/);
     assert.throws(() => seasonDraftClass(files, 0), /invalid/);
     assert.throws(() => seasonDraftClass([...files, 'other_CUS01 - Big Board.json'], 1), /requires one/);
 });
 
 test('website boards follow every season and phase, rejecting closed boards and ignoring old class URLs', t => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lb-season-web-'));
-    const prior = { FANTASYHQ_DATA_ROOT: process.env.FANTASYHQ_DATA_ROOT, GUILD_ID: process.env.GUILD_ID };
+    const prior = { FANTASYHQ_DATA_ROOT: process.env.FANTASYHQ_DATA_ROOT, GUILD_ID: process.env.GUILD_ID, WEBSITE_ADMIN_KEY: process.env.WEBSITE_ADMIN_KEY, WEBSITE_ADMIN_KEYS: process.env.WEBSITE_ADMIN_KEYS };
     process.env.FANTASYHQ_DATA_ROOT = root; process.env.GUILD_ID = 'season-guild';
     t.after(() => { for (const [key, value] of Object.entries(prior)) { if (value == null) delete process.env[key]; else process.env[key] = value; } fs.rmSync(root, { recursive: true, force: true }); });
     const repository = require('../src/fantasyhq/repository').createFantasyHQRepository();
     repository.saveTeams('season-test', []);
     repository.saveGuildLeagueBinding('season-guild', { leagueId: 'season-test', seasonId: '1' });
     const { requestHandler } = require('../src/web');
-    function get(url) {
+    function get(url, headers = {}) {
         let status, body;
-        requestHandler({ url, method: 'GET', headers: {} }, { writeHead(code) { status = code; }, end(data) { body = JSON.parse(data); } });
+        requestHandler({ url, method: 'GET', headers }, { writeHead(code) { status = code; }, end(data) { body = JSON.parse(data); } });
         return { status, body };
     }
     for (let season = 1; season <= 4; season++) {
@@ -49,7 +51,24 @@ test('website boards follow every season and phase, rejecting closed boards and 
             assert.equal(get(`/api/prospects?board=${active === 'top-ten' ? 'big-board' : 'top-ten'}`).status, 403);
         }
     }
-    repository.saveLeague('season-test', { seasonNumber: 5, currentSeasonId: '1' });
+    repository.saveLeague('season-test', { seasonNumber: 1, currentSeasonId: '1', currentPhase: 'PRESEASON', commissionerUserId: 'commish' });
+    process.env.WEBSITE_ADMIN_KEY = 'isolated-key'; delete process.env.WEBSITE_ADMIN_KEYS;
+    const key = { 'x-leaguebuddy-admin-key': 'isolated-key' };
+    const unlocked = get('/api/draft-classes', key);
+    assert.equal(unlocked.body.canBrowseAll, true);
+    assert.equal(unlocked.body.boards.find(b=>b.id==='big-board').classes.length, 5);
+    const fifth = get('/api/prospects?board=big-board&class=2k27_CUS05',key);
+    assert.equal(fifth.status,200);assert.equal(fifth.body.prospects.length,75);
+    assert.equal(fifth.body.prospects.filter(p=>p.image).length,47);
+    assert.ok(fifth.body.prospects.find(p=>p.name==='Christian Abayomi').image.includes('001-christian-abayomi'));
+    assert.equal(get('/api/prospects?board=big-board&class=../../.env',key).status,404);
+    assert.equal(get('/api/prospects?board=big-board&class=2k27_CUS05').status,403);
+    assert.equal(get('/api/draft-classes',{'x-leaguebuddy-admin-key':'wrong'}).body.canBrowseAll,false);
+    process.env.WEBSITE_ADMIN_KEYS=JSON.stringify({commish:'commissioner-key',assistant:'assistant-key'});
+    assert.equal(get('/api/draft-classes',{'x-leaguebuddy-admin-key':'assistant-key'}).body.canBrowseAll,false);
+    assert.equal(get('/api/draft-classes',{'x-leaguebuddy-admin-key':'commissioner-key'}).body.canBrowseAll,true);
+    delete process.env.WEBSITE_ADMIN_KEYS;
+    repository.saveLeague('season-test', { seasonNumber: 6, currentSeasonId: '1', currentPhase:'REGULAR_SEASON' });
     assert.equal(get('/api/draft-classes').status, 404);
     assert.equal(get('/api/prospects?board=big-board').status, 404);
 });

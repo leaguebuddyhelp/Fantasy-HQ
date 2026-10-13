@@ -188,6 +188,10 @@ async function requestJson(url, options = {}) {
   return payload;
 }
 
+function draftRequestJson(url) {
+  return requestJson(url, { headers: state.adminKey ? { 'x-leaguebuddy-admin-key': state.adminKey } : {} });
+}
+
 async function adminRequestJson(url, options = {}) {
   if (!hasAdminAccess()) throw new Error("Enter the website admin key to use admin tools.");
   const headers = new Headers(options.headers || {});
@@ -373,6 +377,10 @@ function shortClassLabel(label) {
 }
 
 function renderClassSwitcher() {
+  if (state.canBrowseAllDraftClasses) {
+    elements.classSwitcher.innerHTML = '<label>Draft class <select id="commissioner-draft-class">'+classLabels().map(label=>'<option value="'+escapeHtml(label)+'"'+(label===state.classLabel?' selected':'')+'>'+escapeHtml(shortClassLabel(label))+'</option>').join('')+'</select></label>';
+    return;
+  }
   elements.classSwitcher.textContent = `Season ${state.leagueSite?.league?.seasonNumber || state.draftSeasonNumber || 1} · ${shortClassLabel(state.classLabel)}`;
 }
 
@@ -463,7 +471,7 @@ function classEntry(boardId, label) {
 async function fetchClassBoard(boardId, label) {
   const entry = classEntry(boardId, label);
   if (!entry) return null;
-  return requestJson(`/api/prospects?board=${encodeURIComponent(boardId)}&class=${encodeURIComponent(entry.file)}`);
+  return draftRequestJson(`/api/prospects?board=${encodeURIComponent(boardId)}&class=${encodeURIComponent(entry.file)}`);
 }
 
 function ovrValue(player) {
@@ -857,8 +865,9 @@ async function refreshLeagueSite() {
   renderLeagueSite();
   const current = state.leagueSite?.league;
   if (current && state.boards.length && (previous?.seasonNumber !== current.seasonNumber || previous?.currentPhase !== current.currentPhase)) {
-    const draft = await requestJson('/api/draft-classes');
+    const draft = await draftRequestJson('/api/draft-classes');
     state.boards = draft.boards;
+    state.canBrowseAllDraftClasses = draft.canBrowseAll === true;
     state.draftSeasonNumber = draft.seasonNumber;
     if (elements.dialog.open) closeProfile();
     await loadDraftClass();
@@ -1267,10 +1276,15 @@ async function addPlayerToRoster(form) {
 
 async function loadDraftClass(selection) {
   const labels = classLabels();
-  state.classLabel = labels[0];
+  const requested = labels.find(label => label === selection || state.boards.some(board => board.classes.some(entry => entry.label === label && entry.file === selection)));
+  state.classLabel = state.canBrowseAllDraftClasses
+    ? requested || labels.find(label => new RegExp('CUS0*'+(state.draftSeasonNumber || 1)+'$','i').test(label)) || labels[0]
+    : labels[0];
+  if (elements.dialog.open) closeProfile();
   renderClassSwitcher();
-  const early = state.boards.some(board => board.id === 'top-ten');
-  for (const [id, visible] of [['early-top-ten', early], ['big-board', !early], ['draft-stats', !early]]) {
+  const early = !!classEntry('top-ten', state.classLabel);
+  const full = !!classEntry('big-board', state.classLabel);
+  for (const [id, visible] of [['early-top-ten', early], ['big-board', full], ['draft-stats', full]]) {
     document.getElementById(id).hidden = !visible;
     document.querySelectorAll(`a[href="#${id}"]`).forEach(link => { link.hidden = !visible; });
   }
@@ -1293,8 +1307,8 @@ async function loadDraftClass(selection) {
   elements.topTenClassLabel.textContent = state.classLabel;
   elements.bigBoardClassLabel.textContent = state.classLabel;
   elements.statsClassLabel.textContent = state.classLabel;
-  if (elements.prospectCount) elements.prospectCount.textContent = early ? state.topTenProspects.length : state.prospects.length;
-  if (elements.prospectLabel) elements.prospectLabel.textContent = early ? "in the early preview" : "on the big board";
+  if (elements.prospectCount) elements.prospectCount.textContent = full ? state.prospects.length : state.topTenProspects.length;
+  if (elements.prospectLabel) elements.prospectLabel.textContent = full ? "on the big board" : "in the early preview";
   renderTopTen();
   renderFilters();
   renderBoard();
@@ -1316,11 +1330,12 @@ async function initialize() {
   try {
     const [leaguePayload, draftPayload] = await Promise.all([
       requestJson("/api/league-site"),
-      requestJson("/api/draft-classes"),
+      draftRequestJson("/api/draft-classes"),
     ]);
     state.leagueSite = leaguePayload;
     renderLeagueSite();
     state.boards = draftPayload.boards;
+    state.canBrowseAllDraftClasses = draftPayload.canBrowseAll === true;
     state.draftSeasonNumber = draftPayload.seasonNumber;
     const currentUrl = new URL(window.location.href);
     const requestedClass = currentUrl.searchParams.get("class");
@@ -1520,6 +1535,11 @@ document.querySelector("#team-stats-refresh").addEventListener("click", () => {
   loadTeamStats(true);
 });
 
+elements.classSwitcher.addEventListener('change', async event => {
+  if (event.target.id !== 'commissioner-draft-class') return;
+  try { await loadDraftClass(event.target.value); } catch (error) { showToast(error.message); }
+});
+
 elements.adminKeySave.addEventListener("click", async () => {
   state.adminKey = elements.adminKey.value.trim();
   if (state.adminKey) window.sessionStorage.setItem("leaguebuddyAdminKey", state.adminKey);
@@ -1527,6 +1547,11 @@ elements.adminKeySave.addEventListener("click", async () => {
   window.localStorage.removeItem("leaguebuddyAdminKey");
   renderLeagueSite();
   try {
+    const draft = await draftRequestJson('/api/draft-classes');
+    state.boards = draft.boards;
+    state.canBrowseAllDraftClasses = draft.canBrowseAll === true;
+    state.draftSeasonNumber = draft.seasonNumber;
+    await loadDraftClass();
     await loadAdminPanels();
     if (hasAdminAccess()) await loadAdminWorkflow();
   } catch (error) {

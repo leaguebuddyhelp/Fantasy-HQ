@@ -1,0 +1,499 @@
+{
+  "1": {
+    "board_number": 1,
+    "position_1": "C",
+    "name": "Christian Abayomi",
+    "team": "Illinois",
+    "image": "images/2k27-cus05-big-board/C/001-christian-abayomi.png"
+  },
+  "2": {
+    "board_number": 2,
+    "position_1": "PG",
+    "name": "Keshaun Simmons",
+    "team": "Oklahoma"
+  },
+  "3": {
+    "board_number": 3,
+    "position_1": "C",
+    "name": "Zac Thomson",
+    "team": "Wisconsin",
+    "image": "images/2k27-cus05-big-board/C/003-zac-thomson.png"
+  },
+  "4": {
+    "board_number": 4,
+    "position_1": "SG",
+    "name": "Brycen Terrell",
+    "team": "USC"
+  },
+  "5": {
+    "board_number": 5,
+    "position_1": "PF",
+    "name": "Ka'ron Smith",
+    "team": "Duke",
+    "image": "images/2k27-cus05-big-board/PF/005-ka-ron-smith.png"
+  },
+  "6": {
+    "board_number": 6,
+    "position_1": "SF",
+    "name": "Renê Menezes",
+    "team": "New Zealand Breakers/Brazil",
+    "image": "images/2k27-cus05-big-board/SF/006-rene-menezes.png"
+  },
+  "7": {
+    "board_number": 7,
+    "position_1": "SG",
+    "name": "Brennan Allen",
+    "team": "Wisconsin"
+  },
+  "8": {
+    "board_number": 8,
+    "position_1": "C",
+    "name": "Noa Louvet",
+    "team": "Cholet Basket/France",
+    "image": "images/2k27-cus05-big-board/C/008-noa-louvet.png"
+  },
+  "9": {
+    "board_number": 9,
+    "position_1": "C",
+    "name": "Atreus Williamson",
+    "team": "Houston",
+    "image": "images/2k27-cus05-big-board/C/009-atreus-williamson.png"
+  },
+  "10": {
+    "board_number": 10,
+    "position_1": "SF",
+    "name": "Darrell Stevens",
+    "team": "USC",
+    "image": "images/2k27-cus05-big-board/SF/010-darrell-stevens.png"
+  },
+  "11": {
+    "board_number": 11,
+    "position_1": "PG",
+    "name": "Bryce Smith",
+    "team": "Colorado"
+  },
+  "12": {
+    "board_number": 12,
+    "position_1": "C",
+    "name": "Cody Collins",
+    "team": "USC",
+    "image": "images/2k27-cus05-big-board/C/012-cody-collins.png"
+  },
+  "13": {
+    "board_number": 13,
+    "position_1": "C",
+    "name": "Borys Kruchyk",
+    "team": "Creighton",
+    "image": "images/2k27-cus05-big-board/C/013-borys-kruchyk.png"
+  },
+  "14": {
+    "board_number": 14,
+    "position_1": "SG",
+    "name": "Naeem Dayo",
+    "team": "Georgia Tech"
+  },
+  "15": {
+    "board_number": 15,
+    "position_1": "PG",
+    "name": "Viktor Shapovalov",
+    "team": "Tennessee"
+  },
+  "16": {
+    "board_number": 16,
+    "position_1": "PG",
+    "name": "Niko Marasović",
+    "team": "Croatia"
+  },
+  "17": {
+    "board_number": 17,
+    "position_1": "SF",
+    "name": "Khalil Johnson",
+    "team": "Kansas",
+    "image": "images/2k27-cus05-big-board/SF/017-khalil-johnson.png"
+  },
+  "18": {
+    "board_number": 18,
+    "position_1": "SF",
+    "name": "Aaron Mason",
+    "team": "Duke",
+    "image": "images/2k27-cus05-big-board/SF/018-aaron-mason.png"
+  },
+  "19": {
+    "board_number": 19,
+    "position_1": "PG",
+    "name": "Salehe Ademola",
+    "team": "Stanford"
+  },
+  "20": {
+    "board_number": 20,
+    "position_1": "PG",
+    "name": "Nick Joyner",
+    "team": "Arizona"
+  },
+  "21": {
+    "board_number": 21,
+    "position_1": "SF",
+    "name": "Kevin Chavez",
+    "team": "Virginia",
+    "image": "images/2k27-cus05-big-board/SF/021-kevin-chavez.png"
+  },
+  "22": {
+    "board_number": 22,
+    "position_1": "C",
+    "name": "Ivan Zovko",
+    "team": "Dubrava/Croatia",
+    "image": "images/2k27-cus05-big-board/C/022-ivan-zovko.png"
+  },
+  "23": {
+    "board_number": 23,
+    "position_1": "PG",
+    "name": "Alijah Jones",
+    "team": "Villanova"
+  },
+  "24": {
+    "board_number": 24,
+    "position_1": "SF",
+    "name": "Matt Brinkman",
+    "team": "Oregon",
+    "image": "images/2k27-cus05-big-board/SF/024-matt-brinkman.png"
+  },
+  "25": {
+    "board_number": 25,
+    "position_1": "PF",
+    "name": "Quinell Jones III",
+    "team": "Boston College",
+    "image": "images/2k27-cus05-big-board/PF/025-quinell-jones-iii.png"
+  },
+  "26": {
+    "board_number": 26,
+    "position_1": "PF",
+    "name": "Amaziah Madaki",
+    "team": "Wisconsin",
+    "image": "images/2k27-cus05-big-board/PF/026-amaziah-madaki.png"
+  },
+  "27": {
+    "board_number": 27,
+    "position_1": "PF",
+    "name": "Léandre Joly",
+    "team": "Cholet Basket/France",
+    "image": "images/2k27-cus05-big-board/PF/027-leandre-joly.png"
+  },
+  "28": {
+    "board_number": 28,
+    "position_1": "SG",
+    "name": "Tre'Mont Willams",
+    "team": "Arizona"
+  },
+  "29": {
+    "board_number": 29,
+    "position_1": "SF",
+    "name": "Isaiah Nesbitt",
+    "team": "Creighton",
+    "image": "images/2k27-cus05-big-board/SF/029-isaiah-nesbitt.png"
+  },
+  "30": {
+    "board_number": 30,
+    "position_1": "PF",
+    "name": "Taylen Henderson",
+    "team": "Texas A&M",
+    "image": "images/2k27-cus05-big-board/PF/030-taylen-henderson.png"
+  },
+  "31": {
+    "board_number": 31,
+    "position_1": "PF",
+    "name": "Izan Carrasco",
+    "team": "Valencia Basket/Spain",
+    "image": "images/2k27-cus05-big-board/PF/031-izan-carrasco.png"
+  },
+  "32": {
+    "board_number": 32,
+    "position_1": "C",
+    "name": "T.J. Ferrara",
+    "team": "Syracuse",
+    "image": "images/2k27-cus05-big-board/C/032-t-j-ferrara.png"
+  },
+  "33": {
+    "board_number": 33,
+    "position_1": "SF",
+    "name": "Damien Mitchell",
+    "team": "VCU",
+    "image": "images/2k27-cus05-big-board/SF/033-damien-mitchell.png"
+  },
+  "34": {
+    "board_number": 34,
+    "position_1": "PF",
+    "name": "Rashad McQueen",
+    "team": "St. Johns",
+    "image": "images/2k27-cus05-big-board/PF/034-rashad-mcqueen.png"
+  },
+  "35": {
+    "board_number": 35,
+    "position_1": "PG",
+    "name": "Austin Watson Jr",
+    "team": "Georgia"
+  },
+  "36": {
+    "board_number": 36,
+    "position_1": "SG",
+    "name": "Tyler Lamb",
+    "team": "Santa Clara"
+  },
+  "37": {
+    "board_number": 37,
+    "position_1": "SG",
+    "name": "Quintin Allen",
+    "team": "Villanova"
+  },
+  "38": {
+    "board_number": 38,
+    "position_1": "PF",
+    "name": "Jordan-Élie Mbemba",
+    "team": "Paris Basketball/France",
+    "image": "images/2k27-cus05-big-board/PF/038-jordan-elie-mbemba.png"
+  },
+  "39": {
+    "board_number": 39,
+    "position_1": "PF",
+    "name": "Johnson Bloom",
+    "team": "Texas",
+    "image": "images/2k27-cus05-big-board/PF/039-johnson-bloom.png"
+  },
+  "40": {
+    "board_number": 40,
+    "position_1": "PG",
+    "name": "Kaspars Strautiņš",
+    "team": "Latvia"
+  },
+  "41": {
+    "board_number": 41,
+    "position_1": "PF",
+    "name": "Kellan Benjamin",
+    "team": "Utah",
+    "image": "images/2k27-cus05-big-board/PF/041-kellan-benjamin.png"
+  },
+  "42": {
+    "board_number": 42,
+    "position_1": "SF",
+    "name": "Jared Jackson",
+    "team": "Baylor",
+    "image": "images/2k27-cus05-big-board/SF/042-jared-jackson.png"
+  },
+  "43": {
+    "board_number": 43,
+    "position_1": "C",
+    "name": "Tyler Bloxam",
+    "team": "UConn",
+    "image": "images/2k27-cus05-big-board/C/043-tyler-bloxam.png"
+  },
+  "44": {
+    "board_number": 44,
+    "position_1": "C",
+    "name": "Anthony Myles",
+    "team": "Washington",
+    "image": "images/2k27-cus05-big-board/C/044-anthony-myles.png"
+  },
+  "45": {
+    "board_number": 45,
+    "position_1": "SF",
+    "name": "Malik Tanner",
+    "team": "North Carolina",
+    "image": "images/2k27-cus05-big-board/SF/045-malik-tanner.png"
+  },
+  "46": {
+    "board_number": 46,
+    "position_1": "SF",
+    "name": "Basim James",
+    "team": "Illinois",
+    "image": "images/2k27-cus05-big-board/SF/046-basim-james.png"
+  },
+  "47": {
+    "board_number": 47,
+    "position_1": "PF",
+    "name": "Jaylin Worthy",
+    "team": "Western Kentucky",
+    "image": "images/2k27-cus05-big-board/PF/047-jaylin-worthy.png"
+  },
+  "48": {
+    "board_number": 48,
+    "position_1": "SF",
+    "name": "Bacho Chikovani",
+    "team": "Rep of Georgia",
+    "image": "images/2k27-cus05-big-board/SF/048-bacho-chikovani.png"
+  },
+  "49": {
+    "board_number": 49,
+    "position_1": "SG",
+    "name": "Terrence Smith",
+    "team": "Wisconsin"
+  },
+  "50": {
+    "board_number": 50,
+    "position_1": "PG",
+    "name": "Tyquan Majors",
+    "team": "USC"
+  },
+  "51": {
+    "board_number": 51,
+    "position_1": "C",
+    "name": "Tyler Lee",
+    "team": "Kansas",
+    "image": "images/2k27-cus05-big-board/C/051-tyler-lee.png"
+  },
+  "52": {
+    "board_number": 52,
+    "position_1": "PF",
+    "name": "Johnnie Sheffield",
+    "team": "Maryland",
+    "image": "images/2k27-cus05-big-board/PF/052-johnnie-sheffield.png"
+  },
+  "53": {
+    "board_number": 53,
+    "position_1": "PG",
+    "name": "Liddell Jefferson Jr.",
+    "team": "Kentucky"
+  },
+  "54": {
+    "board_number": 54,
+    "position_1": "SG",
+    "name": "Issa M'Bemba",
+    "team": "France"
+  },
+  "55": {
+    "board_number": 55,
+    "position_1": "PG",
+    "name": "Jean Giraud",
+    "team": "France"
+  },
+  "56": {
+    "board_number": 56,
+    "position_1": "C",
+    "name": "Slobodan Krstić",
+    "team": "Partizan/Serbia",
+    "image": "images/2k27-cus05-big-board/C/056-slobodan-krstic.png"
+  },
+  "57": {
+    "board_number": 57,
+    "position_1": "SG",
+    "name": "Jonas Schweizer",
+    "team": "Duke"
+  },
+  "58": {
+    "board_number": 58,
+    "position_1": "SF",
+    "name": "Devon Rose",
+    "team": "Rutgers",
+    "image": "images/2k27-cus05-big-board/SF/058-devon-rose.png"
+  },
+  "59": {
+    "board_number": 59,
+    "position_1": "C",
+    "name": "Kofi Sadeeki",
+    "team": "FIU",
+    "image": "images/2k27-cus05-big-board/C/059-kofi-sadeeki.png"
+  },
+  "60": {
+    "board_number": 60,
+    "position_1": "PF",
+    "name": "Isaias Roman",
+    "team": "New Mexico State",
+    "image": "images/2k27-cus05-big-board/PF/060-isaias-roman.png"
+  },
+  "61": {
+    "board_number": 61,
+    "position_1": "SG",
+    "name": "Andy Tavares",
+    "team": "Florida"
+  },
+  "62": {
+    "board_number": 62,
+    "position_1": "C",
+    "name": "Ahmad McDaniels",
+    "team": "UCLA",
+    "image": "images/2k27-cus05-big-board/C/062-ahmad-mcdaniels.png"
+  },
+  "63": {
+    "board_number": 63,
+    "position_1": "SG",
+    "name": "Dyllan Swartz",
+    "team": "Yale"
+  },
+  "64": {
+    "board_number": 64,
+    "position_1": "C",
+    "name": "Jeremiah Wong",
+    "team": "BYU",
+    "image": "images/2k27-cus05-big-board/C/064-jeremiah-wong.png"
+  },
+  "65": {
+    "board_number": 65,
+    "position_1": "PF",
+    "name": "Jaylen Woodard",
+    "team": "Arizona",
+    "image": "images/2k27-cus05-big-board/PF/065-jaylen-woodard.png"
+  },
+  "66": {
+    "board_number": 66,
+    "position_1": "PG",
+    "name": "Daouda Sylla",
+    "team": "Senegal"
+  },
+  "67": {
+    "board_number": 67,
+    "position_1": "SG",
+    "name": "Sam Beasley",
+    "team": "Tulane"
+  },
+  "68": {
+    "board_number": 68,
+    "position_1": "PG",
+    "name": "Eli Parks",
+    "team": "Colorado State"
+  },
+  "69": {
+    "board_number": 69,
+    "position_1": "SF",
+    "name": "Danylo Yaremchuk",
+    "team": "Ukraine",
+    "image": "images/2k27-cus05-big-board/SF/069-danylo-yaremchuk.png"
+  },
+  "70": {
+    "board_number": 70,
+    "position_1": "C",
+    "name": "Ang Jung Kai",
+    "team": "Virginia",
+    "image": "images/2k27-cus05-big-board/C/070-ang-jung-kai.png"
+  },
+  "71": {
+    "board_number": 71,
+    "position_1": "PG",
+    "name": "Mateja Savić",
+    "team": "Serbia"
+  },
+  "72": {
+    "board_number": 72,
+    "position_1": "SG",
+    "name": "K'eon Adams",
+    "team": "USF"
+  },
+  "73": {
+    "board_number": 73,
+    "position_1": "PF",
+    "name": "Endre Baranyai",
+    "team": "Alba Fehérvár/Hungary",
+    "image": "images/2k27-cus05-big-board/PF/073-endre-baranyai.png"
+  },
+  "74": {
+    "board_number": 74,
+    "position_1": "C",
+    "name": "Nick Jacobson",
+    "team": "Central Michigan",
+    "image": "images/2k27-cus05-big-board/C/074-nick-jacobson.png"
+  },
+  "75": {
+    "board_number": 75,
+    "position_1": "SF",
+    "name": "Zédarius Butler",
+    "team": "Michigan State",
+    "image": "images/2k27-cus05-big-board/SF/075-zedarius-butler.png"
+  }
+}

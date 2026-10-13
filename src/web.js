@@ -92,6 +92,19 @@ function resolveDraftClass(selection, boardId = "top-ten") {
     draftClassFiles(boardId), draftSeasonNumber(), boardId === 'top-ten' ? 'Early Top Ten' : 'Big Board');
 }
 
+function canBrowseAllDraftClasses(request) {
+  const principal = require('./shared/website-auth').websitePrincipal(request);
+  return !!principal && (!principal.operator || principal.operator === draftLeague().commissionerUserId);
+}
+
+function resolveCommissionerDraftClass(selection, boardId) {
+  const files = draftClassFiles(boardId);
+  if (!selection) return resolveDraftClass(null, boardId);
+  const file = files.find(file => file === selection || classLabel(file) === selection);
+  if (!file) throw Error('Draft class not found.');
+  return file;
+}
+
 function publicImageUrl(image) {
   const value = String(image || "").trim();
   if (!value) return null;
@@ -573,11 +586,15 @@ function unsafeRequestHandler(request, response) {
     try {
       const seasonNumber = draftSeasonNumber();
       const activeBoard = activeDraftBoardId();
-      const boards = [BOARD_TYPES[activeBoard]].map(board => {
+      const canBrowseAll = canBrowseAllDraftClasses(request);
+      const boards = canBrowseAll ? Object.values(BOARD_TYPES).map(board => ({
+        id: board.id, label: board.label, target: board.target,
+        classes: draftClassFiles(board.id).map(file => ({file, label: classLabel(file)})),
+      })).filter(board => board.classes.length) : [BOARD_TYPES[activeBoard]].map(board => {
         const file = resolveDraftClass(null, board.id);
         return { id: board.id, label: board.label, target: board.target, classes: [{ file, label: classLabel(file) }] };
       });
-      sendJson(response, 200, { seasonNumber, phase: draftLeague().currentPhase, activeBoard, boards });
+      sendJson(response, 200, { seasonNumber, phase: draftLeague().currentPhase, activeBoard, canBrowseAll, boards });
     } catch (error) { sendJson(response, 404, { error: error.message }); }
     return;
   }
@@ -587,11 +604,14 @@ function unsafeRequestHandler(request, response) {
     try {
       const activeBoard = activeDraftBoardId();
       boardId = url.searchParams.get('board') || activeBoard;
-      if (boardId !== activeBoard) {
+      if (!BOARD_TYPES[boardId]) throw Error('Draft board not found.');
+      if (!canBrowseAllDraftClasses(request) && boardId !== activeBoard) {
         sendJson(response, 403, { error: `This season's available board is ${BOARD_TYPES[activeBoard].label}.`, activeBoard });
         return;
       }
-      file = resolveDraftClass(null, boardId);
+      file = canBrowseAllDraftClasses(request)
+        ? resolveCommissionerDraftClass(url.searchParams.get('class'), boardId)
+        : resolveDraftClass(null, boardId);
     }
     catch (error) { sendJson(response, 404, { error: error.message }); return; }
     const board = BOARD_TYPES[boardId];
