@@ -59,8 +59,11 @@ test('website boards follow every season and phase, rejecting closed boards and 
     assert.equal(unlocked.body.boards.find(b=>b.id==='big-board').classes.length, 5);
     const fifth = get('/api/prospects?board=big-board&class=2k27_CUS05',key);
     assert.equal(fifth.status,200);assert.equal(fifth.body.prospects.length,75);
-    assert.equal(fifth.body.prospects.filter(p=>p.image).length,60);
-    assert.ok(fifth.body.prospects.find(p=>p.name==='Christian Abayomi').image.includes('001-christian-abayomi'));
+    assert.equal(fifth.body.prospects.filter(p=>p.image).length,75);
+    for (const prospect of fifth.body.prospects) {
+      assert.ok(prospect.image.includes('/'+String(prospect.rank).padStart(3,'0')+'-'));
+      assert.ok(prospect.image.includes('/'+prospect.position_1+'/'));
+    }
     assert.equal(get('/api/prospects?board=big-board&class=../../.env',key).status,404);
     assert.equal(get('/api/prospects?board=big-board&class=2k27_CUS05').status,403);
     assert.equal(get('/api/draft-classes',{'x-leaguebuddy-admin-key':'wrong'}).body.canBrowseAll,false);
