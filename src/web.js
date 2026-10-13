@@ -582,6 +582,12 @@ function unsafeRequestHandler(request, response) {
     return;
   }
 
+  if (url.pathname === '/api/league/admin/session') {
+    if (request.method !== 'GET') { sendJson(response, 405, {error:'Use GET to validate admin access.'}); return; }
+    if (!isAdminRequest(request)) { sendJson(response, 403, {error:'Invalid admin key. Coach view is still available.'}); return; }
+    sendJson(response, 200, {authenticated:true}); return;
+  }
+
   if (url.pathname === "/api/draft-classes") {
     try {
       const seasonNumber = draftSeasonNumber();

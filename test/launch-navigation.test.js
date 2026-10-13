@@ -8,6 +8,8 @@ test('desktop tablet and phone navigation stays inside viewport and website has 
 test('grouped navigation supports keyboard, mobile, deep links and existing section destinations',async t=>{
  const browser=await chromium.launch({headless:true});t.after(()=>browser.close());const page=await browser.newPage();
  await page.setContent(fs.readFileSync('web/index.html','utf8').replace(/<script[^>]*>[\s\S]*?<\/script>/g,''));await page.addStyleTag({content:fs.readFileSync('web/styles.css','utf8')});await page.addScriptTag({content:fs.readFileSync('web/navigation.js','utf8')});
+ assert.equal(await page.locator('[data-admin-navigation]').isVisible(),false);
+ await page.evaluate(()=>{document.body.dataset.adminMode='true';window.dispatchEvent(new Event('leaguebuddy:modechange'));});
  assert.equal(await page.locator('#primary-nav .nav-group').count(),5);
  assert.deepEqual(await page.evaluate(()=>[...document.querySelectorAll('#primary-nav a')].filter(a=>!document.getElementById(a.hash.slice(1))).map(a=>a.hash)),[]);
  for(const width of [1440,1101,1100,1024,768,390,320]){

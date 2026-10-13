@@ -21,7 +21,7 @@ test('weekly website dashboards preserve privacy, guard reloads, escape text and
  await page.evaluate(()=>Promise.all([loadCoachWeek(),loadCoachWeek()]));assert.equal(publicCalls,2);
  assert.equal(await page.evaluate(()=>localStorage.getItem('leaguebuddyWeeklyTeam')),'a');
  await page.evaluate(()=>loadStaffWeek());assert.equal(staffCalls,0);
- await page.evaluate(()=>{state.adminKey='weekly-key';document.querySelector('#staff-weekly').hidden=false;});
+ await page.evaluate(()=>{state.adminKey='weekly-key';state.adminAuthenticated=true;renderAdminMode();document.querySelector('#staff-weekly').hidden=false;});
  await page.evaluate(()=>Promise.all([loadStaffWeek(),loadStaffWeek()]));assert.equal(staffCalls,1);
  assert.match(await page.locator('#staff-week-output').textContent(),/CPU vs CPU/);assert.match(await page.locator('#staff-week-output').textContent(),/Private Player/);
  assert.equal(await page.locator('#staff-week-output img').count(),0);assert.equal(await page.locator('#staff-week-output a[href="/games/game/submissions/submission/review"]').count(),1);

@@ -48,13 +48,14 @@ test('website replaces draft class tabs with a season label and ignores stale cl
     });
     const correction = await page.evaluate(async () => {
         state.leagueSite = { league: { currentPhase: 'PLAYOFFS' } };
-        state.adminKey = 'isolated-browser-test-key';
+        state.adminKey = 'isolated-browser-test-key';state.adminAuthenticated=true;renderAdminMode();
         return rosterCorrection('move', { playerId: 'p', toTeamId: 'b' });
     });
     assert.deepEqual(correction, { correctionToken: 'preview-token' });
     assert.deepEqual(dialogs, ['prompt', 'confirm']);
     const early = {id:'top-ten',classes:[{label:'2k27_CUS01',file:'2k27_CUS01 - Early Top Ten.json'}]};
     const full = {id:'big-board',classes:Array.from({length:5},(_,i)=>({label:`2k27_CUS0${i+1}`,file:`2k27_CUS0${i+1} - Big Board.json`}))};
+    await page.route('http://draft.test/api/league/admin/session',route=>route.fulfill({json:{authenticated:route.request().headers()['x-leaguebuddy-admin-key']==='commissioner-key'}}));
     await page.route('http://draft.test/api/draft-classes', route => route.fulfill({json:{seasonNumber:1,canBrowseAll:route.request().headers()['x-leaguebuddy-admin-key']==='commissioner-key',boards:route.request().headers()['x-leaguebuddy-admin-key']==='commissioner-key'?[early,full]:[early]}}));
     await page.route('http://draft.test/api/prospects?**',route=>{
       const url=new URL(route.request().url());requests.push(url);

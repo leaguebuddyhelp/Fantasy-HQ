@@ -54,6 +54,9 @@ test('website boards follow every season and phase, rejecting closed boards and 
     repository.saveLeague('season-test', { seasonNumber: 1, currentSeasonId: '1', currentPhase: 'PRESEASON', commissionerUserId: 'commish' });
     process.env.WEBSITE_ADMIN_KEY = 'isolated-key'; delete process.env.WEBSITE_ADMIN_KEYS;
     const key = { 'x-leaguebuddy-admin-key': 'isolated-key' };
+    assert.equal(get('/api/league/admin/session').status,403);
+    assert.equal(get('/api/league/admin/session',{'x-leaguebuddy-admin-key':'wrong'}).status,403);
+    assert.equal(get('/api/league/admin/session',key).body.authenticated,true);
     const unlocked = get('/api/draft-classes', key);
     assert.equal(unlocked.body.canBrowseAll, true);
     assert.equal(unlocked.body.boards.find(b=>b.id==='big-board').classes.length, 5);

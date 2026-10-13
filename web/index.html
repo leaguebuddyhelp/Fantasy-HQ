@@ -18,14 +18,14 @@
   <header class="site-header">
     <a class="brand" href="/" aria-label="LEAGUEbuddy home">
       <img class="brand-mark" src="/assets/leaguebuddy-logo.png" alt="">
-      <span><strong>LEAGUE<span>buddy</span></strong><small>League hub + draft room</small></span>
+      <span><strong>LEAGUE<span>buddy</span></strong><small>Your team. Your league.</small></span>
     </a>
     <button class="mobile-nav-toggle" id="mobile-nav-toggle" type="button" aria-controls="primary-nav"
       aria-expanded="false">Menu</button>
     <nav id="primary-nav" aria-label="Primary navigation">
       <a href="#league-home" class="nav-home">Home</a>
+      <a href="#my-week">My Week</a>
       <details class="nav-group"><summary>League</summary><div class="nav-menu">
-        <a href="#my-week">My Week</a>
         <a href="#teams">Teams</a>
         <a href="#players">Players</a>
         <a href="#schedule-hub">Schedule</a>
@@ -50,11 +50,12 @@
         <a href="#draft-stats">Prospect Stats</a>
         <a href="#methodology">Scouting Guide</a>
       </div></details>
-      <details class="nav-group"><summary>Staff</summary><div class="nav-menu">
+      <details class="nav-group" data-admin-navigation><summary>Staff</summary><div class="nav-menu">
         <a href="#league-admin">Staff Workspace</a>
         <a href="#staff-weekly">Weekly Closeout</a>
         <a href="#news-review-panel">News Review</a>
       </div></details>
+      <a href="#league-admin" id="admin-mode-link">Admin mode</a>
     </nav>
   </header>
 
@@ -63,21 +64,22 @@
       <div class="section-heading">
         <div>
           <p class="eyebrow">League home</p>
-          <h2>Your league, at a glance</h2>
+          <h2>Ready for your next game?</h2>
         </div>
         <span class="section-class-label" id="league-status-pill">Loading league…</span>
       </div>
-      <p class="section-summary">Check your matchup, follow the season, or explore the draft.</p>
+      <p class="section-summary">Start with My Week for your matchup and next step. Browse the rest of the league when you need it.</p>
       <div class="home-shortcuts" aria-label="League shortcuts"><a href="#my-week">📅 My Week</a><a href="#schedule-hub">Schedule</a><a href="#standings">Standings</a><a href="#board">Draft Room</a></div>
+      <details class="coach-overview"><summary>League overview</summary>
       <div class="summary-grid" id="summary-grid">
-        <article class="summary-card"><span>Teams</span><strong id="summary-teams">—</strong><small>Imported
-            franchises</small></article>
+        <article class="summary-card"><span>Teams</span><strong id="summary-teams">—</strong><small>League franchises</small></article>
         <article class="summary-card"><span>Players</span><strong id="summary-players">—</strong><small>League players</small></article>
         <article class="summary-card"><span>Schedule</span><strong id="summary-weeks">—</strong><small>Weeks /
             games</small></article>
         <article class="summary-card"><span>Owners</span><strong id="summary-owners">—</strong><small>Assigned
             franchises</small></article>
       </div>
+      </details>
     </section>
 
     <section class="league-schedule-section" id="my-week">
@@ -454,9 +456,8 @@
       <div class="section-heading">
         <div>
           <p class="eyebrow">Admin</p>
-          <h2>Commissioner view</h2>
-          <p class="section-summary">The website is the visual control center for setup, weekly closeout and game review. Discord
-            stays great for quick commands and notifications.</p>
+          <h2>Admin mode</h2>
+          <p class="section-summary">Enter your staff key to open league management tools. Coaches can use the rest of the site without a key.</p>
         </div>
       </div>
       <div class="admin-panel">
@@ -465,13 +466,15 @@
           records.</p>
         <label class="admin-key-label" for="admin-key">Admin key</label>
         <div class="admin-key-row">
-          <input id="admin-key" type="password" placeholder="Admin key">
-          <button id="admin-key-save" type="button">Unlock</button>
+          <input id="admin-key" type="password" placeholder="Admin key" autocomplete="off">
+          <button id="admin-key-save" type="button">Unlock admin mode</button>
+          <button id="admin-mode-lock" type="button" hidden>Return to coach view</button>
         </div>
-        <label class="review-operator">Commissioner name <input id="admin-operator" maxlength="100"
+        <label class="review-operator" data-admin-only>Commissioner name <input id="admin-operator" maxlength="100"
             placeholder="Your name"></label>
         <small id="admin-key-status">Admin tools are currently locked.</small>
       </div>
+      <div id="admin-workspace">
       <div class="admin-panel" id="staff-weekly" hidden>
         <div class="section-heading"><div><p class="eyebrow">Regular season</p><h3>Weekly Staff checklist</h3>
           <p>Live game progress and pending work. Stats and standings publish when the week advances.</p></div>
@@ -587,6 +590,7 @@
         </div>
         <div id="roster-manager" class="admin-output"></div>
       </div>
+      </div>
     </section>
   </main>
 
@@ -601,8 +605,7 @@
     <div id="league-dialog-content"></div>
   </dialog>
 
-  <footer><span><strong>LEAGUEbuddy</strong> Companion Hub</span><span>League website, commissioner workspace, and draft
-      room in one place.</span></footer>
+  <footer><span><strong>LEAGUEbuddy</strong> Companion Hub</span><span>Matchups, league updates, and scouting.</span></footer>
 </body>
 
 </html>

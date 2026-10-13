@@ -1,3 +1,4 @@
+[hidden] { display: none !important; }
 :root {
   color-scheme: dark;
   --yellow: #ffdc21;
@@ -3061,3 +3062,25 @@ main section[id], #news-review-panel { scroll-margin-top: 110px; }
 
 /* Phase-closed draft views must stay hidden despite layout display rules. */
 #early-top-ten[hidden], #big-board[hidden], #draft-stats[hidden], .nav-menu a[hidden] { display: none; }
+/* Coach view shows the selected destination instead of the entire site. */
+body[data-workspace-navigation="true"] #main-content > section[data-workspace-active="false"] {
+  display: none;
+}
+body:not([data-admin-mode="true"]) :is(#admin-workspace, [data-admin-navigation], [data-admin-only]) {
+  display: none !important;
+}
+#admin-mode-link {
+  font-size: .85rem;
+}
+#admin-mode-lock {
+  white-space: normal;
+}
+
+/* Compact coach landing page: the next matchup stays near the top. */
+body[data-workspace-navigation="true"] #main-content > section { padding-block: 36px; }
+#league-home .section-heading h2 { font-size: clamp(28px, 4vw, 44px); }
+#my-week .section-heading h2 { font-size: clamp(26px, 3vw, 36px); }
+.coach-overview { margin-top: 24px; }
+.coach-overview > summary { cursor: pointer; color: var(--muted); font-size: 14px; }
+.coach-overview .summary-grid { margin-top: 16px; }
+#my-week #coach-week-refresh { min-height: 44px; padding: 10px 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--white); cursor: pointer; }

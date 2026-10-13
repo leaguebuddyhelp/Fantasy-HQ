@@ -47,6 +47,7 @@ const state = {
   playerDetailCache: new Map(),
   currentRosterTeamId: "",
   currentRosterDetail: null,
+  adminAuthenticated: false,
   adminKey: window.sessionStorage.getItem("leaguebuddyAdminKey") || "",
   importPreview: null,
   toastTimeout: null,
@@ -162,7 +163,33 @@ function leaguePlayers() {
 }
 
 function hasAdminAccess() {
-  return Boolean(state.adminKey);
+  return state.adminAuthenticated === true;
+}
+
+function renderAdminMode() {
+  const unlocked = hasAdminAccess();
+  document.body.dataset.adminMode = String(unlocked);
+  document.querySelector('#admin-mode-lock').hidden = !unlocked;
+  document.querySelector('#admin-mode-link').textContent = unlocked ? 'Admin workspace' : 'Admin mode';
+  elements.adminKeyStatus.textContent = unlocked ? 'Admin mode unlocked for this browser session.' : 'Coach view · Admin mode is locked.';
+  window.dispatchEvent(new Event('leaguebuddy:modechange'));
+}
+
+async function validateAdminMode() {
+  state.adminAuthenticated = false;
+  if (state.adminKey) {
+    try {
+      const result = await requestJson('/api/league/admin/session', {headers:{'x-leaguebuddy-admin-key':state.adminKey}});
+      state.adminAuthenticated = result.authenticated === true;
+    } catch (error) {
+      window.sessionStorage.removeItem('leaguebuddyAdminKey');
+      renderAdminMode();
+      elements.adminKeyStatus.textContent = error.message;
+      return false;
+    }
+  }
+  renderAdminMode();
+  return hasAdminAccess();
 }
 
 function setPanelMessage(element, message) {
@@ -189,10 +216,11 @@ async function requestJson(url, options = {}) {
 }
 
 function draftRequestJson(url) {
-  return requestJson(url, { headers: state.adminKey ? { 'x-leaguebuddy-admin-key': state.adminKey } : {} });
+  return requestJson(url, { headers: hasAdminAccess() ? { 'x-leaguebuddy-admin-key': state.adminKey } : {} });
 }
 
 async function adminRequestJson(url, options = {}) {
+  renderAdminMode();
   if (!hasAdminAccess()) throw new Error("Enter the website admin key to use admin tools.");
   const headers = new Headers(options.headers || {});
   headers.set("x-leaguebuddy-admin-key", state.adminKey);
@@ -760,13 +788,14 @@ function updateAdminPanelVisibility(phase, hasLeague = true) {
 }
 
 function renderLeagueSite() {
+  renderAdminMode();
   const payload = state.leagueSite;
   updateAdminPanelVisibility(payload?.league?.currentPhase, Boolean(payload?.league));
   if (!payload?.league) {
     elements.leagueStatusPill.textContent = "League not connected";
-    setPanelMessage(elements.teamDirectory, "Start in Discord: run /league create with a unique ID (for example 2k-test-03) and a league name. Roles and players are prepared automatically. Choose test_mode:true for solo testing.");
-    setPanelMessage(elements.schedulePreview, "After creating your league, open /league setup and use Generate schedule, then Confirm schedule.");
-    setPanelMessage(elements.playerDirectory, "Players appear after league creation imports the NBA rosters and free agents. Refresh this page after setup.");
+    setPanelMessage(elements.teamDirectory, "The league is being prepared. Teams will appear here once setup is complete.");
+    setPanelMessage(elements.schedulePreview, "The schedule will appear when league staff publishes it.");
+    setPanelMessage(elements.playerDirectory, "Player rosters will appear when league setup is complete.");
     elements.adminUnassignedList.innerHTML = "<li>Start with /league create in Discord, then follow /league setup. Existing team roles keep their owners. Draft browsing below works without a league.</li>";
     return;
   }
@@ -801,7 +830,7 @@ function renderLeagueSite() {
 
   elements.schedulePreview.innerHTML = schedulePreview.length
     ? schedulePreview.map(schedulePreviewMarkup).join("")
-    : '<article class="empty-panel">Generate and confirm a schedule to see the league calendar here.</article>';
+    : '<article class="empty-panel">The league calendar has not been published yet.</article>';
 
   elements.adminUnassignedList.innerHTML = admin.unassignedTeams.length
     ? admin.unassignedTeams.map((team) => `<li>${escapeHtml(team)}</li>`).join("")
@@ -811,7 +840,7 @@ function renderLeagueSite() {
   renderPlayerDirectory();
   elements.adminKey.value = state.adminKey;
   elements.adminKeyStatus.textContent = hasAdminAccess()
-    ? "Admin tools unlocked for this browser session."
+    ? "Admin mode unlocked for this browser session."
     : "Admin tools are currently locked.";
 }
 
@@ -1328,6 +1357,7 @@ async function loadDraftClass(selection) {
 
 async function initialize() {
   try {
+    await validateAdminMode();
     const [leaguePayload, draftPayload] = await Promise.all([
       requestJson("/api/league-site"),
       draftRequestJson("/api/draft-classes"),
@@ -1540,12 +1570,23 @@ elements.classSwitcher.addEventListener('change', async event => {
   try { await loadDraftClass(event.target.value); } catch (error) { showToast(error.message); }
 });
 
+document.querySelector('#admin-mode-lock').addEventListener('click', () => {
+  elements.adminKey.value = '';
+  elements.adminKeySave.click();
+});
+
 elements.adminKeySave.addEventListener("click", async () => {
   state.adminKey = elements.adminKey.value.trim();
-  if (state.adminKey) window.sessionStorage.setItem("leaguebuddyAdminKey", state.adminKey);
+  state.adminAuthenticated = false;
+  renderAdminMode();
+  const authenticated = await validateAdminMode();
+  if (state.adminKey && authenticated) window.sessionStorage.setItem("leaguebuddyAdminKey", state.adminKey);
   else window.sessionStorage.removeItem("leaguebuddyAdminKey");
   window.localStorage.removeItem("leaguebuddyAdminKey");
+  const validationMessage = elements.adminKeyStatus.textContent;
+  if (elements.leagueDialog.open) elements.leagueDialog.close();
   renderLeagueSite();
+  if (!authenticated && state.adminKey) elements.adminKeyStatus.textContent = validationMessage;
   try {
     const draft = await draftRequestJson('/api/draft-classes');
     state.boards = draft.boards;

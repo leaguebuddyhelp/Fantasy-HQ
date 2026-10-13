@@ -19,7 +19,7 @@ test('website offseason review shows blockers and requires explicit, cancellable
   });
   await page.goto('http://offseason.test/#admin');
   await page.addScriptTag({ content: fs.readFileSync('web/app.js', 'utf8').replace(/^initialize\(\);$/m, '').replace(/^refreshStandings\(\);$/m, '').replace(/^setInterval\(.*$/gm, '') });
-  await page.evaluate(() => { state.adminKey = 'test'; state.adminUnlocked = true; document.querySelector('#admin-operator').value = 'Commissioner'; });
+  await page.evaluate(() => { state.adminKey = 'test';state.adminAuthenticated=true;renderAdminMode(); state.adminUnlocked = true; document.querySelector('#admin-operator').value = 'Commissioner'; });
   await page.locator('#offseason-review').click();
   await page.waitForFunction(() => document.querySelector('#offseason-output').textContent.includes('official championship'));
   assert.equal(await page.getByRole('button', { name: 'Confirm next step', exact: true }).count(), 0);
@@ -57,7 +57,7 @@ test('retirement website presents evidence candidates and requires review before
   });
   await page.goto('http://retirements.test/#admin');
   await page.addScriptTag({ content: fs.readFileSync('web/app.js', 'utf8').replace(/^initialize\(\);$/m, '').replace(/^refreshStandings\(\);$/m, '').replace(/^setInterval\(.*$/gm, '') });
-  await page.evaluate(() => { state.adminKey = 'test'; document.querySelector('#admin-operator').value = 'Commissioner'; });
+  await page.evaluate(() => { state.adminKey = 'test';state.adminAuthenticated=true;renderAdminMode(); document.querySelector('#admin-operator').value = 'Commissioner'; });
   await page.locator('#retirement-reload').click();
   await page.getByLabel('Example Player · Boston Celtics').check();
   await page.getByRole('button', { name: 'Review retirement changes' }).click();

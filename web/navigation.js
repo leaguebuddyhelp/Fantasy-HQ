@@ -34,10 +34,18 @@
     // Deep links to Staff tools should reveal the login workspace when locked.
     let target;
     try { target = document.getElementById(decodeURIComponent(hash.slice(1))); } catch { return; }
-    if (target?.hidden && target.closest('#league-admin')) target = document.getElementById('league-admin');
+    if (target?.closest('#league-admin')) target = document.getElementById('league-admin');
+    if (target?.hidden && target.closest('#board')) target = document.getElementById('board');
+    const sections = [...document.querySelectorAll('#main-content > section')];
+    const section = sections.find(section => section === target || section.contains(target)) || document.getElementById('league-home');
+    document.body.dataset.workspaceNavigation = 'true';
+    sections.forEach(item => {
+      item.dataset.workspaceActive = String(item === section || (section.id === 'league-home' && item.id === 'my-week'));
+    });
     for (let node = target?.parentElement; node; node = node.parentElement) if (node.tagName === 'DETAILS') node.open = true;
   }
   window.addEventListener('hashchange', activate);
+  window.addEventListener('leaguebuddy:modechange', activate);
   window.addEventListener('resize', () => { if (innerWidth > 1100) { closeMobile(); closeMenus(); } });
   activate();
 })();
