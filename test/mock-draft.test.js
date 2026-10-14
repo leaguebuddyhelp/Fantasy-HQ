@@ -803,3 +803,18 @@ test('full-draft AVP covers 60 picks and selected-class snapshots survive defaul
  assert.match(m.input.draftClassId,/CUS05/);assert.equal(m.simulationSnapshotId,fifth.id);
  await assert.rejects(restarted.classProjection('l',5),/automatically/);
 });
+
+
+test('live position picker counts and lists primary positions only, in remaining board order',t=>{
+ const f=fixture(t),d=discordFixture(f),ready=f.ready('u0',f.repository.loadOwners('l').map(o=>o.userId));
+ const m=f.live.start('l',ready.id,{id:'u0'});
+ m.input.prospects.forEach(p=>{p.position_2='C';});
+ const eligible=m.input.prospects.filter(p=>p.position_1==='C').sort((a,b)=>a.board_number-b.board_number);
+ const payload=d.workflow.selectionPayload(m,1,'',0,null,'C');
+ const positions=payload.components[0].toJSON().components[0].options;
+ assert.equal(positions.find(o=>o.value==='C').label,'C · '+eligible.length+' remaining');
+ const players=payload.components[1].toJSON().components[0].options;
+ assert.deepEqual(players.map(o=>Number(o.value)),eligible.slice(0,25).map(p=>p.board_number));
+ assert.ok(!players.some(o=>Number(o.value)===m.input.prospects[0].board_number));
+ assert.equal(payload.embeds[0].data.description.match(/Board #/g).length,10);
+});

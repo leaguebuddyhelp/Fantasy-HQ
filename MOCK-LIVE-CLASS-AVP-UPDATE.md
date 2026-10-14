@@ -6,7 +6,7 @@ The simulation market now runs 1,000 complete 60-pick drafts instead of 1,000 fi
 
 Market snapshots are stored separately by league season and draft class. Generating or refreshing another class does not overwrite a live mock's market. Refresh jobs serialize per league to preserve the generation lock. The engine version changed so newly started mocks rebuild older first-round markets automatically. Existing rooms retain their saved snapshots and selections.
 
-Make Pick now opens a private position chooser. PG, SG, SF, PF and C show remaining counts, including secondary-position eligibility. Selecting a position shows its top ten remaining prospects in the embed and up to 25 in the dropdown, ordered by board rank. Search remains available across all undrafted players. Coach ownership, pick clock, stale-pick checks and final confirmation remain in place.
+Make Pick now opens a private position chooser. PG, SG, SF, PF and C show remaining counts, using primary positions only. Selecting a position shows its top ten remaining prospects in the embed and up to 25 in the dropdown, ordered by board rank. Search remains available across all undrafted players. Coach ownership, pick clock, stale-pick checks and final confirmation remain in place.
 
 Live mocks remain 30-pick first rounds; the 60-pick change applies to the simulation market used for AVP and the existing two-round weekly projections.
 
