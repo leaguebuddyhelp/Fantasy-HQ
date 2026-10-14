@@ -5,7 +5,7 @@ function seededRandom(seed) {
     let state = createHash('sha256').update(String(seed)).digest().readUInt32LE(0);
     return () => { state += 0x6D2B79F5; let t = state; t = Math.imul(t ^ t >>> 15, t | 1); t ^= t + Math.imul(t ^ t >>> 7, t | 61); return ((t ^ t >>> 14) >>> 0) / 4294967296; };
 }
-const ENGINE_VERSION = 7;
+const ENGINE_VERSION = 8;
 const clamp = (value, low = 0, high = 1) => Math.max(low, Math.min(high, value));
 function numeric(value) { if (value == null || value === '' || typeof value === 'boolean') return null; const n = Number(value); return Number.isFinite(n) ? n : null; }
 function traitsFor(p) { return [p.archetype, p.build, p.strength_1, p.strength_2, p.strength_3].filter(Boolean).join(' ').toLowerCase(); }

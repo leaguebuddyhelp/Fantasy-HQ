@@ -15,7 +15,7 @@ function inputFixture() {
     const teams = Array.from({ length: 30 }, (_, i) => ({ teamId: `t${i}`, teamName: `Team ${i}`, abbreviation: `T${i}`, conference: i < 15 ? 'East' : 'West' }));
     const conferences = Object.fromEntries(['East', 'West'].map(c => [c, teams.filter(t => t.conference === c).map((t, i) => ({ ...t, PCT: (15 - i) / 16, W: 15 - i, L: i, rank: i + 1 }))]));
     const prospects = Array.from({ length: 70 }, (_, i) => ({ prospectId: `class:${i + 1}`, board_number: i + 1, name: `Prospect ${i + 1}`, position_1: ['PG', 'SG', 'SF', 'PF', 'C'][i % 5], team: 'University', strength_1: 'Shooting', weakness_1: 'Handle', build: 'Two-way creator', overall: 82 - i / 3, potential: 94 - i / 4, 'draft score': 90 - i / 3 }));
-    return { leagueId: 'l', seasonId: '1', draftClassId: 'class', draftYear: 2027, currentWeek: 2, teams, standings: { conferences }, prospects, rosters: Object.fromEntries(teams.map(t => [t.teamId, [{ position1: 'C', position2: 'PF', overall: 90 }]])), picks: teams.map(t => ({ pickId: `pick_${t.teamId}`, draftYear: 2027, round: 1, originalTeamId: t.teamId, currentOwnerTeamId: t.teamId })), settings: { mockDraft: {} } };
+    return { leagueId: 'l', seasonId: '1', draftClassId: 'class', draftYear: 2027, currentWeek: 2, teams, standings: { conferences }, prospects, rosters: Object.fromEntries(teams.map(t => [t.teamId, [{ position1: 'C', position2: 'PF', overall: 90 }]])), picks: [1,2].flatMap(round=>teams.map(t => ({ pickId: round===1?`pick_${t.teamId}`:`second_${t.teamId}`, draftYear: 2027, round, originalTeamId: t.teamId, currentOwnerTeamId: t.teamId }))), settings: { mockDraft: {} } };
 }
 let saved;
 test.before(async () => { saved = await simulate(inputFixture(), { seed: 'suite-baseline' }); });
@@ -66,7 +66,7 @@ test('1,000 valid first rounds, realistic variation and correct all-prospect agg
         const picks = saved.simulations.flatMap(r => r.filter(s => s.prospectId === p.prospectId).map(s => s.pickNumber)), a = saved.prospectAggregates[p.prospectId];
         assert.equal(a.timesSelected, picks.length); assert.equal(a.avp, picks.length ? picks.reduce((sum, n) => sum + n, 0) / picks.length : null);
         assert.equal(a.earliest, picks.length ? Math.min(...picks) : null); assert.equal(a.latest, picks.length ? Math.max(...picks) : null);
-        for (let i = 0; i < 30; i++) { assert.equal(a.frequencyByPick[i], picks.filter(n => n === i + 1).length); assert.equal(a.availabilityByPick[i], (1000 - picks.filter(n => n < i + 1).length) / 1000); }
+        for (let i = 0; i < 60; i++) { assert.equal(a.frequencyByPick[i], picks.filter(n => n === i + 1).length); assert.equal(a.availabilityByPick[i], (1000 - picks.filter(n => n < i + 1).length) / 1000); }
     }
 });
 test('seeded projections repeat while independent seeds vary; CPU never redrafts', () => { const input = inputFixture(), order = generateDraftOrder(input, { lottery: false }).order; assert.deepEqual(project(input, order, saved, seededRandom('same')), project(input, order, saved, seededRandom('same'))); assert.notDeepEqual(project(input, order, saved, seededRandom('a')), project(input, order, saved, seededRandom('b'))); });
@@ -115,7 +115,10 @@ test('/mockdraft stays ephemeral, contains all 30 current-owner picks and uses s
 test('invite menu contains only configured coaches and supports all 30 via pages', async t => { const f = fixture(t), d = discordFixture(f); await d.start(); const m = f.live.all('l')[0]; for (const page of [0, 1]) { const i = d.interaction(`mock:${m.id}:invite:${page}`, 'u0', m.threadId); await d.workflow.handle(i); const select = i.replies[0].components[0].toJSON().components[0]; assert.ok(select.options.length <= 15); assert.ok(select.options.every(o => f.repository.loadOwners('l').some(c => c.userId === o.value))); assert.equal(select.type, 3); } });
 test('human UI top ten, modal search, preview and irrevocable confirmation', async t => {
     const f = fixture(t), d = discordFixture(f); await d.start(); const base = f.live.all('l')[0]; f.live.invite('l', base.id, { id: 'u0' }, f.repository.loadOwners('l').map(o => o.userId)); f.live.lottery('l', base.id, { id: 'u0' }); f.live.lock('l', base.id, { id: 'u0' }); let m = f.live.start('l', base.id, { id: 'u0' }); await d.workflow.pump(d.guild, 'l', m.id); m = f.live.get('l', m.id); const userId = f.live.controller(m).userId;
-    const available = d.interaction(`mock:${m.id}:available:1`, userId, m.threadId); await d.workflow.handle(available); assert.equal(available.replies[0].components[0].toJSON().components[0].options.length, 25); assert.equal(available.replies[0].embeds[0].data.description.match(/Board #/g).length, 10);
+    const available = d.interaction(`mock:${m.id}:available:1`, userId, m.threadId); await d.workflow.handle(available); assert.equal(available.replies[0].components[0].toJSON().components[0].options.length,5);
+    const position=d.interaction(`mock:${m.id}:position:1`,userId,m.threadId);position.values=['C'];await d.workflow.handle(position);
+    assert.ok(position.replies[0].components[1].toJSON().components[0].options.every(o=>o.description.startsWith('C')));
+    assert.equal(position.replies[0].embeds[0].data.description.match(/Board #/g).length,10);
     const search = d.interaction(`mock:${m.id}:search:1`, userId, m.threadId); await d.workflow.handle(search); assert.ok(search.modal);
     const submit = d.interaction(`mock:${m.id}:searchsubmit:1`, userId, m.threadId); submit.fields = { getTextInputValue: () => 'Prospect 70' }; await d.workflow.handle(submit); assert.equal(submit.replies[0].components[0].toJSON().components[0].options[0].value, '70');
     const preview = d.interaction(`mock:${m.id}:select:1`, userId, m.threadId); preview.values = ['25']; await d.workflow.handle(preview); const confirm = preview.replies[0].components[0].toJSON().components[0].custom_id; assert.match(confirm, /:confirm:1:25$/);
@@ -213,7 +216,7 @@ test('best available uses the existing first prospect portrait and identifies it
     const f = fixture(t), d = discordFixture(f), m = f.ready('u0', f.repository.loadOwners('l').map(o => o.userId));
     const active = f.live.start('l', m.id, { id: 'u0' });
     active.input.prospects[0].image = 'https://example.com/prospect.png';
-    const payload = d.workflow.selectionPayload(active, 1);
+    const payload = d.workflow.selectionPayload(active, 1, '', 0, null, 'PG');
     assert.equal(payload.embeds[0].data.thumbnail.url, 'https://example.com/prospect.png');
     assert.match(payload.embeds[0].data.footer.text, /Portrait:/);
 });
@@ -255,7 +258,7 @@ test('room turn prompt appears after the last pick, opens privately for its coac
     const open = d.interaction(customId, coach, m.threadId);
     await d.workflow.handle(open);
     assert.equal(open.deferPayload.flags, MessageFlags.Ephemeral);
-    assert.match(open.replies[0].embeds[0].data.title, /BEST AVAILABLE/);
+    assert.match(open.replies[0].embeds[0].data.title, /CHOOSE A POSITION/);
     f.live.commit('l', m.id, { expectedPick: 1, userId: coach, prospectId: m.input.prospects[0].prospectId });
     await d.workflow.pump(d.guild, 'l', m.id);
     const messages = [...room._messages.values()];
@@ -547,20 +550,21 @@ test('lottery result embed offers start and rerun controls, refreshes after reru
     assert.equal(latest.components.length, 0);
 });
 
-test('live start uses the season class without a chooser; legacy selectors cannot override it', async t => {
+test('live start offers installed classes and locks the chosen class to the private mock', async t => {
     const f = fixture(t, { alternateClasses: true }), d = discordFixture(f);
     f.repository.saveLeague('l', { seasonNumber: 2 });
     f.repository.saveDraftPicks('l', f.input.picks.map(p => ({ ...p, draftYear: 2028 })));
     const start = d.interaction('mock:start'); await d.workflow.handle(start);
-    let m = f.live.all('l')[0]; assert.equal(m.classNumber, 2); assert.equal(m.draftClassId, 'class2');
-    assert.match(start.replies.at(-1).content, /private Live Mock is ready/);
-    const legacy = d.interaction('mock:startclass'); legacy.values = ['4']; await d.workflow.handle(legacy);
+    assert.equal(f.live.all('l').length,0);assert.equal(start.replies[0].components[0].toJSON().components[0].options.length,5);
+    const choice=d.interaction('mock:startclass');choice.values=['4'];await d.workflow.handle(choice);
+    let m=f.live.all('l')[0];assert.equal(m.classNumber,4);assert.equal(m.draftClassId,'class4');
+    assert.match(choice.replies.at(-1).content,/private Live Mock is ready/);
     assert.equal(f.live.all('l').length, 1);
     f.live.lottery('l', m.id, { id: 'u0' }); m = f.live.lock('l', m.id, { id: 'u0' });
-    assert.ok(m.input.prospects.every(p => p.prospectId.startsWith('class2:')));
+    assert.ok(m.input.prospects.every(p => p.prospectId.startsWith('class4:')));
     f.live.setAvailable('l', m.id, 'u0', false); m = f.live.start('l', m.id, { id: 'u0' });
     m = f.live.commit('l', m.id, { expectedPick: 1, type: 'CPU' });
-    assert.match(m.selections[0].prospect.name, /^CUS2/);
+    assert.match(m.selections[0].prospect.name, /^CUS4/);
 });
 test('weekly mocks follow seasons 1 through 4, remain stable and reject class overrides', async t => {
     const f = fixture(t, { alternateClasses: true });
@@ -575,7 +579,7 @@ test('weekly mocks follow seasons 1 through 4, remain stable and reject class ov
         assert.deepEqual(await f.simulations.classProjection('l'), result);
         await assert.rejects(f.simulations.classProjection('l', n === 1 ? 2 : 1), /automatically/);
     }
-    assert.throws(() => f.live.create('l', 'u0', 'guild', 1), /automatically/);
+    assert.throws(() => f.live.create('l', 'u0', 'guild', 0), /valid draft class/);
     const d = discordFixture(f), command = d.interaction('unused');
     command.options = { getInteger: () => 1 }; // Old slash command registration cannot select another class.
     await d.workflow.projection(command);
@@ -749,7 +753,7 @@ test('mock needs count primary positions only and identify two needs even for co
  input.rosters.t0.filter(p=>p.position1==='C').forEach(p=>p.overall=68);assert.equal(teamPositionNeeds(input,'t0').targets[0],'C');
 });
 test('weekly second round includes picks 31–60, honors asset owners, never repeats first-round prospects and stays frozen across restarts',t=>{
- const f=fixture(t),second=f.input.teams.map(team=>({pickId:'second_'+team.teamId,round:2,draftYear:2027,originalTeamId:team.teamId,currentOwnerTeamId:team.teamId}));second[0].currentOwnerTeamId='t1';f.repository.saveDraftPicks('l',[...f.input.picks,...second]);const first=f.simulations.weeklyProjection('l'),round2=f.simulations.secondRoundProjection('l',first);assert.equal(round2.length,30);assert.deepEqual(round2.map(s=>s.pickNumber),Array.from({length:30},(_,i)=>31+i));assert.equal(new Set([...first.selections,...round2].map(s=>s.prospectId)).size,60);assert.equal(round2.find(s=>s.originalTeamId==='t0').currentOwnerTeamId,'t1');
+ const f=fixture(t),second=f.input.teams.map(team=>({pickId:'second_'+team.teamId,round:2,draftYear:2027,originalTeamId:team.teamId,currentOwnerTeamId:team.teamId}));second[0].currentOwnerTeamId='t1';f.repository.saveDraftPicks('l',[...f.input.picks.filter(p=>p.round===1),...second]);const first=f.simulations.weeklyProjection('l'),round2=f.simulations.secondRoundProjection('l',first);assert.equal(round2.length,30);assert.deepEqual(round2.map(s=>s.pickNumber),Array.from({length:30},(_,i)=>31+i));assert.equal(new Set([...first.selections,...round2].map(s=>s.prospectId)).size,60);assert.equal(round2.find(s=>s.originalTeamId==='t0').currentOwnerTeamId,'t1');
  const restart=createMockSimulationService({repository:f.repository,scoutingService:{boardForContext:()=>({file:'class.json',prospects:f.input.prospects})},standingsService:{getStandings:()=>f.input.standings}});assert.deepEqual(restart.secondRoundProjection('l',first),round2);assert.deepEqual(f.simulations.weeklyProjection('l'),first);
  const embed=require('../src/fantasyhq/discord-mock-draft').projectionEmbed(first.input,round2,first,[],2).toJSON();assert.match(embed.description,/Second Round/);assert.match(embed.fields[0].name,/31/);assert.match(embed.fields.at(-1).name,/60/);
 });
@@ -775,4 +779,27 @@ test('preseason live mocks run all 30 picks while weekly projections stay behind
  assert.ok(f.live.all('l').some(m=>m.status==='SETUP'));
  f.repository.saveLeague('l',{currentSeasonId:'2',seasonNumber:2});
  assert.throws(()=>f.live.available(mock),/earlier league season/);
+});
+
+
+test('full-draft AVP covers 60 picks and selected-class snapshots survive default refresh and restart',async t=>{
+ const f=fixture(t), scoutingService=require('../src/fantasyhq/scouting-service').createScoutingService({repository:f.repository});
+ const options={repository:f.repository,scoutingService,standingsService:{getStandings:()=>f.input.standings},rosterService:{currentRosterEntries:()=>[]}};
+ const market=createMockSimulationService(options);
+ const fifth=await market.refresh('l',{classNumber:5,seed:'class-five-full-draft'});
+ assert.match(fifth.draftClassId,/CUS05/);
+ assert.ok(fifth.simulations.every(d=>d.length===60&&new Set(d.map(s=>s.prospectId)).size===60));
+ assert.equal(Object.values(fifth.prospectAggregates).reduce((n,a)=>n+a.timesSelected,0),60000);
+ assert.ok(Object.values(fifth.prospectAggregates).filter(a=>a.avp!=null).length>=60);
+ assert.ok(Object.values(fifth.prospectAggregates).some(a=>a.avp>30));
+ assert.ok(Object.values(fifth.prospectAggregates).every(a=>a.frequencyByPick.length===60&&a.availabilityByPick.length===60));
+ const live=createLiveMockService({repository:f.repository,simulations:market});
+ let m=live.create('l','u0','guild',5);assert.equal(m.classNumber,5);
+ const first=await market.refresh('l',{seed:'class-one-full-draft'});assert.match(first.draftClassId,/CUS01/);
+ const restarted=createMockSimulationService(options);
+ assert.equal(restarted.requireActive('l',restarted.inputFor('l',5)).id,fifth.id);
+ assert.equal(restarted.requireActive('l').id,first.id);
+ m=live.lottery('l',m.id,{id:'u0'});m=live.lock('l',m.id,{id:'u0'});
+ assert.match(m.input.draftClassId,/CUS05/);assert.equal(m.simulationSnapshotId,fifth.id);
+ await assert.rejects(restarted.classProjection('l',5),/automatically/);
 });

@@ -6,35 +6,42 @@ const { project, chooseProspect, seededRandom, ENGINE_VERSION } = require('./moc
 const { leagueSeasonStartYear } = require('./asset-valuation');
 const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const jobs = new Map();
+function secondRoundOrder(input) {
+    const assets = input.picks.filter(p => Number(p.round) === 2 && Number(p.draftYear) === input.draftYear);
+    if (assets.length !== 30 || new Set(assets.map(p => p.originalTeamId)).size !== 30) throw Error('Initialize all 30 second-round pick assets through league setup.');
+    return generateDraftOrder({...input,officialOrder:null}, {lottery:false}).order.map((slot,index) => {
+        const asset=assets.find(p=>p.originalTeamId===slot.originalTeamId);
+        if (!asset || !input.teams.some(t=>t.teamId===asset.currentOwnerTeamId)) throw Error('Reconcile second-round pick ownership first.');
+        return {...slot,pickNumber:index+31,currentOwnerTeamId:asset.currentOwnerTeamId,originalPickAssetId:asset.pickId};
+    });
+}
 function validateSnapshot(snapshot) {
-    if (snapshot.simulationCount !== 1000 || snapshot.simulations?.length !== 1000) throw Error('Simulation snapshot must contain exactly 1,000 rounds.');
-    const ids = new Set(snapshot.input.prospects.map(p => p.prospectId));
-    const teamIds = new Set(snapshot.input.teams.map(t => t.teamId));
-    for (const round of snapshot.simulations) {
-        if (new Set(round.map(s => s.originalTeamId)).size !== 30 || round.some(s => { const asset = snapshot.input.picks.find(p => p.originalTeamId === s.originalTeamId); return !asset || asset.currentOwnerTeamId !== s.currentOwnerTeamId || !teamIds.has(s.currentOwnerTeamId) || asset.pickId !== s.originalPickAssetId; })) throw Error('Invalid simulation pick ownership.');
-        if (round.length !== 30 || new Set(round.map(s => s.prospectId)).size !== 30 || round.some((s, i) => s.pickNumber !== i + 1 || !ids.has(s.prospectId))) throw Error('Invalid simulation round.');
+    if(snapshot.simulationCount!==1000||snapshot.simulations?.length!==1000)throw Error('Simulation snapshot must contain exactly 1,000 drafts.');
+    const ids=new Set(snapshot.input.prospects.map(p=>p.prospectId)),teams=new Set(snapshot.input.teams.map(t=>t.teamId));
+    const actual=Object.fromEntries([...ids].map(id=>[id,Array(60).fill(0)]));
+    for(const draft of snapshot.simulations){
+        if(draft.length!==60||new Set(draft.map(s=>s.prospectId)).size!==60)throw Error('Invalid simulation draft.');
+        for(const round of [draft.slice(0,30),draft.slice(30)])if(new Set(round.map(s=>s.originalTeamId)).size!==30)throw Error('Invalid simulation round.');
+        for(const [index,s] of draft.entries()){
+            const asset=snapshot.input.picks.find(p=>p.pickId===s.originalPickAssetId);
+            if(s.pickNumber!==index+1||!ids.has(s.prospectId)||!asset||Number(asset.round)!==(index<30?1:2)||asset.originalTeamId!==s.originalTeamId||asset.currentOwnerTeamId!==s.currentOwnerTeamId||!teams.has(s.currentOwnerTeamId))throw Error('Invalid simulation pick ownership.');
+            actual[s.prospectId][index]++;
+        }
     }
-    const actual = Object.fromEntries([...ids].map(id => [id, Array(30).fill(0)]));
-    for (const round of snapshot.simulations) for (const s of round) actual[s.prospectId][s.pickNumber - 1]++;
-    if (Object.keys(snapshot.prospectAggregates).length !== ids.size) throw Error('Snapshot must include every prospect.');
-    for (const [id, frequencies] of Object.entries(actual)) {
-        const a = snapshot.prospectAggregates[id];
-        if (!a || a.frequencyByPick.length !== 30 || a.availabilityByPick.length !== 30 || frequencies.some((n, i) => n !== a.frequencyByPick[i]) || a.earliest !== (a.timesSelected ? frequencies.findIndex(n => n > 0) + 1 : null) || a.latest !== (a.timesSelected ? frequencies.findLastIndex(n => n > 0) + 1 : null)) throw Error('Snapshot distribution does not match its simulations.');
-    }
-    const total = Object.values(snapshot.prospectAggregates).reduce((sum, p) => sum + p.timesSelected, 0);
-    if (total !== 30000) throw Error('Invalid simulation selection total.');
-    for (const p of Object.values(snapshot.prospectAggregates)) {
-        const count = p.frequencyByPick.reduce((sum, n) => sum + n, 0), weighted = p.frequencyByPick.reduce((sum, n, i) => sum + n * (i + 1), 0);
-        if (count !== p.timesSelected || count && Math.abs(p.avp - weighted / count) > 1e-9 || p.availabilityByPick.some((n, i) => Math.abs(n - (1000 - p.frequencyByPick.slice(0, i).reduce((s, n) => s + n, 0)) / 1000) > 1e-9)) throw Error('Invalid prospect aggregates.');
+    if(Object.keys(snapshot.prospectAggregates).length!==ids.size)throw Error('Snapshot must include every prospect.');
+    for(const [id,frequencies] of Object.entries(actual)){
+        const a=snapshot.prospectAggregates[id],count=frequencies.reduce((n,v)=>n+v,0),weighted=frequencies.reduce((n,v,i)=>n+v*(i+1),0);
+        if(!a||a.frequencyByPick.length!==60||a.availabilityByPick.length!==60||a.timesSelected!==count||frequencies.some((v,i)=>v!==a.frequencyByPick[i])||a.earliest!==(count?frequencies.findIndex(v=>v>0)+1:null)||a.latest!==(count?frequencies.findLastIndex(v=>v>0)+1:null)||a.avp!==(count?weighted/count:null)||a.availabilityByPick.some((v,i)=>Math.abs(v-(1000-frequencies.slice(0,i).reduce((n,k)=>n+k,0))/1000)>1e-9))throw Error('Invalid prospect aggregates or distribution.');
     }
     return snapshot;
 }
 async function simulate(input, { seed = randomUUID(), previous = null } = {}) {
-    const rng = seededRandom(seed), aggregates = Object.fromEntries(input.prospects.map(p => [p.prospectId, { timesSelected: 0, frequencyByPick: Array(30).fill(0), teamDestinations: {}, earliest: null, latest: null, avp: null, availabilityByPick: [], mostCommonRange: null }]));
-    const simulations = [];
+    const rng = seededRandom(seed), aggregates = Object.fromEntries(input.prospects.map(p => [p.prospectId, { timesSelected: 0, frequencyByPick: Array(60).fill(0), teamDestinations: {}, earliest: null, latest: null, avp: null, availabilityByPick: [], mostCommonRange: null }]));
+    if(input.prospects.length<60)throw Error('Full draft AVP requires at least 60 prospects.');
+    const round2=secondRoundOrder(input), simulations = [];
     for (let n = 0; n < 1000; n++) {
         const { order } = generateDraftOrder(input, { rng, lottery: !input.officialOrder });
-        const round = project(input, order, previous, rng);
+        const round = project(input, [...order, ...round2], previous, rng);
         simulations.push(round);
         for (const s of round) {
             const a = aggregates[s.prospectId]; a.timesSelected++; a.frequencyByPick[s.pickNumber - 1]++;
@@ -48,7 +55,7 @@ async function simulate(input, { seed = randomUUID(), previous = null } = {}) {
         a.latest = a.timesSelected ? a.frequencyByPick.findLastIndex(n => n > 0) + 1 : null;
         let taken = 0; a.availabilityByPick = a.frequencyByPick.map(count => { const probability = (1000 - taken) / 1000; taken += count; return probability; });
         if (a.timesSelected) {
-            const ranges = Array.from({ length: 6 }, (_, i) => ({ start: i * 5 + 1, end: i * 5 + 5, count: a.frequencyByPick.slice(i * 5, i * 5 + 5).reduce((s, n) => s + n, 0) }));
+            const ranges = Array.from({ length: 12 }, (_, i) => ({ start: i * 5 + 1, end: i * 5 + 5, count: a.frequencyByPick.slice(i * 5, i * 5 + 5).reduce((s, n) => s + n, 0) }));
             a.mostCommonRange = ranges.sort((a, b) => b.count - a.count || a.start - b.start)[0];
         }
     }
@@ -62,11 +69,12 @@ function createMockSimulationService({ repository, scoutingService, standingsSer
     function inputFor(leagueId, classNumber = null) {
         const c = repository.loadLeague(leagueId);
         require('../shared/season-draft-class').seasonDraftBoard(c.league.currentPhase); // Validate phase; live practice is available before board publication.
-        if (classNumber != null && classNumber !== Number(c.league.seasonNumber)) throw Error('Draft classes are assigned automatically by league season. Start a new mock for the current season.');
-        const board = scoutingService.boardForContext(c, { fullMock: true }), draftClassId = board.file.replace(/\.json$/i, '');
-        if (board.prospects.length < 30) throw Error('The current Big Board needs at least 30 prospects.');
+        const selectedClass = classNumber == null ? Number(c.league.seasonNumber) : Number(classNumber);
+        if(!Number.isInteger(selectedClass)||selectedClass<1)throw Error('Choose a valid draft class.');
+        const board = scoutingService.boardForContext({...c,league:{...c.league,seasonNumber:selectedClass}}, { fullMock: true }), draftClassId = board.file.replace(/\.json$/i, '');
+        if (board.prospects.length < 60) throw Error('The selected Big Board needs at least 60 prospects.');
         const entries = rosterService.currentRosterEntries(leagueId, c.seasonId);
-        return { leagueId, seasonId: c.seasonId, officialOrder: repository.loadOffseason(leagueId)?.seasons[c.seasonId]?.receipts?.LOTTERY?.order || null, draftClassId, currentWeek: c.league.currentWeek, draftYear: leagueSeasonStartYear(c.league.seasonNumber) + 1, teams: c.teams, prospects: board.prospects.map(p => ({ ...p, prospectId: `${draftClassId}:${p.board_number}` })), rosters: Object.fromEntries(c.teams.map(t => [t.teamId, entries.filter(e => e.membership.teamId === t.teamId).map(e => ({ ...e.player, position1: e.membership.position1 || e.player?.position1, position2: e.membership.position2 || e.player?.position2 }))])), standings: standingsService.getStandings(leagueId, c.seasonId), picks: repository.loadDraftPicks(leagueId).filter(p => [1,2].includes(Number(p.round)) && Number(p.draftYear) === leagueSeasonStartYear(c.league.seasonNumber) + 1), settings: { mockDraft: repository.loadSettings(leagueId)?.mockDraft || {} } };
+        return { leagueId, leagueSeasonNumber:Number(c.league.seasonNumber), classNumber:selectedClass, seasonId: c.seasonId, officialOrder: repository.loadOffseason(leagueId)?.seasons[c.seasonId]?.receipts?.LOTTERY?.order || null, draftClassId, currentWeek: c.league.currentWeek, draftYear: leagueSeasonStartYear(c.league.seasonNumber) + 1, teams: c.teams, prospects: board.prospects.map(p => ({ ...p, prospectId: `${draftClassId}:${p.board_number}` })), rosters: Object.fromEntries(c.teams.map(t => [t.teamId, entries.filter(e => e.membership.teamId === t.teamId).map(e => ({ ...e.player, position1: e.membership.position1 || e.player?.position1, position2: e.membership.position2 || e.player?.position2 }))])), standings: standingsService.getStandings(leagueId, c.seasonId), picks: repository.loadDraftPicks(leagueId).filter(p => [1,2].includes(Number(p.round)) && Number(p.draftYear) === leagueSeasonStartYear(c.league.seasonNumber) + 1), settings: { mockDraft: repository.loadSettings(leagueId)?.mockDraft || {} } };
     }
     const cache = new Map();
     function active(leagueId) {
@@ -81,13 +89,16 @@ function createMockSimulationService({ repository, scoutingService, standingsSer
         if (value) { if (cache.size >= 4) cache.delete(cache.keys().next().value); cache.set(key, value); }
         return value;
     }
+    function pointerFile(leagueId,input){return path.join(rootFor(repository,leagueId),`active-class-${hash([input.seasonId,input.draftClassId]).slice(0,24)}.json`);}
+    function snapshotFor(leagueId,input){const pointer=read(pointerFile(leagueId,input));const stored=pointer?byId(leagueId,pointer.id):active(leagueId);return stored?.draftClassId===input.draftClassId&&stored.seasonId===input.seasonId?stored:null;}
     function refresh(leagueId, options = {}) {
-        const key = `${repository.dataRoot}:${leagueId}`;
-        if (jobs.has(key)) return jobs.get(key);
-        const task = runRefresh(leagueId, options).finally(() => jobs.delete(key)); jobs.set(key, task); return task;
+        const key=`${repository.dataRoot}:${leagueId}`;
+        const priorJob=jobs.get(key);
+        const task=(priorJob?priorJob.catch(()=>{}):Promise.resolve()).then(()=>runRefresh(leagueId,options)).finally(()=>{if(jobs.get(key)===task)jobs.delete(key);});
+        jobs.set(key,task);return task;
     }
     async function runRefresh(leagueId, options) {
-        const root = rootFor(repository, leagueId), pendingFile = path.join(root, 'refresh.json'), input = inputFor(leagueId), prior = active(leagueId);
+        const root = rootFor(repository, leagueId), pendingFile = path.join(root, 'refresh.json'), input = inputFor(leagueId,options.classNumber), prior = snapshotFor(leagueId,input);
         const events = read(pendingFile, { events: [] }).events, processed = new Set(prior?.metadata.processedEvents || []);
         if (!options.force && prior?.draftClassId === input.draftClassId && prior.seasonId === input.seasonId && prior.metadata.engineVersion === ENGINE_VERSION && prior.currentWeek === input.currentWeek && prior.metadata.boardHash === hash(input.prospects) && events.every(e => processed.has(e.id))) return prior;
         const generationFile = path.join(root, 'generation.json'), claim = randomUUID();
@@ -101,21 +112,22 @@ function createMockSimulationService({ repository, scoutingService, standingsSer
             validateSnapshot(snapshot);
             // Never activate work generated for an old class/season; queued newer events remain pending.
             const current = repository.loadLeague(leagueId);
-            if (current.seasonId !== input.seasonId || scoutingService.boardForContext(current, { fullMock: true }).file.replace(/\.json$/i, '') !== input.draftClassId) throw Error('Season changed during simulation generation.');
+            if (current.seasonId !== input.seasonId || Number(current.league.seasonNumber)!==input.leagueSeasonNumber || scoutingService.boardForContext({...current,league:{...current.league,seasonNumber:input.classNumber}}, { fullMock: true }).file.replace(/\.json$/i, '') !== input.draftClassId) throw Error('Season changed during simulation generation.');
             snapshot.metadata.processedEvents = [...new Set([...processed, ...events.map(e => e.id)])];
             locked(root, () => {
                 atomicWrite(path.join(root, 'snapshots', `${snapshot.id}.json`), snapshot);
-                atomicWrite(path.join(root, 'active.json'), { id: snapshot.id, generatedAt: snapshot.generatedAt });
+                atomicWrite(pointerFile(leagueId,input),{id:snapshot.id,generatedAt:snapshot.generatedAt});
+                if(input.classNumber===Number(current.league.seasonNumber))atomicWrite(path.join(root, 'active.json'), { id: snapshot.id, generatedAt: snapshot.generatedAt });
             });
             // Weekly command output freezes independently from intraweek market refreshes.
-            try { if (require('../shared/season-draft-class').seasonDraftBoard(current.league.currentPhase) === 'Big Board') weeklyProjection(leagueId); } catch (error) { console.error('Weekly mock projection (retryable):', error.message); }
+            try { if (input.classNumber===Number(current.league.seasonNumber) && require('../shared/season-draft-class').seasonDraftBoard(current.league.currentPhase) === 'Big Board') weeklyProjection(leagueId); } catch (error) { console.error('Weekly mock projection (retryable):', error.message); }
             return snapshot;
         } finally { locked(root, () => { if (read(generationFile)?.claim === claim) atomicWrite(generationFile, { pid: null }); }); }
     }
     function requireActive(leagueId, input = inputFor(leagueId)) {
-        let saved = active(leagueId);
+        let saved = snapshotFor(leagueId,input);
         if (saved?.draftClassId !== input.draftClassId) { const projection = read(classProjectionFile(leagueId, input.draftClassId)); saved = projection ? byId(leagueId, projection.simulationSnapshotId) : null; }
-        if (!saved || saved.draftClassId !== input.draftClassId || saved.seasonId !== input.seasonId) throw Error('The current 1,000-mock snapshot is not ready. Setup or background refresh must finish first.');
+        if (!saved || saved.draftClassId !== input.draftClassId || saved.seasonId !== input.seasonId || saved.metadata.engineVersion !== ENGINE_VERSION) throw Error('The current 1,000-mock snapshot is not ready. Setup or background refresh must finish first.');
         return saved;
     }
     function weeklyProjection(leagueId) {
@@ -145,7 +157,7 @@ function createMockSimulationService({ repository, scoutingService, standingsSer
     }
     function classProjectionFile(leagueId, classId) { return path.join(rootFor(repository, leagueId), `weekly-class-${hash(classId).slice(0, 16)}.json`); }
     async function classProjection(leagueId, classNumber = null) {
-        inputFor(leagueId, classNumber); // Reject obsolete controls for another season's class.
+        if(classNumber!=null&&Number(classNumber)!==Number(repository.loadLeague(leagueId).league.seasonNumber))throw Error('Weekly draft classes are assigned automatically by league season.');
         return weeklyProjection(leagueId);
     }
     function secondRoundProjection(leagueId, weekly) {

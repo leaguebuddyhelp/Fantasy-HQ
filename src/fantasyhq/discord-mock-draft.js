@@ -74,7 +74,10 @@ function awardsEmbed(m) { return embed('🎯 Final draft takeaways', m.recap.awa
 function finalRecapPayload(m) {
     const card = projectionEmbed(m.input, m.selections, { generatedAt: m.startedAt || m.createdAt });
     card.setTitle('🏁 FINAL MOCK DRAFT RECAP').setDescription(`**${m.input.draftYear} Draft · All 30 picks**\n✅ Completed live mock · Board rank, AVP and pick grades\n🗂 ${safe(m.input.draftClassId.replace(/ - Big Board$/i, ''))}`);
-    for (const field of card.data.fields) field.value = field.value.replace(/(\*\*#(\d+)\*\*[^\n]*)(\n)/g, (_, line, number, newline) => `${line} · **${m.selections[Number(number) - 1].grade}**${newline}`);
+    for (const field of card.data.fields) {
+        field.name = '\u200b';
+        field.value = field.value.replace(/(\*\*#(\d+)\*\*[^\n]*)(\n)/g, (_, line, number, newline) => `${line} · **${m.selections[Number(number) - 1].grade}**${newline}`);
+    }
     const takeaways = awardsEmbed(m).data.description;
     card.addFields({ name: '🎯 Draft takeaways', value: takeaways });
     if (card.length > 6000 || card.data.fields.some(f => f.value.length > 1024)) throw Error('The final recap exceeds Discord’s single-embed limit.');
@@ -95,7 +98,7 @@ function createDiscordMockDraft({ repository, simulations, live, client = null }
             let settings = repository.loadSettings(leagueId) || {}, channelId = settings.discordChannels?.scouting;
             if (!channelId) throw Error('Repair league channels to configure Scouting Hub.');
             const ch = await guild.channels.fetch(channelId);
-            const payload = { embeds: [embed('🏀 LEAGUEbuddy LIVE MOCK DRAFT', 'Run a private 30-pick first-round mock with league coaches and CPU teams.\n\n👥 Invite coaches → 📋 Choose Base Order or 🎲 Run Lottery → 🔒 Lock Order → ▶️ Start Mock\n\nAvailable before and during the season. Uses this season’s full draft class, rosters, pick ownership and saved 1,000-mock market snapshot.')], components: [row(button('mock:start', 'START LIVE MOCK', ButtonStyle.Primary))], allowedMentions: { parse: [] } };
+            const payload = { embeds: [embed('🏀 LEAGUEbuddy LIVE MOCK DRAFT', 'Run a private 30-pick first-round mock with league coaches and CPU teams.\n\n👥 Invite coaches → 📋 Choose Base Order or 🎲 Run Lottery → 🔒 Lock Order → ▶️ Start Mock\n\nAvailable before and during the season. Choose any installed draft class. Uses league rosters, pick ownership and 1,000 full 60-pick simulations for AVP.')], components: [row(button('mock:start', 'START LIVE MOCK', ButtonStyle.Primary))], allowedMentions: { parse: [] } };
             let msg = null;
             if (settings.discordPins?.liveMockMessageId) try { msg = await ch.messages.fetch(settings.discordPins.liveMockMessageId); } catch (e) { if (e.code !== 10008) throw e; }
             if (!msg) {
@@ -268,12 +271,12 @@ function createDiscordMockDraft({ repository, simulations, live, client = null }
         const pool = live.available(m, query), pages = Math.max(1, Math.ceil(pool.length / 10)), index = Math.max(0, Math.min(pages - 1, page));
         return { pool: pool.slice(index * 10, index * 10 + 10), page: index, pages };
     }
-    function selectionPayload(m, requestedPick, query = '', page = 0, searchToken = null) {
+    function selectionPayload(m, requestedPick, query = '', page = 0, searchToken = null, position = '') {
         if (m.status !== 'ACTIVE' || m.currentPick !== Number(requestedPick)) throw Error('That pick is no longer active.');
-        const saved = simulations.byId(m.leagueId, m.simulationSnapshotId), prefix = `mock:${m.id}`, result = searchToken ? choices(m, query, page) : { pool: live.available(m).slice(0, 10), page: 0, pages: 1 };
-        const info = embed(searchToken ? `🔎 Search results · Page ${result.page + 1}/${result.pages}` : '🔎 TOP 10 BEST AVAILABLE', result.pool.map(p => `**${safe(p.name)}** · ${safe(p.position_1)} · ${safe(p.team || p.nationality)}\nBoard #${p.board_number} | AVP ${saved.prospectAggregates[p.prospectId]?.avp?.toFixed(1) || 'Unselected'}`).join('\n\n') || 'No undrafted prospects match this search.');
-        const menuPool = searchToken ? result.pool : live.available(m).slice(0, 25);
-        const components = [];
+        const saved = simulations.byId(m.leagueId, m.simulationSnapshotId), prefix = `mock:${m.id}`, result = searchToken ? choices(m, query, page) : { pool: position ? live.available(m).filter(p=>[p.position_1,p.position_2].includes(position)).sort((a,b)=>a.board_number-b.board_number).slice(0,10) : [], page:0,pages:1 };
+        const info = embed(searchToken ? `🔎 Search results · Page ${result.page + 1}/${result.pages}` : (position ? '🔎 TOP REMAINING '+position : '🏀 CHOOSE A POSITION'), result.pool.map(p => `**${safe(p.name)}** · ${safe(p.position_1)} · ${safe(p.team || p.nationality)}\nBoard #${p.board_number} | AVP ${saved.prospectAggregates[p.prospectId]?.avp?.toFixed(1) || 'Unselected'}`).join('\n\n') || (position||searchToken?'No undrafted prospects match this selection.':'Choose PG, SG, SF, PF or C to see the best remaining players at that position.'));
+        const menuPool = searchToken ? result.pool : position ? live.available(m).filter(p=>[p.position_1,p.position_2].includes(position)).sort((a,b)=>a.board_number-b.board_number).slice(0,25) : [];
+        const components = searchToken ? [] : [new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId(`${prefix}:position:${m.currentPick}`).setPlaceholder('Choose a position').addOptions(['PG','SG','SF','PF','C'].map(pos=>({label:pos+' · '+live.available(m).filter(p=>[p.position_1,p.position_2].includes(pos)).length+' remaining',value:pos,default:pos===position}))))];
         if (menuPool.length) components.push(new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId(`${prefix}:select:${m.currentPick}`).setPlaceholder(`Select from ${menuPool.length} prospects to preview and confirm`).addOptions(menuPool.map(p => ({ label: `${p.board_number}. ${p.name}`.slice(0, 100), description: `${p.position_1} · ${p.team || p.nationality || 'Prospect'}`.slice(0, 100), value: String(p.board_number) })))));
         const controls = [button(`${prefix}:search:${m.currentPick}`, 'SEARCH ALL PROSPECTS', ButtonStyle.Primary)];
         if (searchToken) { controls.push(button(`${prefix}:results:${m.currentPick}:${searchToken}:${Math.max(0, result.page - 1)}`, 'Previous').setDisabled(result.page === 0), button(`${prefix}:results:${m.currentPick}:${searchToken}:${result.page + 1}`, 'Next').setDisabled(result.page === result.pages - 1)); }
@@ -320,7 +323,7 @@ function createDiscordMockDraft({ repository, simulations, live, client = null }
                 const m = live.get(leagueId, id);
                 if (m.guildId !== guild.id || (m.threadId !== interaction.channelId)) throw Error('Use this control inside its private mock room.');
                 if (!m.participants.some(p => p.userId === interaction.user.id) && !canManageLeague(interaction)) throw Error('You are not participating in this mock.');
-                if (['search', 'available', 'select', 'confirm', 'results', 'searchsubmit'].includes(action)) {
+                if (['search', 'available', 'position', 'select', 'confirm', 'results', 'searchsubmit'].includes(action)) {
                     await validateCoach(guild, leagueId, interaction.user.id, interaction.member);
                     if (live.controller(m)?.testControlled && !canManageLeague(interaction)) throw Error('Only staff can control vacant test teams.');
                     if (m.status !== 'ACTIVE' || m.currentPick !== Number(pickValue) || live.controller(m)?.userId !== interaction.user.id || m.deadlineAt <= Date.now()) throw Error('You are not on the clock for this pick.');
@@ -331,10 +334,14 @@ function createDiscordMockDraft({ repository, simulations, live, client = null }
                 }
             }
             if (id === 'start' || id === 'startclass') {
-                // Legacy class menus also start the current season's class.
                 await validateCoach(guild, leagueId, interaction.user.id);
-                const classNumber = Number(c.league.seasonNumber);
-                await simulations.refresh(leagueId);
+                if(id==='start'){
+                    const classes=fs.readdirSync(path.join(process.cwd(),'draft_class')).map(file=>({file,match:file.match(/CUS(\d+)\s*-\s*Big Board\.json$/i)})).filter(c=>c.match).sort((a,b)=>Number(a.match[1])-Number(b.match[1]));
+                    await interaction.editReply({content:'Choose a draft class for your live mock.',components:[new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId('mock:startclass').setPlaceholder('Choose draft class').addOptions(classes.slice(0,25).map(c=>({label:'CUS'+c.match[1],value:String(Number(c.match[1]))}))))]});return;
+                }
+                const classNumber = Number(interaction.values?.[0]);
+                if(!Number.isInteger(classNumber)||classNumber<1)throw Error('Choose a draft class.');
+                await simulations.refresh(leagueId,{classNumber});
                 await serial(key(leagueId, `host:${interaction.user.id}`), async () => { const m = live.create(leagueId, interaction.user.id, guild.id, classNumber); await serial(key(leagueId, m.id), () => pump(guild, leagueId, m.id)); const current = live.get(leagueId, m.id); await interaction.editReply({ content: `Your private Live Mock is ready: <#${current.threadId}>`, embeds: [], components: [] }); });
                 return;
             }
@@ -374,7 +381,10 @@ function createDiscordMockDraft({ repository, simulations, live, client = null }
                 else if (action === 'pause') m = live.pause(leagueId, id, a);
                 else if (action === 'resume') m = live.resume(leagueId, id, a);
                 else if (action === 'leave') m = live.setAvailable(leagueId, id, interaction.user.id, false);
-                else if (action === 'available') { await interaction.editReply(selectionPayload(m, pickValue)); return; }
+                else if (action === 'position') {
+                    const position=interaction.values?.[0];if(!['PG','SG','SF','PF','C'].includes(position))throw Error('Choose a valid position.');
+                    await interaction.editReply(selectionPayload(m,pickValue,'',0,null,position));return;
+                } else if (action === 'available') { await interaction.editReply(selectionPayload(m, pickValue)); return; }
                 else if (action === 'searchsubmit') {
                     const q = interaction.fields.getTextInputValue('query'), searchToken = randomUUID().slice(0, 8);
                     m = live.mutate(leagueId, id, draft => { draft.searches ||= {}; for (const [k, v] of Object.entries(draft.searches)) if (v.expiresAt < Date.now()) delete draft.searches[k]; draft.searches[searchToken] = { query: q, userId: interaction.user.id, pick: Number(pickValue), expiresAt: Date.now() + 120000 }; });
@@ -385,7 +395,7 @@ function createDiscordMockDraft({ repository, simulations, live, client = null }
                 } else if (action === 'select') {
                     const p = live.available(m).find(p => p.board_number === Number(interaction.values[0])); if (!p) throw Error('Prospect is no longer available.');
                     const market = simulations.byId(leagueId, m.simulationSnapshotId).prospectAggregates[p.prospectId];
-                    const payload = portrait({ embeds: [embed(`🎯 Confirm ${safe(p.name)}`, `${ownerIcon(m.input, m.lockedDraftOrder[m.currentPick - 1])} **Pick #${m.currentPick} · ${ownership(m.input, m.lockedDraftOrder[m.currentPick - 1])}**\n${safe(p.position_1)} · ${safe(p.team || p.nationality)}\nBoard #${p.board_number} | AVP ${market.avp?.toFixed(1) || 'Unselected'}\n${market.earliest ? `Range #${market.earliest}–#${market.latest} · Available at this pick in ${Math.round(market.availabilityByPick[m.currentPick - 1] * 100)}% of simulations` : 'Not selected in the saved first-round sample'}\n\n${String(p.about || p.build || '').slice(0, 1800)}\n\n**Confirmation is final.**`)], components: [row(button(`mock:${id}:confirm:${m.currentPick}:${p.board_number}`, 'CONFIRM PICK', ButtonStyle.Success), button(`mock:${id}:available:${m.currentPick}`, 'BACK TO PLAYERS'))] }, p);
+                    const payload = portrait({ embeds: [embed(`🎯 Confirm ${safe(p.name)}`, `${ownerIcon(m.input, m.lockedDraftOrder[m.currentPick - 1])} **Pick #${m.currentPick} · ${ownership(m.input, m.lockedDraftOrder[m.currentPick - 1])}**\n${safe(p.position_1)} · ${safe(p.team || p.nationality)}\nBoard #${p.board_number} | AVP ${market.avp?.toFixed(1) || 'Unselected'}\n${market.earliest ? `Range #${market.earliest}–#${market.latest} · Available at this pick in ${Math.round(market.availabilityByPick[m.currentPick - 1] * 100)}% of simulations` : 'Not selected in the saved 60-pick sample'}\n\n${String(p.about || p.build || '').slice(0, 1800)}\n\n**Confirmation is final.**`)], components: [row(button(`mock:${id}:confirm:${m.currentPick}:${p.board_number}`, 'CONFIRM PICK', ButtonStyle.Success), button(`mock:${id}:available:${m.currentPick}`, 'BACK TO PLAYERS'))] }, p);
                     await interaction.editReply(payload); return;
                 } else if (action === 'confirm') {
                     // Recheck after queued Discord work, immediately before atomic commit.
