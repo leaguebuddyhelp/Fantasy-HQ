@@ -6,7 +6,7 @@ const { teamBrand, logoPath, brandTeamReply } = require('../src/shared/team-bran
 const { EmbedBuilder } = require('discord.js');
 const fs = require('fs');
 test('staff role access without Discord administrator permissions', () => {
-  for (const name of ['LEAGUEbuddy Commish', 'LEAGUEbuddy Assistant Commish']) {
+  for (const name of ['LEAGUEbuddy Commish', 'LEAGUEbuddy Assistant Commish', 'LEAGUEbuddy League Administrator']) {
     assert.equal(canManageLeague({ guildId: 'g', member: { roles: { cache: new Collection([['r', { name }]]) } } }), true);
   }
   for (const name of ['LEAGUEbuddy Coach', 'Boston Celtics']) {

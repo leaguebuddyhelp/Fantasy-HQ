@@ -12,7 +12,7 @@ test('setup creates the configured channels, roles, repairs persistent system pi
     f.repo.saveTeams('l', [{ teamId: 'bos', teamName: 'Boston Celtics', abbreviation: 'BOS', conference: 'East' }, { teamId: 'lal', teamName: 'Los Angeles Lakers', abbreviation: 'LAL', conference: 'West' }]);
     f.repo.saveOwners('l', [{ teamId: 'bos', userId: 'coach-bos' }, { teamId: 'lal', userId: 'coach-lal' }]);
     const [r] = await Promise.all([f.service.ensure(f.guild, 'admin'), f.service.ensure(f.guild, 'admin')]);
-    assert.equal(r.created, CHANNELS.length); assert.equal(r.failed, 0); assert.equal(f.channels.size, CHANNELS.length + 1); assert.equal(f.roles.size, 35);
+    assert.equal(r.created, CHANNELS.length); assert.equal(r.failed, 0); assert.equal(f.channels.size, CHANNELS.length + 1); assert.equal(f.roles.size, 36);
     assert.equal(f.repo.loadDraftPicks('l').length, 20);
     const settings = f.repo.loadSettings('l'); assert.equal(Object.keys(settings.discordChannels).length, CHANNELS.length + 2); assert.equal(settings.gamesChannelId, settings.discordChannels.games);
     assert.ok(settings.discordPins.standingsMessageId); assert.ok(settings.discordPins.statsMessageId); assert.ok(settings.discordPins.liveMockMessageId); assert.ok(settings.discordPins.tradeBuilderMessageId); assert.ok(settings.discordPins.tradeCountsMessageId); assert.ok(settings.discordPins.playerUpgradesMessageId); assert.ok(settings.discordPins.freeAgencyMessageId); assert.equal(settings.discordChannels.freeAgencyProof, settings.discordChannels.staff);
@@ -44,7 +44,7 @@ test('upgrade ledger is private to coaches and staff; public feeds stay public a
     for (const [key] of CHANNELS) { assert.equal(has(key, [], P.ViewChannel), ['announcements', 'news', 'availableTeams'].includes(key)); }
     for (const key of ['announcements', 'news', 'streamlink', 'availableTeams', 'stats', 'standings', 'tradeCounts', 'approvedTrades', 'deniedTrades', 'playerUpgrades']) {
         for (const p of [P.SendMessages, P.SendMessagesInThreads, P.CreatePublicThreads, P.CreatePrivateThreads]) assert.equal(has(key, [coach], p), false);
-        for (const staff of ['LEAGUEbuddy Commish', 'LEAGUEbuddy Assistant Commish']) assert.equal(has(key, [coach, role(staff)], P.SendMessages), true);
+        for (const staff of ['LEAGUEbuddy Commish', 'LEAGUEbuddy Assistant Commish', 'LEAGUEbuddy League Administrator']) assert.equal(has(key, [coach, role(staff)], P.SendMessages), true);
     }
     assert.equal(has('news', [coach], P.AddReactions), true);
     assert.equal(has('news', [], P.AddReactions), true);

@@ -309,7 +309,7 @@ async function handleLeagueCommand(interaction) {
     requireAdmin(interaction);
     const result = await ensureLeagueRoles(interaction.guild);
     await roleOwnership.sync(interaction.guild);
-    await interaction.editReply(`All ${result.total} league roles are ready: ${result.created} created, ${result.reused} reused. Includes 30 NBA teams, LEAGUEbuddy Coach, LEAGUEbuddy GM, LEAGUEbuddy Commish, LEAGUEbuddy Assistant Commish, and LEAGUEbuddy Trade Committee. ${result.iconsSupported ? "Team role icons enabled." : "Role icons are not supported by this server; app logos still work."}${result.warnings.length ? "\n" + result.warnings.slice(0, 5).join("\n") : ""}`);
+    await interaction.editReply(`All ${result.total} league roles are ready: ${result.created} created, ${result.reused} reused. Includes 30 NBA teams, LEAGUEbuddy Coach, LEAGUEbuddy GM, LEAGUEbuddy Commish, LEAGUEbuddy Assistant Commish, LEAGUEbuddy League Administrator, and LEAGUEbuddy Trade Committee. ${result.iconsSupported ? "Team role icons enabled." : "Role icons are not supported by this server; app logos still work."}${result.warnings.length ? "\n" + result.warnings.slice(0, 5).join("\n") : ""}`);
     return;
   }
   if (subcommand === "create") return handleLeagueCreate(interaction);

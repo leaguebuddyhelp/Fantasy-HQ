@@ -8,7 +8,14 @@ const ROLE_NAMES = [
   "LEAGUEbuddy Trade Committee",
   "LEAGUEbuddy Commish",
   "LEAGUEbuddy Assistant Commish",
+  "LEAGUEbuddy League Administrator",
   ...Object.keys(TEAM_METADATA).map((slug) => slug.split("-").map((word) => word[0].toUpperCase() + word.slice(1)).join(" ")),
+];
+const LEAGUE_ADMIN_PERMISSIONS = [
+  PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory,
+  PermissionFlagsBits.SendMessages, PermissionFlagsBits.SendMessagesInThreads,
+  PermissionFlagsBits.AttachFiles, PermissionFlagsBits.EmbedLinks,
+  PermissionFlagsBits.ManageMessages, PermissionFlagsBits.ManageThreads,
 ];
 const pending = new Map();
 
@@ -39,7 +46,7 @@ async function createMissingRoles(guild) {
       continue;
     }
     try {
-      await guild.roles.create({ name, ...(icon ? { icon } : {}), permissions: [], mentionable: false, reason: "LEAGUEbuddy league setup" });
+      await guild.roles.create({ name, ...(icon ? { icon } : {}), permissions: name === "LEAGUEbuddy League Administrator" ? LEAGUE_ADMIN_PERMISSIONS : [], mentionable: false, reason: "LEAGUEbuddy league setup" });
       existing.add(name.toLowerCase());
       created += 1;
     } catch {
@@ -57,4 +64,4 @@ async function ensureLeagueRoles(guild) {
   try { return await task; } finally { pending.delete(guild.id); }
 }
 
-module.exports = { ensureLeagueRoles, ROLE_NAMES };
+module.exports = { ensureLeagueRoles, ROLE_NAMES, LEAGUE_ADMIN_PERMISSIONS };

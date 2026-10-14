@@ -43,7 +43,7 @@ function createChannelSetupService(repository = require('./repository').createFa
         await ensureLeagueRoles(guild);
         const roles = await guild.roles.fetch(), channels = await guild.channels.fetch();
         const role = name => { const matches = [...roles.values()].filter(r => !r.managed && r.name.trim().toLowerCase() === name.toLowerCase()); if (matches.length !== 1) throw Error(`Expected one ${name} role. Resolve duplicate roles before channel setup.`); return matches[0].id; };
-        const coach = role('LEAGUEbuddy Coach'), gm = role('LEAGUEbuddy GM'), staff = [role('LEAGUEbuddy Commish'), role('LEAGUEbuddy Assistant Commish')], committee = role('LEAGUEbuddy Trade Committee');
+        const coach = role('LEAGUEbuddy Coach'), gm = role('LEAGUEbuddy GM'), staff = [...require('./discord-permissions').STAFF_ROLES].map(role), committee = role('LEAGUEbuddy Trade Committee');
         const write = [P.ViewChannel, P.SendMessages, P.ReadMessageHistory, P.AttachFiles, P.EmbedLinks, P.SendMessagesInThreads];
         function overwrites(access, key) {
             const feed = ['read', 'publicRead', 'games', 'upgrades', 'activity', 'block'].includes(access);
