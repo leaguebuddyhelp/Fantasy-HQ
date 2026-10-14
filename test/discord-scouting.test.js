@@ -163,3 +163,11 @@ test('/scout refuses to spend points outside the configured Scouting Hub', async
     assert.equal(spends, 1);
     assert.ok(reply.embeds);
 });
+test('scout autocomplete shows no prospects when scouting is closed', async () => {
+    let result;
+    await handleScoutingAutocomplete({ guildId: 'guild', commandName: 'scout',
+        options: { getFocused: () => '', getString: () => 'SG' },
+        respond: async choices => { result = choices; },
+    }, { prospects: () => { throw Error('Scouting opens when the regular season starts.'); } });
+    assert.deepEqual(result, []);
+});

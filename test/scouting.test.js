@@ -101,21 +101,23 @@ test('scouting budget resets on league week advancement and refuses inactive lea
     f.repository.saveSchedule({ ...f.schedule, weeks: f.schedule.weeks.map(week => ({ ...week, status: week.week === 2 ? 'ACTIVE' : 'COMPLETED' })) });
     assert.equal(f.service.inspect('guild', 'coach-a', 1).remaining, 60);
     f.repository.saveLeague('league', { currentPhase: 'PRESEASON' });
-    const board = f.service.inspect('guild', 'coach-a', 1);
-    assert.equal(board.scoutingAvailable, false);
-    assert.equal(board.remaining, null);
-    assert.equal(f.service.boardPage('guild', 'coach-a').prospects.length, 10);
-    assert.throws(() => f.service.scout('guild', 'coach-a', 1), /active regular-season week/);
+    assert.throws(() => f.service.scout('guild', 'coach-a', 1), /Scouting opens when the regular season starts/);
 });
 
 
-test('Discord board swaps at season start and rollover, with no offseason scouting spend', t => {
+test('scouting closes before season start and after rollover, with no offseason scouting spend', t => {
     const f = fixture(t);
     for (const season of [1, 2]) {
         for (const phase of ['SETUP', 'PRESEASON', 'REGULAR_SEASON', 'PLAYOFFS', 'OFFSEASON', 'DRAFT', 'FREE_AGENCY']) {
             f.repository.saveLeague('league', { seasonNumber: season, currentPhase: phase, regularSeasonStatus: null });
-            const page = f.service.boardPage('guild', 'coach-a', 99);
             const early = ['SETUP', 'PRESEASON'].includes(phase);
+            if (early) {
+                for (const action of [() => f.service.boardPage('guild', 'coach-a'), () => f.service.inspect('guild', 'coach-a', 1), () => f.service.prospects('guild', '', 'SG'), () => f.service.scout('guild', 'coach-a', 1)]) {
+                    assert.throws(action, /Scouting opens when the regular season starts/);
+                }
+                continue;
+            }
+            const page = f.service.boardPage('guild', 'coach-a', 99);
             assert.equal(page.total, early ? 10 : 25);
             assert.equal(page.boardLabel, early ? 'Early Top Ten' : 'Big Board');
             assert.match(page.boardFile, new RegExp(`CUS0${season}`));
@@ -124,7 +126,7 @@ test('Discord board swaps at season start and rollover, with no offseason scouti
         }
     }
     f.repository.saveLeague('league', { currentPhase: 'PRESEASON' });
-    assert.equal(f.service.boardPage('guild', 'coach-a').boardLabel, 'Early Top Ten');
+    assert.throws(() => f.service.boardPage('guild', 'coach-a'), /Scouting opens when the regular season starts/);
     f.repository.saveLeague('league', { currentPhase: 'REGULAR_SEASON', regularSeasonStatus: 'COMPLETED' });
     assert.equal(f.service.inspect('guild', 'coach-a', 1).scoutingAvailable, false);
     assert.throws(() => f.service.scout('guild', 'coach-a', 1), /active regular-season week/);

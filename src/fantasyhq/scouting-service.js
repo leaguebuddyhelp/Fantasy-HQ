@@ -124,8 +124,16 @@ function createScoutingService({ repository, draftClassDir = path.join(process.c
         return state.seasons[seasonKey]?.weeks[weekKey]?.users[userId] || { spent: 0, prospects: {} };
     }
 
+    function scoutingContextFor(guildId) {
+        const context = contextFor(guildId);
+        if (require('../shared/season-draft-class').seasonDraftBoard(context.league.currentPhase) !== 'Big Board') {
+            throw new Error('Scouting opens when the regular season starts. Use /toptenpreview for the Early Top Ten preview.');
+        }
+        return context;
+    }
+
     function inspect(guildId, userId, boardNumber) {
-        const context = contextFor(guildId), board = boardForContext(context);
+        const context = scoutingContextFor(guildId), board = boardForContext(context);
         const prospect = board.prospects.find(item => item.board_number === Number(boardNumber));
         if (!prospect) throw new Error('Choose a prospect from this season’s available scouting board.');
         const state = loadState(context.league.leagueId), user = context.week ? userState(state, context, userId) : { spent: 0, prospects: {} };
@@ -149,7 +157,7 @@ function createScoutingService({ repository, draftClassDir = path.join(process.c
     }
 
     function boardPage(guildId, userId, requestedPage = 0) {
-        const context = contextFor(guildId), board = boardForContext(context), state = loadState(context.league.leagueId);
+        const context = scoutingContextFor(guildId), board = boardForContext(context), state = loadState(context.league.leagueId);
         const user = context.week ? userState(state, context, userId) : { spent: 0, prospects: {} };
         const totalPages = Math.max(1, Math.ceil(board.prospects.length / 10));
         const page = Math.max(0, Math.min(totalPages - 1, Number(requestedPage) || 0));
@@ -170,7 +178,7 @@ function createScoutingService({ repository, draftClassDir = path.join(process.c
     }
 
     function prospects(guildId, focused = '', position = null) {
-        const context = contextFor(guildId), board = boardForContext(context);
+        const context = scoutingContextFor(guildId), board = boardForContext(context);
         const query = normalizeSearch(focused);
         const requestedPosition = String(position || '').trim().toUpperCase();
         return board.prospects.filter(prospect => (!requestedPosition || [prospect.position_1, prospect.position_2]
