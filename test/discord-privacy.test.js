@@ -3,16 +3,16 @@ const assert = require('node:assert/strict');
 const { commandReplyFlags, acknowledgePrivateComponent, respondPrivately } = require('../src/shared/discord-privacy');
 const { replyInteractionError } = require('../src/shared/discord-interaction-error');
 
-test('personal, staff and destructive slash actions are private; shared information remains public', () => {
+test('all slash replies are private, including coach information and future commands', () => {
     const flags = (commandName, subcommand) => commandReplyFlags({ commandName, options: { getSubcommand: () => subcommand } });
     for (const name of ['myteam', 'mockdraft', 'bigboard', 'scout', 'upgrades', 'admin', 'league', 'roster', 'game', 'games', 'week', 'activitycheck', 'tradeblock', 'new-command']) assert.equal(flags(name), 64, name);
     for (const sub of ['create', 'cleanup']) assert.equal(flags('games', sub), 64);
     for (const sub of ['setup', 'create', 'delete', 'settings', 'roles', 'status']) assert.equal(flags('league', sub), 64);
     for (const sub of ['mine', 'preview', 'generate', 'regenerate', 'confirm']) assert.equal(flags('schedule', sub), 64);
     for (const sub of ['assign', 'unassign']) assert.equal(flags('team', sub), 64);
-    for (const name of ['website', 'promo', 'availableteams', 'standings', 'stats', 'teamstats', 'player', 'ratings', 'freeagents', 'toptenpreview']) assert.equal(flags(name), 0, name);
-    for (const sub of ['week', 'team', 'full']) assert.equal(flags('schedule', sub), 0);
-    for (const sub of ['list', 'roster']) assert.equal(flags('team', sub), 0);
+    for (const name of ['website', 'promo', 'availableteams', 'standings', 'stats', 'teamstats', 'player', 'ratings', 'freeagents', 'toptenpreview']) assert.equal(flags(name), 64, name);
+    for (const sub of ['week', 'team', 'full']) assert.equal(flags('schedule', sub), 64);
+    for (const sub of ['list', 'roster']) assert.equal(flags('team', sub), 64);
     assert.match(require('fs').readFileSync('src/index.js', 'utf8'), /deferReply\(\{ flags: require\('\.\/shared\/discord-privacy'\)\.commandReplyFlags\(interaction\) \}\)/);
 });
 
@@ -69,4 +69,37 @@ test('failed role verification after a public acknowledgment cannot expose its r
         refreshActor: async () => { throw Error('private role diagnostic'); }, logger: { error() {} },
     });
     assert.equal(worked, false); assert.deepEqual(calls, ['ack', 'generic', 'private']);
+});
+
+
+test('free agent and Top Ten browsing opens privately from legacy public messages', async () => {
+    const fs = require('node:fs'), vm = require('node:vm');
+    for (const [file, name, customId] of [
+        ['src/fantasyhq/discord-preseason.js', 'handleFreeAgentsButton', 'freeagents:page:2:PG'],
+        ['src/index.js', 'handleTopTenPreviewButton', 'toptenpreview:next:0:class.json'],
+    ]) {
+        const source = fs.readFileSync(file, 'utf8');
+        const start = source.indexOf(`async function ${name}(`);
+        const end = source.indexOf('\n}', start) + 2;
+        const payload = { content: 'coach information' };
+        const context = {
+            require: () => require('../src/shared/discord-privacy'),
+            setupService: { getLeagueContextByBinding: () => ({ league: { leagueId: 'league' }, seasonId: 'season' }) },
+            playerService: { listPlayers: () => [] },
+            freeAgentsPayload: () => payload,
+            topTenPreviewProspects: () => [{}, {}],
+            handleTopTenPreview: async i => i.editReply(payload),
+        };
+        vm.runInNewContext(source.slice(start, end) + `\nglobalThis.handler = ${name};`, context);
+        for (const privateSource of [false, true]) {
+            const calls = [];
+            const interaction = { customId, guildId: 'guild', message: { flags: { has: () => privateSource } },
+                deferReply: async p => calls.push(['private', p.flags]),
+                deferUpdate: async () => calls.push(['update']),
+                editReply: async p => calls.push(['payload', p]),
+            };
+            await context.handler(interaction);
+            assert.deepEqual(calls, [privateSource ? ['update'] : ['private', 64], ['payload', payload]], name);
+        }
+    }
 });

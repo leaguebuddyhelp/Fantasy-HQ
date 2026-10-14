@@ -25,7 +25,8 @@
     "weakness_1": "Self-Creation",
     "weakness_2": "Playmaking",
     "weakness_3": "Lower-Body Strength",
-    "pro_comp": "Rich Man’s Jabari Smith Jr."
+    "pro_comp": "Rich Man’s Jabari Smith Jr.",
+    "image": "images/2k27-cus01-big-board/pf/001-leandre-charbonneau.png"
   },
   "2": {
     "id_number": 2,
@@ -53,7 +54,8 @@
     "weakness_1": "Defense",
     "weakness_2": "Physicality",
     "weakness_3": "Rim Finishing",
-    "pro_comp": "Jamal Murray"
+    "pro_comp": "Jamal Murray",
+    "image": "images/2k27-cus01-big-board/pg/006-michael-cheeks.png"
   },
   "3": {
     "id_number": 3,
@@ -81,7 +83,8 @@
     "weakness_1": "Shooting",
     "weakness_2": "Strength",
     "weakness_3": "Shot Creation",
-    "pro_comp": "Rudy Gay"
+    "pro_comp": "Rudy Gay",
+    "image": "images/2k27-cus01-big-board/sf/011-kevin-carter.png"
   },
   "4": {
     "id_number": 4,
@@ -109,7 +112,8 @@
     "weakness_1": "Shooting",
     "weakness_2": "Strength",
     "weakness_3": "Inexperience",
-    "pro_comp": "Chet Holmgren"
+    "pro_comp": "Chet Holmgren",
+    "image": "images/2k27-cus01-big-board/pf/016-jan-zorko.png"
   },
   "5": {
     "id_number": 5,
@@ -137,7 +141,8 @@
     "weakness_1": "Shooting",
     "weakness_2": "Playmaking",
     "weakness_3": "Shot Selection",
-    "pro_comp": "Victor Oladipo"
+    "pro_comp": "Victor Oladipo",
+    "image": "images/2k27-cus01-big-board/sg/013-asafa-tinibu.png"
   },
   "6": {
     "id_number": 6,
@@ -165,7 +170,8 @@
     "weakness_1": "Mobility",
     "weakness_2": "Explosiveness",
     "weakness_3": "Inexperience",
-    "pro_comp": "Brook Lopez"
+    "pro_comp": "Brook Lopez",
+    "image": "images/2k27-cus01-big-board/c/002-awut-jok.png"
   },
   "7": {
     "id_number": 7,
@@ -193,7 +199,8 @@
     "weakness_1": "Playmaking",
     "weakness_2": "Defensive Consistency",
     "weakness_3": "Three-Point Volume",
-    "pro_comp": "Jabari Parker"
+    "pro_comp": "Jabari Parker",
+    "image": "images/2k27-cus01-big-board/sf/005-nate-johnson.png"
   },
   "8": {
     "id_number": 8,
@@ -221,7 +228,8 @@
     "weakness_1": "Shooting",
     "weakness_2": "Ball Handling",
     "weakness_3": "Size",
-    "pro_comp": "Onyeka Okongwu"
+    "pro_comp": "Onyeka Okongwu",
+    "image": "images/2k27-cus01-big-board/pf/012-josh-houston.png"
   },
   "9": {
     "id_number": 9,
@@ -249,7 +257,8 @@
     "weakness_1": "Shooting",
     "weakness_2": "Ball Handling",
     "weakness_3": "Offensive Versatility",
-    "pro_comp": "Bigger Aaron Gordon"
+    "pro_comp": "Bigger Aaron Gordon",
+    "image": "images/2k27-cus01-big-board/pf/004-dremonte-johnson-jr.png"
   },
   "10": {
     "id_number": 10,
@@ -277,6 +286,7 @@
     "weakness_1": "Athleticism",
     "weakness_2": "Length",
     "weakness_3": "Rim Finishing",
-    "pro_comp": "Bogdan Bogdanović"
+    "pro_comp": "Bogdan Bogdanović",
+    "image": "images/2k27-cus01-big-board/sf/018-gunnar-davies.png"
   }
 }

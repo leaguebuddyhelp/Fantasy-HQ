@@ -76,3 +76,26 @@ test('website replaces draft class tabs with a season label and ignores stale cl
     assert.equal(await page.locator('#big-board').isVisible(),false);
     assert.deepEqual(errors, []);
 });
+
+test('Top Ten profile links open the exact prospect bio rather than the Big Board rank', async t => {
+    const browser = await chromium.launch({ headless: true }); t.after(() => browser.close());
+    const page = await browser.newPage();
+    await page.route('http://draft.test/**', route => {
+        const url = new URL(route.request().url());
+        if (url.pathname === '/') return route.fulfill({ contentType: 'text/html', body: fs.readFileSync('web/index.html', 'utf8').replace(/<script[^>]*>[\s\S]*?<\/script>/g, '') });
+        if (url.pathname === '/api/prospects') return route.fulfill({ json: { prospects: Object.values(JSON.parse(fs.readFileSync('draft_class/2k27_CUS01 - Early Top Ten.json', 'utf8'))).map(p => ({ ...p, rank: p.id_number })) } });
+        return route.fulfill({ status: 404, body: '' });
+    });
+    await page.goto('http://draft.test/?class=2k27_CUS01%20-%20Early%20Top%20Ten.json&prospect=2&source=top-ten#early-top-ten');
+    await page.addScriptTag({ content: fs.readFileSync('web/app.js', 'utf8').replace(/^initialize\(\);$/m, '').replace(/^refreshStandings\(\);$/m, '').replace(/^setInterval\(.*$/gm, '') });
+    await page.evaluate(async () => {
+        state.leagueSite = { league: { seasonNumber: 1 } };
+        state.boards = [{ id: 'top-ten', classes: [{ label: '2k27_CUS01', file: '2k27_CUS01 - Early Top Ten.json' }] }];
+        await loadDraftClass(new URL(location.href).searchParams.get('class'));
+    });
+    await page.waitForFunction(() => document.querySelector('dialog[open]'));
+    const content = await page.locator('dialog[open]').textContent();
+    assert.ok(content.includes('Michael Cheeks'));
+    const prospect = JSON.parse(fs.readFileSync('draft_class/2k27_CUS01 - Early Top Ten.json', 'utf8'))['2'];
+    assert.ok(content.includes(prospect.about));
+});

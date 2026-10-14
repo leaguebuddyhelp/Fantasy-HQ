@@ -140,7 +140,7 @@ async function handleFreeAgentsCommand(interaction) {
   await interaction.editReply(freeAgentsPayload(playerService.listPlayers(context.league.leagueId, context.seasonId), interaction.options.getString('position'), interaction.options.getInteger('page')));
 }
 async function handleFreeAgentsButton(interaction) {
-  await interaction.deferUpdate();
+  await require("../shared/discord-privacy").acknowledgePrivateComponent(interaction);
   const context = setupService.getLeagueContextByBinding({ guildId: interaction.guildId });
   const [, , page, value] = interaction.customId.split(':');
   if (!['ALL', 'PG', 'SG', 'SF', 'PF', 'C'].includes(value)) throw Error('This position filter is no longer available. Open /freeagents again.');

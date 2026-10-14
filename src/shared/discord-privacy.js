@@ -1,13 +1,8 @@
 const { MessageFlags } = require('discord.js');
 
-// Personal work and administration are private unless explicitly classified as shared information.
-const PUBLIC_COMMANDS = new Set(['website', 'promo', 'availableteams', 'standings', 'player', 'ratings', 'stats', 'teamstats', 'toptenpreview', 'freeagents']);
-function commandReplyFlags(interaction) {
-    const name = interaction.commandName;
-    if (PUBLIC_COMMANDS.has(name)) return 0;
-    const subcommand = interaction.options?.getSubcommand?.(false);
-    if (name === 'schedule' && ['week', 'team', 'full'].includes(subcommand)) return 0;
-    if (name === 'team' && ['list', 'roster'].includes(subcommand)) return 0;
+// Slash-command responses belong to the requester. Shared feeds and announcements
+// are published separately through channel messages.
+function commandReplyFlags() {
     return MessageFlags.Ephemeral;
 }
 function isEphemeralMessage(message) {

@@ -286,7 +286,7 @@ function topTenPreviewProspects(draftClassFile = null) {
   const raw = readJson(fileName ? path.join(DRAFT_CLASS_DIR, fileName) : "", {});
   const prospects = Object.values(raw || {})
     .sort((a, b) => Number(a.id_number || 0) - Number(b.id_number || 0));
-  return prospects;
+  return withBundledImages(fileName, prospects, "id_number");
 }
 
 function recruitingProspects(draftClassFile = null) {
@@ -412,9 +412,10 @@ function topTenPreviewProfileUrl(draftClassFile, prospect = {}) {
   const params = new URLSearchParams({
     class: draftClassFile || "",
     prospect: String(prospect.id_number || ""),
+    source: "top-ten",
   });
 
-  return `${baseUrl}/?${params}`;
+  return `${baseUrl}/?${params}#early-top-ten`;
 }
 
 function topTenPreviewEmbed(emojiMap, prospect, index, total, draftClassFile, imageUrl = null) {
@@ -520,7 +521,7 @@ async function handleTopTenPreviewCommand(interaction) {
 
 async function handleTopTenPreviewButton(interaction) {
   const [, action, value, draftClassFile] = interaction.customId.split(":");
-  await interaction.deferUpdate();
+  await require("./shared/discord-privacy").acknowledgePrivateComponent(interaction);
 
   const prospects = topTenPreviewProspects(draftClassFile);
   if (!prospects.length) {
