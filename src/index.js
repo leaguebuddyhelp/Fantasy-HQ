@@ -286,7 +286,7 @@ function topTenPreviewProspects(draftClassFile = null) {
   const raw = readJson(fileName ? path.join(DRAFT_CLASS_DIR, fileName) : "", {});
   const prospects = Object.values(raw || {})
     .sort((a, b) => Number(a.id_number || 0) - Number(b.id_number || 0));
-  return withBundledImages(fileName, prospects, "id_number");
+  return prospects;
 }
 
 function recruitingProspects(draftClassFile = null) {
@@ -356,7 +356,7 @@ function guildEmojiByName(emojiMap, emojiName) {
 
 function topTenPreviewHeader(emojiMap, prospect) {
   const directEmoji = String(prospect["emoji_#"] || "").trim();
-  const emoji = directEmoji || guildEmojiByName(emojiMap, topTenPreviewEmojiName(prospect));
+  const emoji = directEmoji; // Missing logo metadata intentionally means no logo.
   const team = prospect.team || prospect.nationality || "Unknown";
   return [emoji, team].filter(Boolean).join(" ");
 }
@@ -424,18 +424,18 @@ function topTenPreviewEmbed(emojiMap, prospect, index, total, draftClassFile, im
     .setColor(0xffdc21)
     .setDescription([
       topTenPreviewHeader(emojiMap, prospect),
-      details([prospect.position_1, prospect.class, prospect.age ? `${prospect.age} yrs` : null]),
+      details([[...new Set([prospect.position_1, prospect.position_2].filter(p => p && p !== "N/A"))].join("/"), prospect.class, prospect.age ? `${prospect.age} yrs` : null]),
       prospect.build,
     ].filter(Boolean).join("\n"));
   const size = details([prospect.height, prospect.weight ? `${prospect.weight} lbs` : null,
   (prospect.wingspan || prospect.wingspain) ? `${prospect.wingspan || prospect.wingspain} wingspan` : null]);
   if (size) embed.addFields({ name: "Size", value: size });
-  const strengths = [prospect.strength_1, prospect.strength_2].filter(Boolean).join(" • ");
-  const weaknesses = [prospect.weakness_1, prospect.weakness_2].filter(Boolean).join(" • ");
+  const strengths = [prospect.strength_1, prospect.strength_2, prospect.strength_3].filter(Boolean).join(" • ");
+  const weaknesses = [prospect.weakness_1, prospect.weakness_2, prospect.weakness_3].filter(Boolean).join(" • ");
   if (strengths) embed.addFields({ name: "Strengths", value: strengths, inline: true });
   if (weaknesses) embed.addFields({ name: "To improve", value: weaknesses, inline: true });
   if (prospect.pro_comp) embed.addFields({ name: "Comparison", value: prospect.pro_comp });
-  embed.setFooter({ text: `${draftClassLabel(draftClassFile || "")} • ${index + 1}/${total} • Grade ${fixedNumber(prospect["draft score"], 2)}` });
+  embed.setFooter({ text: `Early Top Ten • ${index + 1}/${total}${prospect["draft score"] != null && String(prospect["draft score"]).trim() !== "" && Number.isFinite(Number(prospect["draft score"])) ? ` • Draft Grade ${Number(prospect["draft score"])}` : ""}` });
   if (imageUrl) embed.setThumbnail(imageUrl);
   const profileUrl = topTenPreviewProfileUrl(draftClassFile, prospect);
   if (profileUrl) embed.setURL(profileUrl);
@@ -495,7 +495,7 @@ async function handleTopTenPreview(interaction, index = 0, draftClassSelection =
 
   const currentIndex = Math.max(0, Math.min(prospects.length - 1, Number(index) || 0));
   const prospect = prospects[currentIndex];
-  const emojiMap = await topTenPreviewEmojiMap(interaction);
+  const emojiMap = new Map();
   const image = topTenPreviewImage(prospect);
   const embed = topTenPreviewEmbed(emojiMap, prospect, currentIndex, prospects.length, draftClassFile, image.url);
   const components = [topTenPreviewActionRow(currentIndex, prospects.length, draftClassFile, prospect)];
