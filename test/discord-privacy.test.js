@@ -3,14 +3,15 @@ const assert = require('node:assert/strict');
 const { commandReplyFlags, acknowledgePrivateComponent, respondPrivately } = require('../src/shared/discord-privacy');
 const { replyInteractionError } = require('../src/shared/discord-interaction-error');
 
-test('all slash replies are private, including coach information and future commands', () => {
+test('only recruitment commands are public; coach information and future commands stay private', () => {
     const flags = (commandName, subcommand) => commandReplyFlags({ commandName, options: { getSubcommand: () => subcommand } });
     for (const name of ['myteam', 'mockdraft', 'bigboard', 'scout', 'upgrades', 'admin', 'league', 'roster', 'game', 'games', 'week', 'activitycheck', 'tradeblock', 'new-command']) assert.equal(flags(name), 64, name);
     for (const sub of ['create', 'cleanup']) assert.equal(flags('games', sub), 64);
     for (const sub of ['setup', 'create', 'delete', 'settings', 'roles', 'status']) assert.equal(flags('league', sub), 64);
     for (const sub of ['mine', 'preview', 'generate', 'regenerate', 'confirm']) assert.equal(flags('schedule', sub), 64);
     for (const sub of ['assign', 'unassign']) assert.equal(flags('team', sub), 64);
-    for (const name of ['website', 'promo', 'availableteams', 'standings', 'stats', 'teamstats', 'player', 'ratings', 'freeagents', 'toptenpreview']) assert.equal(flags(name), 64, name);
+    for (const name of ['website', 'standings', 'stats', 'teamstats', 'player', 'ratings', 'freeagents', 'toptenpreview']) assert.equal(flags(name), 64, name);
+    for (const name of ['promo', 'availableteams']) assert.equal(flags(name), 0, name);
     for (const sub of ['week', 'team', 'full']) assert.equal(flags('schedule', sub), 64);
     for (const sub of ['list', 'roster']) assert.equal(flags('team', sub), 64);
     assert.match(require('fs').readFileSync('src/index.js', 'utf8'), /deferReply\(\{ flags: require\('\.\/shared\/discord-privacy'\)\.commandReplyFlags\(interaction\) \}\)/);

@@ -1,9 +1,9 @@
 const { MessageFlags } = require('discord.js');
 
-// Slash-command responses belong to the requester. Shared feeds and announcements
-// are published separately through channel messages.
-function commandReplyFlags() {
-    return MessageFlags.Ephemeral;
+// Recruitment commands are public; coach information and staff replies are private.
+const PUBLIC_COMMANDS = new Set(['availableteams', 'promo']);
+function commandReplyFlags(interaction) {
+    return PUBLIC_COMMANDS.has(interaction.commandName) ? 0 : MessageFlags.Ephemeral;
 }
 function isEphemeralMessage(message) {
     return message?.flags?.has?.(MessageFlags.Ephemeral) === true;
