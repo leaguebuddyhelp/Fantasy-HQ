@@ -6,14 +6,13 @@ Source of requirements: latest COMPLETE GITHUB COPILOT IMPLEMENTATION PROMPT (at
 
 | System | Actual implementation / integration |
 | --- | --- |
-| JSON storage | `src/fantasyhq/repository.js`: validated reads, fsync + atomic rename, recoverable trade/week/upgrade/reset journals. `storage-safety.js`: single writer, checksummed backups/restoration. |
+| JSON storage | `src/fantasyhq/repository.js`: validated reads, fsync + atomic rename, recoverable trade/week/reset journals. `storage-safety.js`: single writer, checksummed backups/restoration. |
 | Identity and ownership | Permanent player/team/pick/game IDs; membership history; `role-ownership.js`, `coach-identity.js`, `discord-permissions.js`; explicit commissioner and Staff authorization. |
 | Setup and schedules | `setup-service.js`, `schedule-generator.js`, `schedule-validator.js`, `preseason-validator.js`, `league-service.js`; 30 teams, 15 weeks, conference round robin, commissioner advancement. |
 | Games / OCR | `game-submissions.js`, `box-score/service.js`, `tesseract-provider.js`, `normalize.js`, `learning.js`, `review-service.js`, `finalize.js`; originals, duplicate hashes, bounded workers, review/corrections, persistent game records. |
 | Shared statistics | `official-game.js`, `player-stats-service.js`, `team-stats-service.js`, `standings-service.js`, `stat-scope.js`; published regular-season snapshots and distinct PLAY_IN / PLAYOFFS scopes. Website stats routes and Discord feeds use these services. |
 | Trades | `trade-service.js`, `discord-trades.js`, `asset-valuation.js`, `transaction-locks.js`: valuation/fairness, verified ownership, committee votes, execution proof, delivery receipts, phase/season limits. |
 | Regular-season FA | `free-agency-service.js`, `offer-score.js`, `discord-free-agency.js`: screenshot contract review, timed windows, improvement/withdrawal, conditional releases, Staff waivers, privacy, announcements. Preserve this independently of new offseason stages. |
-| Player upgrades | `player-upgrades-service.js`, `discord-player-upgrades.js`: entitlement/progress, coach authorization, Staff decisions, atomic player changes and audit history. |
 | Scouting / mocks | `scouting-service.js`, `mock-engine.js`, `mock-storage.js`, `mock-simulations.js`, `live-mock-service.js`, `discord-mock-draft.js`: four classes, 1,000 simulations, AVP, private scouting, timers, rooms, portraits, final recaps and verified ownership. |
 | Postseason | `postseason-state.js`, `postseason-service.js`, `season-transition.js`: ten seeds/conference, NBA-style Play-In, fixed brackets, best-of-3/5/5/7, approval, advancement, conflicts, championship records. Already implemented; do not rebuild. |
 | Official awards | `awards-service.js`, `discord-awards.js`: commissioner-confirmed official winners and historical records. Preserve as the award authority. |
@@ -31,7 +30,7 @@ Source of requirements: latest COMPLETE GITHUB COPILOT IMPLEMENTATION PROMPT (at
 - [ ] Contracts: salary schedules, options and valuations exist; no Pending Options import or annual rollover.
 - [ ] Offseason FA: contract normalization and transactions are reusable. Existing regular-season scoring differs from the requested 35/25/25/15 offseason model; keep regular-season rules intact.
 - [ ] Rosters: memberships/imports/waivers exist. Preseason validation only blocks empty/invalid rosters; suspicious sizes are warnings. Exact 15-player cutdowns, temporary offseason maximum 20, 85+ cutdown protection and reminder windows are missing.
-- [ ] Progression: upgrades and player editing exist; these are not a 30-team NBA 2K progression import. Need evidence, coverage, atomic final confirmation and historical team-at-time records.
+- [ ] Progression: player editing exists; these are not a 30-team NBA 2K progression import. Need evidence, coverage, atomic final confirmation and historical team-at-time records.
 - [ ] Percentage leaders: stats preserve makes/attempts and profiles show percentages. Discord currently requires only one attempt; website allows percentage sorting without requested qualification. Need one shared eligibility rule and boundary tests.
 - [ ] Team Needs: `mock-engine.js` already derives position needs from OVR, age/depth and contracts, used in mock selection. Minimum two / maximum four yellow highlights and consistent team-page presentation require work.
 - [ ] Weekly mock: existing command is first-round only and includes explanatory evaluation. Need the requested simple Round 1/Round 2 toggle while preserving Live Mock UI and controls.

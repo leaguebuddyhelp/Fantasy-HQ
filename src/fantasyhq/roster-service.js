@@ -28,8 +28,8 @@ function createRosterService(options = {}) {
 
   function notifyRosterMovement(event) {
     if (!onRosterMovement) return;
-    try { Promise.resolve(onRosterMovement(event)).catch(error => console.error("Upgrade request invalidation after roster change failed:", error.message)); }
-    catch (error) { console.error("Upgrade request invalidation after roster change failed:", error.message); }
+    try { Promise.resolve(onRosterMovement(event)).catch(error => console.error("Roster movement follow-up after roster change failed:", error.message)); }
+    catch (error) { console.error("Roster movement follow-up after roster change failed:", error.message); }
   }
 
   function currentRosterEntries(leagueId, seasonId, teamId = null) {

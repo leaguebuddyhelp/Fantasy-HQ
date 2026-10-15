@@ -114,20 +114,6 @@ test('one corrupt archived game is preserved and does not hide unrelated healthy
   assert.throws(() => service.load(corrupt)); assert.equal(fs.readFileSync(path.join(f.root,'game-history',corrupt,'record.json'),'utf8'), '{preserve');
 });
 
-test('failed upgrade delivery survives restart and only a successful retry creates a receipt', async t => {
-  const f = fixture(t), { createPlayerUpgradeService } = require('../src/fantasyhq/player-upgrades-service');
-  const service = createPlayerUpgradeService({ repository:f.repository, now:f.time, onUpgradeAvailable:() => { throw Error('DM closed'); } });
-  service.syncOwnerSnapshot({leagueId:'league',seasonId:'1',phase:'REGULAR_SEASON',owners:f.repository.loadOwners('league')});
-  const owners = [{teamId:'a',userId:'replacement'}]; f.repository.saveOwners('league',owners);
-  service.syncOwnerSnapshot({leagueId:'league',seasonId:'1',phase:'REGULAR_SEASON',owners});
-  await service.flushNotifications('league');
-  const failed = f.repository.loadPlayerUpgradeState('league').notificationOutbox[0];
-  assert.equal(failed.status,'FAILED'); assert.equal(failed.deliveredAt,undefined);
-  const notices = []; f.advance(20000);
-  const restarted = createPlayerUpgradeService({repository:f.repository,now:f.time,onUpgradeAvailable:n => notices.push(n)});
-  await restarted.flushNotifications('league'); await restarted.flushNotifications('league');
-  assert.equal(notices.length,1); assert.equal(f.repository.loadPlayerUpgradeState('league').notificationOutbox[0].status,'DELIVERED');
-});
 
 test('all fifteen weeks close with official forfeits, freeze publication and confirm ten playoff seeds per conference', async t => {
   const f = fixture(t), { generateSchedule } = require('../src/fantasyhq/schedule-generator');

@@ -16,7 +16,6 @@ const { createSetupService } = require("./fantasyhq/setup-service");
 const { createTeamService } = require("./fantasyhq/team-service");
 const { createTeamStatsService } = require("./fantasyhq/team-stats-service");
 const { createGameSubmissionService } = require("./fantasyhq/game-submissions");
-const { createPlayerUpgradeService } = require("./fantasyhq/player-upgrades-service");
 
 const ROOT_DIR = path.resolve(__dirname, "..");
 const WEB_DIR = path.join(ROOT_DIR, "web");
@@ -28,12 +27,10 @@ const playerStatsService = createPlayerStatsService({ repository: setupService.r
 const teamService = createTeamService({ repository: setupService.repository, playerStatsService, publishedOnly: true });
 const teamStatsService = createTeamStatsService({ repository: setupService.repository, publishedOnly: true });
 const webGameSubmissions = createGameSubmissionService({ repository: setupService.repository });
-const webPlayerUpgrades = createPlayerUpgradeService({ repository: setupService.repository, submissions: webGameSubmissions });
-webGameSubmissions.setFinalizationHandler(record => webPlayerUpgrades.reconcileFinalizedGames({ leagueId: record.game.leagueId, seasonId: record.game.seasonId }));
-let playerUpgradeRuntime = { service: webPlayerUpgrades, submissions: webGameSubmissions };
-const invalidateUpgradeRequests = event => (playerUpgradeRuntime.invalidatePlayerRequests || (value => playerUpgradeRuntime.service.invalidatePlayerRequests(value)))(event);
-const playerService = createPlayerService({ repository: setupService.repository, onRosterMovement: invalidateUpgradeRequests });
-const rosterService = createRosterService({ repository: setupService.repository, onRosterMovement: invalidateUpgradeRequests });
+let gameRuntime = { submissions: webGameSubmissions };
+const onRosterMovement = event => gameRuntime.onRosterMovement?.(event);
+const playerService = createPlayerService({ repository: setupService.repository, onRosterMovement });
+const rosterService = createRosterService({ repository: setupService.repository, onRosterMovement });
 const dataIssuesService = createDataIssuesService({ repository: setupService.repository });
 const preseasonValidator = createPreseasonValidator({ repository: setupService.repository, dataIssuesService });
 
@@ -320,12 +317,12 @@ function boundLeagueContext() {
 
 let gameThreadRuntime;
 function setGameThreadRuntime(runtime) { gameThreadRuntime = runtime; }
-function setPlayerUpgradeRuntime(runtime) { playerUpgradeRuntime = runtime; }
+function setGameRuntime(runtime) { gameRuntime = runtime; }
 function unsafeRequestHandler(request, response) {
   const url = new URL(request.url, "http://localhost");
   if (require("./fantasyhq/box-score/review-route").handleBoxScoreReview(request, response, url, {
     authorized: isAdminRequest(request),
-    ...(playerUpgradeRuntime?.submissions ? { submissions: playerUpgradeRuntime.submissions } : {}),
+    ...(gameRuntime?.submissions ? { submissions: gameRuntime.submissions } : {}),
   })) return;
 
   if (url.pathname.startsWith('/api/league/sportsbook') || url.pathname === '/api/league/admin/sportsbook' || url.pathname === '/api/league/coach-session' || url.pathname === '/sportsbook.js') {
@@ -349,7 +346,7 @@ function unsafeRequestHandler(request, response) {
     if (request.method !== 'GET') { sendJson(response, 405, { error: 'Method not allowed.' }); return; }
     try {
       const repository = gameThreadRuntime?.repository || setupService.repository;
-      const service = require('./fantasyhq/weekly-dashboard-service').createWeeklyDashboardService({ repository, ...(playerUpgradeRuntime?.submissions ? { submissions: playerUpgradeRuntime.submissions } : {}) });
+      const service = require('./fantasyhq/weekly-dashboard-service').createWeeklyDashboardService({ repository, ...(gameRuntime?.submissions ? { submissions: gameRuntime.submissions } : {}) });
       const guildId = process.env.GUILD_ID;
       sendJson(response, 200, staff ? service.report(guildId) : service.teamDashboard(guildId, decodeURIComponent(weeklyTeamMatch[1]), false));
     } catch (error) { sendJson(response, 400, { error: error.message }); }
@@ -380,7 +377,7 @@ function unsafeRequestHandler(request, response) {
     if (request.method !== 'POST') { sendJson(response, 405, { error: 'Use POST to create a backup.' }); return; }
     (async () => { try {
       const body = await parseJsonBody(request); websiteOperator(body);
-      const repository = playerUpgradeRuntime?.repository || leagueService.repository;
+      const repository = gameRuntime?.repository || leagueService.repository;
       sendJson(response, 200, require('./fantasyhq/storage-safety').createStorageBackup(repository.dataRoot));
     } catch(error) { sendJson(response, 400, { error: error.message }); } })(); return;
   }
@@ -397,7 +394,7 @@ function unsafeRequestHandler(request, response) {
   if (url.pathname === '/api/league/admin/offseason-free-agency') {
     if (!isAdminRequest(request)) { sendJson(response, 403, {error:'Staff website credentials required.'}); return; }
     (async()=>{try{
-      const context=boundLeagueContext(),principal=require('./shared/website-auth').websitePrincipal(request),repository=playerUpgradeRuntime?.repository||leagueService.repository;
+      const context=boundLeagueContext(),principal=require('./shared/website-auth').websitePrincipal(request),repository=gameRuntime?.repository||leagueService.repository;
       const service=require('./fantasyhq/offseason-free-agency').createOffseasonFreeAgencyService({repository}),actor=require('./shared/website-auth').websiteActor(request,context),leagueId=context.league.leagueId;
       if(request.method==='GET'){
         if(url.searchParams.get('imageId')){const original=service.readOriginal(leagueId,actor,url.searchParams.get('imageId'));if(url.searchParams.get('preview')==='1'){original.bytes=await require('./fantasyhq/offseason-image').normalize(original.bytes);original.contentType='image/png';}response.writeHead(200,{'Content-Type':original.contentType,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});response.end(original.bytes);}
@@ -421,7 +418,7 @@ function unsafeRequestHandler(request, response) {
     (async () => { try {
       const context = boundLeagueContext(), principal = require('./shared/website-auth').websitePrincipal(request);
       if (principal?.operator && principal.operator !== context.league.commissionerUserId) throw Error('Use commissioner credentials for offseason roster controls.');
-      const repository = playerUpgradeRuntime?.repository || leagueService.repository;
+      const repository = gameRuntime?.repository || leagueService.repository;
       const service = require('./fantasyhq/offseason-roster-service').createOffseasonRosterService({ repository });
       const actor = require('./shared/website-auth').websiteActor(request,context,{commissioner:true}), leagueId = context.league.leagueId;
       if (request.method === 'GET') { sendJson(response, 200, service.inspect(leagueId)); return; }
@@ -441,7 +438,7 @@ function unsafeRequestHandler(request, response) {
     (async () => { try {
       const context = boundLeagueContext(), principal = require('./shared/website-auth').websitePrincipal(request);
       if (principal?.operator && principal.operator !== context.league.commissionerUserId) throw Error('Use credentials keyed by the commissioner Discord user ID for offseason imports.');
-      const repository = playerUpgradeRuntime?.repository || leagueService.repository;
+      const repository = gameRuntime?.repository || leagueService.repository;
       const step = url.searchParams.get('step') || repository.loadOffseason(context.league.leagueId)?.seasons[context.seasonId]?.step;
       const service = require('./fantasyhq/offseason-import-service').createOffseasonImportService({ repository, step });
       const actor = require('./shared/website-auth').websiteActor(request,context,{commissioner:true}), leagueId = context.league.leagueId;
@@ -471,7 +468,7 @@ function unsafeRequestHandler(request, response) {
     (async () => { try {
       const context = boundLeagueContext(), principal = require('./shared/website-auth').websitePrincipal(request);
       if (principal?.operator && principal.operator !== context.league.commissionerUserId) throw Error('Use credentials keyed by the commissioner Discord user ID for retirement imports.');
-      const repository = playerUpgradeRuntime?.repository || leagueService.repository;
+      const repository = gameRuntime?.repository || leagueService.repository;
       const service = require('./fantasyhq/retirement-import-service').createRetirementImportService({ repository });
       const actor = require('./shared/website-auth').websiteActor(request,context,{commissioner:true}), leagueId = context.league.leagueId;
       if (request.method === 'GET') {
@@ -499,7 +496,7 @@ function unsafeRequestHandler(request, response) {
     (async () => { try {
       const context = boundLeagueContext(), principal = require('./shared/website-auth').websitePrincipal(request);
       if (principal?.operator && principal.operator !== context.league.commissionerUserId) throw Error('Use credentials keyed by the commissioner Discord user ID for offseason transitions.');
-      const repository = playerUpgradeRuntime?.repository || leagueService.repository;
+      const repository = gameRuntime?.repository || leagueService.repository;
       const service = require('./fantasyhq/offseason-service').createOffseasonService({ repository });
       const leagueId = context.league.leagueId;
       if (request.method === 'GET') { sendJson(response, 200, service.inspect(leagueId)); return; }
@@ -516,7 +513,7 @@ function unsafeRequestHandler(request, response) {
   if (url.pathname === '/api/league/admin/playoffs') {
     if (!isAdminRequest(request, url)) { sendJson(response, 403, { error: 'Admin authorization required.' }); return; }
     (async () => { try {
-      const service = require('./fantasyhq/season-transition').createSeasonTransitionService({ submissions: gameThreadRuntime?.weekService?.submissions || playerUpgradeRuntime.submissions });
+      const service = require('./fantasyhq/season-transition').createSeasonTransitionService({ submissions: gameThreadRuntime?.weekService?.submissions || gameRuntime.submissions });
       if (request.method === 'GET') { sendJson(response,200,service.inspect(process.env.GUILD_ID)); return; }
       if (request.method !== 'POST') { sendJson(response,405,{error:'Method not allowed.'}); return; }
       const body = await parseJsonBody(request), operator=websiteOperator(body), context=boundLeagueContext(),principal=require('./shared/website-auth').websitePrincipal(request);
@@ -1135,7 +1132,7 @@ function startWebsite({ port = Number(process.env.PORT || 3000), host = "0.0.0.0
   return server;
 }
 
-module.exports = { requestHandler, startWebsite, setGameThreadRuntime, setPlayerUpgradeRuntime };
+module.exports = { requestHandler, startWebsite, setGameThreadRuntime, setGameRuntime };
 
 if (require.main === module) {
   require('./fantasyhq/storage-safety').acquireWriterLease(require('./fantasyhq/repository').createFantasyHQRepository().dataRoot);

@@ -1886,7 +1886,7 @@ async function loadCoachWeek() {
     output.innerHTML = `<div class="admin-summary"><strong>${view.bye ? 'Bye week' : `vs ${escapeHtml(view.game.opponent)}`}</strong>
       <p>${escapeHtml(view.nextAction)}</p><p>${view.bye || view.closed ? '' : `Deadline: ${escapeHtml(weeklyDeadline(view.deadlineAt))}`}</p>
       ${view.game ? `<p>${view.game.final ? '✅ Approved' : `${view.game.screenshots}/2 box scores received`}${view.game.inGameDate ? ` · Game date: ${escapeHtml(view.game.inGameDate)}` : ''}</p>` : ''}
-      <div class="weekly-links">${weeklyLink(view.game?.threadUrl, 'Open game thread')}${weeklyLink(view.channels.freeAgency, 'Free agency')}${weeklyLink(view.channels.submitTrade, 'Trade channel')}${weeklyLink(view.channels.playerUpgrades, 'Player upgrades')}</div></div>`;
+      <div class="weekly-links">${weeklyLink(view.game?.threadUrl, 'Open game thread')}${weeklyLink(view.channels.freeAgency, 'Free agency')}${weeklyLink(view.channels.submitTrade, 'Trade channel')}</div></div>`;
   } catch (error) { status.textContent = `Could not load this week: ${error.message}`; }
   finally { state.coachWeekLoading = false; button.disabled = false; picker.disabled = false; }
 }
@@ -1945,7 +1945,7 @@ document.querySelector('#playoffs-review')?.addEventListener('click', async () =
     if (view.alreadyStarted) { output.textContent = 'Playoffs have already started.'; return; }
     if (view.blocked) { output.textContent = `${view.unresolved.length} unresolved games must be finalized first.`; return; }
     const summary = document.createElement('p'); summary.textContent = Object.entries(view.seeds).map(([c, teams]) => `${c}: ${teams.map((t,i) => `${i+1}. ${t.teamName}`).join(', ')}`).join(' | '); output.append(summary);
-    const policy = document.createElement('p'); policy.textContent = 'Confirming freezes these seeds and closes upgrade spending. Existing trades, FA windows and waivers retain their saved rules.'; output.append(policy);
+    const policy = document.createElement('p'); policy.textContent = 'Confirming freezes these seeds. Existing trades, FA windows and waivers retain their saved rules.'; output.append(policy);
     const confirm = document.createElement('button'); confirm.textContent = 'Confirm playoff handoff';
     const operator = commissionerName.value.trim();
     confirm.addEventListener('click', async () => { if (playoffRequestRunning) return; playoffRequestRunning = true; confirm.disabled = true;

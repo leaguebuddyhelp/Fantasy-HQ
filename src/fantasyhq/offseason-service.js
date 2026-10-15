@@ -12,7 +12,7 @@ function createOffseasonService({ repository, submissions, now = Date.now, backu
     return { league: c.league, teams: c.teams, owners: repository.loadOwners(leagueId),
       players: repository.loadPlayers(leagueId), memberships: repository.loadRosterMemberships(leagueId),
       picks: repository.loadDraftPicks(leagueId), trades: repository.loadTrades(leagueId),
-      freeAgency: repository.loadFreeAgencyState(leagueId), upgrades: repository.loadPlayerUpgradeState(leagueId),
+      freeAgency: repository.loadFreeAgencyState(leagueId),
       schedule: repository.scheduleExists(leagueId, c.seasonId) ? repository.loadSchedule(leagueId, c.seasonId) : null,
       playoffs: repository.loadPlayoffs(leagueId, c.seasonId), awards: repository.loadAwards(leagueId),
       championships: repository.loadChampionships(leagueId), powerRankings: repository.loadPowerRankings(leagueId), news: repository.loadNews(leagueId),
@@ -125,8 +125,7 @@ function createOffseasonService({ repository, submissions, now = Date.now, backu
     if (repository.loadTrades(leagueId).some(t => String(t.seasonId) === c.seasonId && locks.ACTIVE_TRADES.has(t.status))
       || fa.windows.some(w => String(w.seasonId) === c.seasonId && locks.ACTIVE_WINDOWS.has(w.status))
       || fa.offers.some(o => String(o.seasonId) === c.seasonId && locks.LIVE_OFFERS.has(o.status))
-      || fa.waivers.some(w => String(w.seasonId) === c.seasonId && w.status === 'PENDING')
-      || (repository.loadPlayerUpgradeState(leagueId)?.requests || []).some(r => String(r.seasonId) === c.seasonId && r.status === 'PENDING_STAFF')) blockers.push('Resolve pending transactions and upgrades before rollover.');
+      || fa.waivers.some(w => String(w.seasonId) === c.seasonId && w.status === 'PENDING')) blockers.push('Resolve pending transactions before rollover.');
     const nextSeasonNumber = Number(c.league.seasonNumber) + 1, nextSeasonId = String(nextSeasonNumber);
     const contractYear = require('./asset-valuation').leagueSeasonStartYear(nextSeasonNumber);
     const contractSeason = `${contractYear}-${String(contractYear + 1).slice(-2)}`;
@@ -180,12 +179,9 @@ function createOffseasonService({ repository, submissions, now = Date.now, backu
     const safetyBackup = backup(), receipt = { requestId: token, fromSeasonId: c.seasonId, nextSeasonId: view.nextSeasonId, confirmedAt: timestamp, confirmedBy: actor.id, backupId: safetyBackup?.id || null };
     season.rolledOver = receipt; season.revision++; delete season.rolloverPending;
     const league = { ...c.league, seasonNumber: view.nextSeasonNumber, currentSeasonId: view.nextSeasonId, currentPhase: 'PRESEASON', currentWeek: null, regularSeasonStatus: null, regularSeasonCompletedAt: null, updatedAt: timestamp };
-    const upgrades = repository.loadPlayerUpgradeState(leagueId);
-    if (upgrades) { upgrades.phases ||= {}; upgrades.phases[view.nextSeasonId] = 'PRESEASON'; }
     repository.commitReset({ leagueId, seasonId: view.nextSeasonId, files: [
       { name: 'league.json', value: league }, { name: 'players.json', value: players }, { name: 'roster-memberships.json', value: [...memberships, ...carried] },
       { name: 'offseason.json', value: state }, { name: 'current-schedule.json', value: schedule }, { name: `schedules/${view.nextSeasonId}.json`, value: schedule },
-      ...(upgrades ? [{ name: 'player-upgrades.json', value: upgrades }] : []),
       { name: 'audit-log.json', value: [...repository.loadAuditLog(leagueId), { action: 'season.rolled.over', userId: actor.id, seasonId: c.seasonId, timestamp, requestId: token, metadata: receipt }] },
     ] });
     return receipt;

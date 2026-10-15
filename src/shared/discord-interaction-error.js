@@ -30,7 +30,6 @@ function updatesSourceMessage(interaction) {
     const [root, action] = String(interaction.customId || '').split(':');
     if (root === 'trade') return true;
     if (root === 'fa') return !['sign', 'active', 'waive', 'approve', 'reject', 'correct', 'waiverapprove', 'waiverreject', 'player', 'improve', 'edit'].includes(action);
-    if (root === 'upgrades') return ['source', 'players', 'player', 'category', 'special', 'attribute', 'points', 'add', 'remove', 'review', 'categories', 'back', 'submit', 'reject', 'buildpage', 'buildselect'].includes(action);
     return false;
 }
 

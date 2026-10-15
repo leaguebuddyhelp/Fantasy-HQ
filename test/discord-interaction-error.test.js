@@ -58,10 +58,5 @@ test('transaction builders reconcile before mutation and retain source updates a
 
 test('modal-opening controls remain available without a preemptive defer', () => {
  const {updatesSourceMessage}=require('../src/shared/discord-interaction-error');
- for(const customId of ['fa:player:id','fa:edit:id','fa:correct:id','upgrades:mode:id:OVR_CHANGED','upgrades:mode:id:BOTH_CHANGED','mock:search:id','gamedate:id','post:extend'])assert.equal(updatesSourceMessage({isButton:()=>true,customId}),false,customId);
-});
-
-test('private eligibility/history responses are not converted into public source updates', () => {
- const {updatesSourceMessage}=require('../src/shared/discord-interaction-error');
- for(const action of ['eligibility','history','approve','mode','request'])assert.equal(updatesSourceMessage({isButton:()=>true,customId:'upgrades:'+action+':id:NO_CHANGE'}),false);
+ for(const customId of ['fa:player:id','fa:edit:id','fa:correct:id','mock:search:id','gamedate:id','post:extend'])assert.equal(updatesSourceMessage({isButton:()=>true,customId}),false,customId);
 });

@@ -45,7 +45,7 @@ function dashboardEmbed(dashboard) {
     });
     if (validator.errors.length) embed.addFields({ name: "Needs attention", value: validator.errors.slice(0, 5).join("\n").slice(0, 1024) });
   }
-  embed.addFields({ name: "Discord channel setup", value: "Create / repair channels sets up 18 league channels, including Free Agency, and repairs the trade, live mock, upgrades, standings, stats and Free Agency pins. Staff reviews offers and waivers privately. Existing channel names and locations are preserved." });
+  embed.addFields({ name: "Discord channel setup", value: "Create / repair channels sets up league channels, including Free Agency, and repairs the trade, live mock, standings, stats and Free Agency pins. Staff reviews offers and waivers privately. Existing channel names and locations are preserved." });
   return embed;
 }
 

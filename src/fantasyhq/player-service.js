@@ -51,8 +51,8 @@ function createPlayerService(options = {}) {
 
   function notifyRosterMovement(event) {
     if (!onRosterMovement) return;
-    try { Promise.resolve(onRosterMovement(event)).catch(error => console.error("Upgrade request invalidation after player change failed:", error.message)); }
-    catch (error) { console.error("Upgrade request invalidation after player change failed:", error.message); }
+    try { Promise.resolve(onRosterMovement(event)).catch(error => console.error("Roster movement follow-up after player change failed:", error.message)); }
+    catch (error) { console.error("Roster movement follow-up after player change failed:", error.message); }
   }
 
   function playerTeamIndex(leagueId, seasonId) {

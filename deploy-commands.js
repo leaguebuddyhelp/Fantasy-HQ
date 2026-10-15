@@ -22,7 +22,6 @@ const commands = [
     .addStringOption(option => option.setName("player").setDescription("Search a league player.").setRequired(true).setAutocomplete(true)),
   new SlashCommandBuilder().setName("teamstats").setDescription("View a team's official regular-season statistics.")
     .addStringOption(option => option.setName("team").setDescription("Search for a league team.").setRequired(true).setAutocomplete(true)),
-  new SlashCommandBuilder().setName("upgrades").setDescription("View your player-upgrade balance, eligibility and history."),
   new SlashCommandBuilder().setName("games").setDescription("Manage active-week private game threads.")
     .addSubcommand(sub => sub.setName("create").setDescription("Confirm replacement of all ACTIVE-week game threads."))
     .addSubcommand(sub => sub.setName("cleanup").setDescription("Confirm deletion of all game threads for a selected week.").addIntegerOption(option => option.setName("week").setDescription("Regular-season week to clean, including unfinished games.").setRequired(true).setMinValue(1).setMaxValue(15))),

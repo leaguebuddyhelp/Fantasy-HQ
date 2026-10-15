@@ -71,8 +71,7 @@ function createRoleOwnershipService(repository = createFantasyHQRepository(), op
     const staffUserIds = [...members.values()].filter(member => !member.user.bot && [...staffRoleIds].some(id => member.roles.cache.has(id))).map(member => member.id);
     const warnings = [];
     if (ownerChangeHandler) {
-      const upgradeState = repository.loadPlayerUpgradeState(context.league.leagueId);
-      if (changed || !upgradeState?.ownershipInitialized || state.ownerWorkflowSignature !== JSON.stringify(records.map(({teamId,userId})=>({teamId,userId})).sort((a,b)=>a.teamId.localeCompare(b.teamId)))) {
+      if (changed || state.ownerWorkflowSignature !== JSON.stringify(records.map(({teamId,userId})=>({teamId,userId})).sort((a,b)=>a.teamId.localeCompare(b.teamId)))) {
         try {
           await ownerChangeHandler({ leagueId: context.league.leagueId, seasonId: context.seasonId, phase: context.league.currentPhase, previousOwners: previous, owners: records, staffUserIds, staffRoleIds: [...staffRoleIds] });
           state.ownerWorkflowSignature = JSON.stringify(records.map(({teamId,userId})=>({teamId,userId})).sort((a,b)=>a.teamId.localeCompare(b.teamId)));

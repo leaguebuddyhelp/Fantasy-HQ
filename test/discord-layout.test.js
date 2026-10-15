@@ -16,8 +16,9 @@ test('long roster lists split at field boundaries without dropping players', () 
 });
 test('command menu removes duplicates but retains browsing and recovery', () => {
     const file = path.resolve('deploy-commands.js'); const c = { require: createRequire(file) }; vm.runInNewContext(fs.readFileSync(file, 'utf8').split('async function main()')[0] + ';globalThis.list=commands;', c);
-    assert.equal(c.list.length, 25); assert.equal(new Set(c.list.map(x => x.name)).size, 25); const options = name => c.list.find(x => x.name === name).options.map(x => x.name);
+    assert.equal(c.list.length, 24); assert.equal(new Set(c.list.map(x => x.name)).size, 24); const options = name => c.list.find(x => x.name === name).options.map(x => x.name);
     assert.deepEqual(Array.from(options('availableteams')), []);
+    assert.equal(c.list.some(command => command.name === 'upgrades'), false);
     assert.deepEqual(Array.from(options('bigboard')), []);
     assert.deepEqual(Array.from(options('mockdraft')), []);
     assert.deepEqual(Array.from(options('toptenpreview')), []);
@@ -30,7 +31,6 @@ test('command menu removes duplicates but retains browsing and recovery', () => 
     assert.equal(c.list.find(x => x.name === 'stats').options[0].autocomplete, true);
     assert.deepEqual(Array.from(options('teamstats')), ['team']);
     assert.equal(c.list.find(x => x.name === 'teamstats').options[0].autocomplete, true);
-    assert.deepEqual(Array.from(options('upgrades')), []);
     assert.ok(options('games').includes('create')); assert.ok(options('games').includes('cleanup')); assert.ok(options('standings').includes('conference'));
     for (const name of ['confirm', 'regenerate']) assert.ok(!options('schedule').includes(name));
     assert.ok(!options('league').includes('status')); assert.ok(options('league').includes('setup')); assert.ok(options('roster').includes('import')); assert.deepEqual(Array.from(options('admin')), ['bind']); assert.ok(!c.list.some(x => x.name === 'setup'));

@@ -4,7 +4,7 @@ We're starting a new NBA 2K online league built around a custom Discord bot and 
 **League Features:**
 📅 48-hour game windows & automated scheduling
 📊 Box-score tracking, standings & player stats
-🔄 Trades, free agency & player upgrades
+🔄 Trades & free agency
 🎓 Custom draft classes, scouting & mock drafts
 🏆 Playoffs, awards & full offseason management
 📰 League news & Power Rankings`;

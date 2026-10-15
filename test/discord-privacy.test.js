@@ -5,7 +5,7 @@ const { replyInteractionError } = require('../src/shared/discord-interaction-err
 
 test('only recruitment commands are public; coach information and future commands stay private', () => {
     const flags = (commandName, subcommand) => commandReplyFlags({ commandName, options: { getSubcommand: () => subcommand } });
-    for (const name of ['myteam', 'mockdraft', 'bigboard', 'scout', 'upgrades', 'admin', 'league', 'roster', 'game', 'games', 'week', 'activitycheck', 'tradeblock', 'new-command']) assert.equal(flags(name), 64, name);
+    for (const name of ['myteam', 'mockdraft', 'bigboard', 'scout', 'admin', 'league', 'roster', 'game', 'games', 'week', 'activitycheck', 'tradeblock', 'new-command']) assert.equal(flags(name), 64, name);
     for (const sub of ['create', 'cleanup']) assert.equal(flags('games', sub), 64);
     for (const sub of ['setup', 'create', 'delete', 'settings', 'roles', 'status']) assert.equal(flags('league', sub), 64);
     for (const sub of ['mine', 'preview', 'generate', 'regenerate', 'confirm']) assert.equal(flags('schedule', sub), 64);

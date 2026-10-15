@@ -15,20 +15,20 @@ test('setup creates the configured channels, roles, repairs persistent system pi
     assert.equal(r.created, CHANNELS.length); assert.equal(r.failed, 0); assert.equal(f.channels.size, CHANNELS.length + 1); assert.equal(f.roles.size, 36);
     assert.equal(f.repo.loadDraftPicks('l').length, 20);
     const settings = f.repo.loadSettings('l'); assert.equal(Object.keys(settings.discordChannels).length, CHANNELS.length + 2); assert.equal(settings.gamesChannelId, settings.discordChannels.games);
-    assert.ok(settings.discordPins.standingsMessageId); assert.ok(settings.discordPins.statsMessageId); assert.ok(settings.discordPins.liveMockMessageId); assert.ok(settings.discordPins.tradeBuilderMessageId); assert.ok(settings.discordPins.tradeCountsMessageId); assert.ok(settings.discordPins.playerUpgradesMessageId); assert.ok(settings.discordPins.freeAgencyMessageId); assert.equal(settings.discordChannels.freeAgencyProof, settings.discordChannels.staff);
+    assert.ok(settings.discordPins.standingsMessageId); assert.ok(settings.discordPins.statsMessageId); assert.ok(settings.discordPins.liveMockMessageId); assert.ok(settings.discordPins.tradeBuilderMessageId); assert.ok(settings.discordPins.tradeCountsMessageId); assert.ok(settings.discordPins.freeAgencyMessageId); assert.equal(settings.discordChannels.freeAgencyProof, settings.discordChannels.staff);
     f.repo.saveTrades('l', [{ tradeId: 'completed', leagueId: 'l', seasonId: '1', status: 'COMPLETED', participatingTeams: ['bos'] }]);
     const workflow = createDiscordTradeWorkflow({ repository: f.repo }); await workflow.refreshTradeCounts(f.guild);
     const countPin = f.channels.get(settings.discordChannels.tradeCounts)._messages.get(settings.discordPins.tradeCountsMessageId);
     assert.ok(countPin.embeds[0].data.fields[0].value.includes('1/5'));
     assert.ok(countPin.embeds[0].data.fields[0].value.includes('<:bos:111> **Boston Celtics**'));
     const pins = () => [...f.channels.values()].flatMap(channel => [...channel._messages.values()].filter(message => message.pinned));
-    assert.equal(pins().length, 12);
-    const upgradesChannel = f.channels.get(settings.discordChannels.playerUpgrades), tradeProofChannel = f.channels.get(settings.discordChannels.tradeProof);
-    tradeProofChannel.position = 12; upgradesChannel.position = 30; upgradesChannel.setPosition = async position => { upgradesChannel.position = position; };
+    assert.equal(pins().length, 11);
+    const tradeProofChannel = f.channels.get(settings.discordChannels.tradeProof);
+    tradeProofChannel.position = 30; tradeProofChannel.setPosition = async position => { tradeProofChannel.position = position; };
     assert.equal((await f.service.ensure(f.guild, 'admin')).reused, CHANNELS.length);
-    assert.equal(upgradesChannel.position, CHANNELS.findIndex(([key]) => key === 'playerUpgrades')); assert.equal(pins().length, 12);
+    assert.equal(tradeProofChannel.position, CHANNELS.findIndex(([key]) => key === 'tradeProof')); assert.equal(pins().length, 11);
     const oldPin = settings.discordPins.tradeBuilderMessageId; f.channels.get(settings.discordChannels.submitTrade)._messages.delete(oldPin);
-    await f.service.ensure(f.guild, 'admin'); assert.notEqual(f.repo.loadSettings('l').discordPins.tradeBuilderMessageId, oldPin); assert.equal(pins().length, 12);
+    await f.service.ensure(f.guild, 'admin'); assert.notEqual(f.repo.loadSettings('l').discordPins.tradeBuilderMessageId, oldPin); assert.equal(pins().length, 11);
     assert.equal(f.channels.size, CHANNELS.length + 1); assert.equal(f.repo.loadAuditLog('l')[0].userId, 'admin');
 });
 test('private staff and committee access is isolated; coaches can chat but cannot post to feeds', async t => { const f = fixture(t); await f.service.ensure(f.guild, 'admin'); const ids = f.repo.loadSettings('l').discordChannels, role = name => [...f.roles.values()].find(r => r.name === name).id, coach = role('LEAGUEbuddy Coach'), committee = role('LEAGUEbuddy Trade Committee'); const perms = key => f.channels.get(ids[key]).overwrites; assert.ok(perms('staff').find(p => p.id === 'g').deny.includes(P.ViewChannel)); assert.ok(!perms('staff').some(p => [coach, committee].includes(p.id))); assert.ok(perms('tradeCommittee').find(p => p.id === committee).allow.includes(P.ViewChannel)); assert.ok(!perms('tradeCommittee').some(p => p.id === coach)); assert.ok(perms('chat').find(p => p.id === coach).allow.includes(P.SendMessages)); assert.ok(perms('standings').find(p => p.id === coach).deny.includes(P.SendMessages)); assert.ok(perms('games').find(p => p.id === 'bot').allow.includes(P.CreatePrivateThreads)); const { canManageLeague } = require('../src/fantasyhq/discord-permissions'); assert.equal(canManageLeague({ guildId: 'g', member: { roles: [committee] }, guild: { roles: { cache: f.roles } } }), false); });
@@ -36,27 +36,24 @@ test('reuses existing named channels and saved renamed channels; repairs deleted
 test('partial failures persist successes and retries create only missing channels', async t => { const f = fixture(t), create = f.guild.channels.create; f.guild.channels.create = async opts => { if (opts.name === 'lb-trade-proof') throw Error('Discord unavailable'); return create(opts); }; const r = await f.service.ensure(f.guild, 'admin'); assert.equal(r.failed, 1); assert.equal(r.created, CHANNELS.length - 1); assert.ok(f.repo.loadSettings('l').gamesChannelId); f.guild.channels.create = create; const retry = await f.service.ensure(f.guild, 'admin'); assert.equal(retry.created, 1); assert.equal(retry.reused, CHANNELS.length - 1); });
 test('permissions and ambiguous existing channel names block unsafe setup', async t => { const f = fixture(t); f.guild.members.me.permissions.has = () => false; await assert.rejects(f.service.ensure(f.guild, 'admin'), /Manage Channels/); assert.equal(f.channels.size, 0); f.guild.members.me.permissions.has = () => true; await f.guild.channels.create({ name: 'lb-chat', type: 0 }); await f.guild.channels.create({ name: 'lb-chat', type: 0 }); const r = await f.service.ensure(f.guild, 'admin'); assert.equal(r.failed, 1); assert.match(r.errors[0], /Multiple lb-chat/); });
 test('setup button rejects coaches before channel mutations', async () => { const { handleSetupFlowButton } = require('../src/fantasyhq/discord-setup'); await assert.rejects(handleSetupFlowButton({ customId: 'setupflow:channels:l', guildId: 'g', memberPermissions: { has: () => false }, member: { roles: [] } }), /Commish/); assert.ok(CHANNELS.some(([key, suffix]) => key === 'playerOfWeek' && suffix === 'player-of-the-week')); });
-test('upgrade ledger is private to coaches and staff; public feeds stay public and read-only', async t => {
+test('league feeds stay public and read-only while coach channels stay private', async t => {
     const f = fixture(t); await f.service.ensure(f.guild, 'admin'); const ids = f.repo.loadSettings('l').discordChannels;
     const role = name => [...f.roles.values()].find(r => r.name === name).id, coach = role('LEAGUEbuddy Coach');
     // Resolve overwrites over permissive server-level permissions, including multiple roles.
     function has(key, memberRoles, permission) { const ow = f.channels.get(ids[key]).overwrites; let allowed = true; const everyone = ow.find(o => o.id === 'g'); if (everyone.deny?.includes(permission)) allowed = false; if (everyone.allow?.includes(permission)) allowed = true; const entries = ow.filter(o => memberRoles.includes(o.id)); if (entries.some(o => o.deny?.includes(permission))) allowed = false; if (entries.some(o => o.allow?.includes(permission))) allowed = true; return allowed; }
     for (const [key] of CHANNELS) { assert.equal(has(key, [], P.ViewChannel), ['announcements', 'news', 'availableTeams'].includes(key)); }
-    for (const key of ['announcements', 'news', 'streamlink', 'availableTeams', 'stats', 'standings', 'tradeCounts', 'approvedTrades', 'deniedTrades', 'playerUpgrades']) {
+    for (const key of ['announcements', 'news', 'streamlink', 'availableTeams', 'stats', 'standings', 'tradeCounts', 'approvedTrades', 'deniedTrades']) {
         for (const p of [P.SendMessages, P.SendMessagesInThreads, P.CreatePublicThreads, P.CreatePrivateThreads]) assert.equal(has(key, [coach], p), false);
         for (const staff of ['LEAGUEbuddy Commish', 'LEAGUEbuddy Assistant Commish', 'LEAGUEbuddy League Administrator']) assert.equal(has(key, [coach, role(staff)], P.SendMessages), true);
     }
     assert.equal(has('news', [coach], P.AddReactions), true);
     assert.equal(has('news', [], P.AddReactions), true);
-    assert.equal(has('playerUpgrades', [coach], P.ViewChannel), true);
-    assert.equal(has('playerUpgrades', [], P.ViewChannel), false);
     assert.equal(has('games', [coach], P.SendMessages), false); assert.equal(has('games', [coach], P.SendMessagesInThreads), true); assert.equal(has('games', [coach], P.AttachFiles), true);
     const committee = role('LEAGUEbuddy Trade Committee'); assert.equal(has('tradeCommittee', [coach, committee], P.ViewChannel), true); assert.equal(has('staff', [coach, committee], P.ViewChannel), false); assert.equal(has('submitTrade', [committee], P.ViewChannel), false); assert.equal(has('submitTrade', [coach, committee], P.ViewChannel), true);
     assert.equal(has('tradeBlock', [coach], P.SendMessages), false); assert.equal(has('tradeBlock', [coach], P.SendMessagesInThreads), false); assert.equal(has('tradeBlock', [coach], P.ViewChannel), true); assert.equal(has('activity', [coach], P.SendMessages), false); assert.equal(has('activity', [coach], P.AddReactions), true); assert.equal(has('activity', [coach], P.ViewChannel), true);
     assert.equal(has('submitTrade', [role('LEAGUEbuddy GM')], P.SendMessages), true);
     assert.ok(f.channels.get(ids.submitTrade).overwrites.find(p => p.id === 'bot').allow.includes(P.ManageMessages));
     assert.ok(f.channels.get(ids.tradeCounts).overwrites.find(p => p.id === 'bot').allow.includes(P.ManageMessages));
-    assert.ok(f.channels.get(ids.playerUpgrades).overwrites.find(p => p.id === 'bot').allow.includes(P.MentionEveryone));
     assert.equal(has('submitTrade', [coach], P.SendMessages), true);
 });
 

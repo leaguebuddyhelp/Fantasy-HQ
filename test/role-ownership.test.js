@@ -36,7 +36,7 @@ test('team roles drive owners, coach role, team records, removals and renames', 
   assert.equal(repo.loadOwners('l').length, 0);
 });
 
-test('ownership sync reports the resolved team-role assignments to upgrade tenure tracking', async t => {
+test('ownership sync reports the resolved team-role assignments to league ownership workflows', async t => {
   const { repo, members, guild, service } = fixture(t), changes = [];
   service.setOwnerChangeHandler(change => changes.push(change));
   await service.sync(guild);

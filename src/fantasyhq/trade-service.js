@@ -521,8 +521,8 @@ function createTradeService(options = {}) {
         const auditEntry = { action: "trade.completed", userId: String(actorUserId), leagueId, seasonId: trade.seasonId, tradeId: trade.tradeId, version: trade.version, timestamp: completedAt, metadata: { teams: trade.participatingTeams, affectedPlayerIds: [...movedPlayerIds], affectedPickIds: [...movedPickIds], processingId: trade.processingId, invalidatedTrades: invalidatedTrades.map(entry => entry.tradeId) } };
         repository.commitTradeTransaction({ leagueId, players: playerRows, rosterMemberships: memberships, draftPicks: picks, trades: updatedTrades, auditEntry });
         if (movedPlayerIds.size && onPlayersMoved) {
-            try { Promise.resolve(onPlayersMoved({ leagueId, seasonId: trade.seasonId, playerIds: [...movedPlayerIds], reason: "PLAYER_TRADED" })).catch(error => console.error("Upgrade request invalidation after trade failed:", error.message)); }
-            catch (error) { console.error("Upgrade request invalidation after trade failed:", error.message); }
+            try { Promise.resolve(onPlayersMoved({ leagueId, seasonId: trade.seasonId, playerIds: [...movedPlayerIds], reason: "PLAYER_TRADED" })).catch(error => console.error("Roster movement follow-up after trade failed:", error.message)); }
+            catch (error) { console.error("Roster movement follow-up after trade failed:", error.message); }
         }
         return { status: "COMPLETED", processingId: trade.processingId, invalidatedTrades };
     }

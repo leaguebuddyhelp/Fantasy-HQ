@@ -1,14 +1,11 @@
 # LEAGUEbuddy complete testing walkthrough
 
-This guide follows the code scanned on October 6, 2026. Use a disposable league for tests that change rosters, games, trades, or upgrades. Test Mode supports one actual Discord account; it does not give that account multiple real team ownerships.
 
 ## 1. Start here: your existing league versus a full fresh test
 
-Your server was bound to `2k-test`, season `1`, regular-season Week 1 with Test Mode enabled at the time of this audit. You can test games, trades, scouting, upgrades, and live mocks there. No Week 1 game records were present at activation, so run `/games create` and confirm to prepare that week’s matchup threads before the game tests. To test creation, SETUP, and preseason as well, create a **new** league using the instructions below.
 
 1. Run `/admin status` and save the current league ID and season ID.
 2. Use a test Discord server where possible. Creating a league also changes the server's binding. Test Mode data is real persisted data within that league.
-3. Confirm you have **LEAGUEbuddy Commish** or **LEAGUEbuddy Assistant Commish**. Manage Server also permits most administrative operations, but upgrade approvals specifically require a configured staff role.
 4. Hold **exactly one** NBA team role and confirm `/myteam` shows that team. Leave the other teams vacant for solo tests. Use `/league roles` to repair missing roles; use `/league setup` and its channel repair control for missing channels/pins.
 5. Allow direct messages from the server if you want to verify the live-mock recap DM.
 
@@ -101,7 +98,6 @@ Run `/games create` only when you intend to confirm replacement of the active we
 
 The solo buttons require **current staff permission and explicit Test Mode**. They accept your own team or a vacant team. A team owned by another person must submit its own side. Assigning a real owner before an upload or before finalization invalidates the solo override for that side.
 
-**Staff Submit** is still available for uploading both screenshots together. It produces validated official results, but does **not** earn the two-coach game credit used for player upgrades. Use the two **Test as** sides for the upgrade test below.
 
 ### Failures and review
 
@@ -118,7 +114,6 @@ The solo buttons require **current staff permission and explicit Test Mode**. Th
 - [ ] Record a forfeit/concession. A normal coach cannot award themselves a win; staff may record the decision. Official numeric results still require validated screenshots.
 - [ ] Inspect CPU information. Explicit Test Mode labels test matchups; a normal league with vacant teams correctly labels CPU matchups.
 - [ ] `/week advance` must report unresolved games and block ordinary advancement until the active week is complete.
-- [ ] In a disposable solo league, `/week advance force:true` presents a confirmation and records unresolved games. It does **not** fabricate results. Use it after completing your own matchup when testing earned upgrades across four weeks.
 - [ ] After confirmed advancement, the next week is active and schedule/game-thread controls update. Duplicate/stale confirmations must not advance twice.
 - [ ] `/games cleanup week:<completed week>` requires confirmation and removes Discord threads while preserving records/media/stats. The cleanup command can also target unfinished weeks, so use the completed test week for this check.
 
@@ -136,22 +131,7 @@ for (const endpoint of ['week', 'game-threads', 'game-cleanup']) {
 
 The bot must be running for these APIs. Repeat in an unauthenticated private browser session without the header: protected endpoints must return 403. Do not manually call their POST confirmation endpoints against a league you want to preserve.
 
-## 6. Player upgrades with one account
-
-Keep your one actual team assignment throughout this test. Hold a configured Commish/Assistant Commish role to review your own test request.
-
-1. Run `/upgrades`; inspect eligibility and history. During regular season, a qualifying New User entitlement can be available without four games.
-2. Use the pinned **REQUEST UPGRADE** control in Player Upgrades. Select a source, player, category, and allocations. Normal allocations allow at most five total points with +1 to +3 per attribute.
-3. Review, go Back/Edit, then submit. In the ledger, reject one request and confirm that no player update/balance spend occurs.
-4. Submit another eligible request, approve it, and test the approval modes: **NO CHANGE**, **OVR CHANGED**, **BUILD CHANGED**, and **BOTH CHANGED** across separate eligible requests. Compare stored OVR/build and trade value after approval.
-5. To earn a normal game upgrade, complete **four distinct scheduled official games for your own team** using both solo **Test as** sides. Advance between weeks; if your team has a bye, advance past it. Four games must belong to your current ownership tenure. Vacant teams do not earn a fictional owner tenure.
-6. At the fourth qualifying game, inspect `/upgrades` and the earned notification. Test the Special choices after the four-game requirement; New User upgrades cannot use a Special.
-7. Check the two-completed-upgrades-per-player season cap, category reuse restrictions, one Special per team/season, and balances/history. Replaying a finalized game must not award another credit.
-8. On the disposable league, test ownership changes after creating a pending request. Stale requests/tenures must expire or be rejected rather than transferring another coach's entitlement.
-
-This uses real final games and the regular award rules. There is no command that grants arbitrary test credits or bypasses upgrade eligibility.
-
-## 7. Trades: GM decisions, committee, proof, processing
+## 6. Trades: GM decisions, committee, proof, processing
 
 During Weeks 1–9, go to the pinned **Build a Trade** panel. Leave counterpart teams vacant for solo testing.
 
@@ -168,7 +148,7 @@ During Weeks 1–9, go to the pinned **Build a Trade** panel. Leave counterpart 
 
 With real people, each actual coach responds for their own team, involved coaches are excluded from committee voting, and an involved coach supplies proof. Nonparticipants do not gain permission through Test Mode. Staff proof simulation is limited to a vacant participating team.
 
-## 8. Scouting and mock drafts
+## 7. Scouting and mock drafts
 
 ### Scouting
 
@@ -198,7 +178,7 @@ With real people, each actual coach responds for their own team, involved coache
 10. Check the **same single 30-pick recap embed** in the draft room and your DM. Recap portraits are unnecessary; live pick portraits remain. Review cleanup and DM failure/retry handling if DMs are disabled.
 11. Start a new mock in a different class; old finished controls should be inactive. Restart while paused/active to verify persisted state recovery.
 
-## 9. Verify normal online behavior
+## 8. Verify normal online behavior
 
 The automated suite uses distinct identities for owner authorization, private threads, GM decisions, committee exclusions, pick ownership, race handling, and stale controls. Run `npm run check` after changes.
 
@@ -214,7 +194,7 @@ For a real Discord acceptance test with another person, use a separate normal le
 
 One account can exercise the implemented workflows in Test Mode. It cannot visually prove what a second person's Discord client displays; the distinct-identity automated tests cover server-side boundaries, and this short two-person pass covers actual Discord delivery/privacy.
 
-## 10. Finish and record results
+## 9. Finish and record results
 
 Run `/admin bind league_id:<saved original ID> season_id:<saved original season>` to restore the binding if you created a temporary league in your existing server. Discord roles/channels are shared server resources; confirm the original team's role and refreshed panels afterward. Do not delete a league to restore a binding.
 

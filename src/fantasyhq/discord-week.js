@@ -29,7 +29,7 @@ function playoffPayload(view) {
   const seeds = view.seeds || view.playoffs?.seeds || {};
   const text = Object.entries(seeds).map(([conference,teams]) => `**${conference}**\n${teams.map((t,i) => `${i+1}. ${t.teamName} · ${t.W}–${t.L}`).join('\n')}`).join('\n\n');
   const previews = Object.entries(seeds).map(([c,t]) => `${c}: ${t[6]?.teamName} vs ${t[7]?.teamName}; ${t[8]?.teamName} vs ${t[9]?.teamName}`).join('\n');
-  const policy = 'Existing trades, FA windows and pending waivers keep their saved rules. Pending upgrades expire; new workflows close.';
+  const policy = 'Existing trades, FA windows and pending waivers keep their saved rules. New workflows close.';
   return { embeds: [new EmbedBuilder().setColor(0xffdc21).setTitle(view.alreadyStarted ? 'PLAYOFFS STARTED' : view.blocked ? 'PLAYOFFS BLOCKED' : view.legacyMigration ? 'CONFIRM PLAY-IN MIGRATION' : 'REVIEW PLAYOFF SEEDING').setDescription(`${text}\n\n**Play-In preview**\n${previews}\n\n${view.blocked ? `${view.unresolved.length} unresolved games must be finalized first.` : policy}`)], components: view.token ? [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('playoffedit:'+view.token).setLabel('Adjust Seeds').setStyle(ButtonStyle.Secondary), new ButtonBuilder().setCustomId('playoffcancel:'+view.token).setLabel('Cancel').setStyle(ButtonStyle.Secondary), new ButtonBuilder().setCustomId('playoffconfirm:'+view.token).setLabel('Confirm playoffs').setStyle(ButtonStyle.Success))] : [], allowedMentions: { parse: [] } };
 }
 module.exports = { playoffPayload, handleWeekPreview, handleWeekCommand, handleWeekButton, confirmationPayload, resultPayload };

@@ -25,7 +25,7 @@ function staffPayload(view, counts = transactionCounts(view)) {
       { name: '📅 Byes', value: view.byes.map(t => t.teamName).join(' · ') || 'None' },
       { name: 'Next step', value: view.closed ? 'Use the current week’s report for active work. Pending transaction totals above are from this report’s last active refresh.' : view.readyToAdvance ? 'All scheduled games are approved. Review week advancement below to confirm the next week.' : 'Resolve unfinished games in the website checklist. Transactions are reminders, not additional week-advance blockers.' })
     .setFooter({ text: `Weekly Staff report · ${view.guildId} · ${view.leagueId} · ${view.seasonId} · ${view.weekId}`.slice(0, 2048) });
-  if (view.storageIssues?.length || view.notificationFailures || view.upgradeDebtCount) embed.addFields({ name: '⚠ Recovery needed', value: `${view.storageIssues?.length || 0} unreadable game records · ${view.notificationFailures || 0} failed notification attempts · ${view.upgradeDebtCount || 0} upgrade balances need review. Staff can inspect the website checklist and storage backups.` });
+  if (view.storageIssues?.length || view.notificationFailures) embed.addFields({ name: '⚠ Recovery needed', value: `${view.storageIssues?.length || 0} unreadable game records · ${view.notificationFailures || 0} failed notification attempts. Staff can inspect the website checklist and storage backups.` });
   const controls = [];
   if (!view.closed) controls.push(
     new ButtonBuilder().setCustomId(`weeklystaff:advance:${view.week}`).setLabel(view.week === 15 ? 'Complete Regular Season' : 'Create Next Week Threads').setEmoji('📅').setStyle(ButtonStyle.Primary),

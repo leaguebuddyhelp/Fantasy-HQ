@@ -1,6 +1,6 @@
 const { ChannelType, PermissionFlagsBits: P } = require('discord.js');
 const { ensureLeagueRoles } = require('./discord-roles');
-const CHANNEL_LAYOUT_VERSION = 5;
+const CHANNEL_LAYOUT_VERSION = 6;
 const CHANNELS = [
     ['announcements', 'announcements', 'publicRead', 'League announcements, deadlines and important updates.'],
     ['news', 'news', 'publicRead', 'Staff-approved league journalism, verified reports and recorded corrections.'],
@@ -16,7 +16,6 @@ const CHANNELS = [
     ['seasonAwards', 'season-awards', 'read', 'Official season awards and winner announcements.'],
     ['playerOfWeek', 'player-of-the-week', 'read', 'East and West Player of the Week winners, automatically posted after each completed week.'],
     ['freeAgency', 'free-agency', 'read', 'Browse free agents, submit signing proof, and track offers and waiver claims using the pinned panel.'],
-    ['playerUpgrades', 'player-upgrades', 'upgrades', 'Check upgrade progress and eligibility, then submit a player upgrade from the pinned panel.'],
     ['scouting', 'scouting-hub', 'chat', 'Draft classes, prospect scouting, mock drafts and live mock draft controls.'],
     ['tradeBlock', 'trade-block', 'block', 'Team trade block threads: advertise players, picks and roster needs.'],
     ['submitTrade', 'submit-trade', 'trade', 'Build and submit trades using the pinned trade panel.'],
@@ -46,11 +45,11 @@ function createChannelSetupService(repository = require('./repository').createFa
         const coach = role('LEAGUEbuddy Coach'), gm = role('LEAGUEbuddy GM'), staff = [...require('./discord-permissions').STAFF_ROLES].map(role), committee = role('LEAGUEbuddy Trade Committee');
         const write = [P.ViewChannel, P.SendMessages, P.ReadMessageHistory, P.AttachFiles, P.EmbedLinks, P.SendMessagesInThreads];
         function overwrites(access, key) {
-            const feed = ['read', 'publicRead', 'games', 'upgrades', 'activity', 'block'].includes(access);
+            const feed = ['read', 'publicRead', 'games', 'activity', 'block'].includes(access);
             const noPosting = [P.SendMessages, P.SendMessagesInThreads, P.CreatePublicThreads, P.CreatePrivateThreads];
             return [
                 { id: guild.id, ...(access === 'publicRead' ? { allow: [P.ViewChannel, P.ReadMessageHistory, ...(key === 'news' ? [P.AddReactions] : [])], deny: noPosting } : { deny: [P.ViewChannel, ...(feed ? noPosting : [])] }) },
-                { id: me.id, allow: [...write, P.ManageChannels, P.ManageThreads, P.CreatePrivateThreads, ...(['trade', 'read', 'chat', 'upgrades', 'activity', 'block'].includes(access) ? [P.ManageMessages] : []), ...(['games', 'upgrades', 'activity', 'block', 'publicRead'].includes(access) ? [P.MentionEveryone] : []), ...(access === 'block' ? [P.CreatePublicThreads] : []), ...((access === 'activity' || key === 'news') ? [P.AddReactions] : [])] },
+                { id: me.id, allow: [...write, P.ManageChannels, P.ManageThreads, P.CreatePrivateThreads, ...(['trade', 'read', 'chat', 'activity', 'block'].includes(access) ? [P.ManageMessages] : []), ...(['games', 'activity', 'block', 'publicRead'].includes(access) ? [P.MentionEveryone] : []), ...(access === 'block' ? [P.CreatePublicThreads] : []), ...((access === 'activity' || key === 'news') ? [P.AddReactions] : [])] },
                 ...staff.map(id => ({ id, allow: write })),
                 ...(!['staff', 'committee'].includes(access) ? [coach, gm].map(id => ({
                     id,
@@ -107,11 +106,6 @@ function createChannelSetupService(repository = require('./repository').createFa
             const message = await require('./discord-free-agency').createDiscordFreeAgency({ repository }).ensurePin(guild, leagueId);
             result.freeAgencyMessageId = message.id;
         } catch (error) { result.failed++; result.errors.push(`free agency pin: ${error.message}`); }
-        const upgradesChannel = channels.get(ids.playerUpgrades);
-        if (upgradesChannel && typeof upgradesChannel.messages?.fetchPins === 'function') try {
-            const message = await require('./discord-player-upgrades').createDiscordPlayerUpgrades({ repository }).ensurePin(guild, leagueId);
-            result.playerUpgradesMessageId = message.id; result.playerUpgradesChannelId = ids.playerUpgrades;
-        } catch (error) { result.failed++; result.errors.push(`player upgrades pin: ${error.message}`); }
         try { await require('./discord-league-feeds').createDiscordLeagueFeeds({ repository }).ensurePins(guild, leagueId); }
         catch (error) { result.failed++; result.errors.push(`season feed pins: ${error.message}`); }
         if(channels.get(ids.playoffStats)?.messages?.fetchPins)try {await require('./discord-postseason-stats').createDiscordPostseasonStats({repository}).ensurePin(guild,leagueId);}catch(error){result.failed++;result.errors.push('playoff stats pin: '+error.message);}
