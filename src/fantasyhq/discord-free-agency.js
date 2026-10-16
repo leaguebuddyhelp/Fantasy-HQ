@@ -261,11 +261,19 @@ function createDiscordFreeAgency({ repository, service = createFreeAgencyService
         const history = await channel.messages.fetch({ limit: 100 });
         message = [...history.values()].find(m => m.author.id === guild.members.me.id && m.components.some(r => r.components.some(c => (c.customId || c.custom_id || c.data?.custom_id) === 'fa:sign')));
       }
-      if (message) await message.edit(permanentPayload(settings, repository.loadLeague(leagueId).league.currentPhase)); else message = await channel.send({ ...permanentPayload(settings, repository.loadLeague(leagueId).league.currentPhase), nonce: createHash('sha256').update(`fa-pin:${leagueId}`).digest('hex').slice(0,24), enforceNonce: true });
+      const payload = permanentPayload(settings, repository.loadLeague(leagueId).league.currentPhase);
+      const pinContent = p => JSON.stringify({
+        embeds: (p.embeds || []).map(e => { const data = e.toJSON ? e.toJSON() : e; return { title: data.title, description: data.description, color: data.color }; }),
+        components: (p.components || []).map(r => (r.components || r.data?.components || []).map(c => { const data = c.toJSON ? c.toJSON() : c; return { id: data.custom_id, label: data.label, style: data.style, disabled: Boolean(data.disabled) }; })),
+      });
+      if (message) { if (pinContent(message) !== pinContent(payload)) await message.edit(payload); }
+      else message = await channel.send({ ...payload, nonce: createHash('sha256').update(`fa-pin:${leagueId}`).digest('hex').slice(0,24), enforceNonce: true });
       if (!message.pinned) await message.pin('Permanent LEAGUEbuddy Free Agency entry');
       for (const duplicate of matching.filter(m => m.id !== message.id)) await duplicate.unpin('Repair duplicate Free Agency pin');
       const latest = repository.loadSettings(leagueId) || {};
-      repository.saveSettings(leagueId, { ...latest, discordPins: { ...latest.discordPins, freeAgencyMessageId: message.id, freeAgencyChannelId: channel.id }, discordChannels: { ...latest.discordChannels, freeAgencyProof: latest.discordChannels?.freeAgencyProof || latest.discordChannels?.staff } });
+      const proofId = latest.discordChannels?.freeAgencyProof || latest.discordChannels?.staff;
+      if (latest.discordPins?.freeAgencyMessageId !== message.id || latest.discordPins?.freeAgencyChannelId !== channel.id || latest.discordChannels?.freeAgencyProof !== proofId)
+        repository.saveSettings(leagueId, { ...latest, discordPins: { ...latest.discordPins, freeAgencyMessageId: message.id, freeAgencyChannelId: channel.id }, discordChannels: { ...latest.discordChannels, freeAgencyProof: proofId } });
       return message;
     })();
     pinLocks.set(key, work); try { return await work; } finally { pinLocks.delete(key); }
@@ -331,6 +339,7 @@ function createDiscordFreeAgency({ repository, service = createFreeAgencyService
     const context = repository.loadLeagueContext({ guildId: guild.id }), leagueId = context.league.leagueId;
     const s = service.tick(leagueId), players = repository.loadPlayers(leagueId);
     const delivered = new Set(s.deliveries.filter(d => !d.failed).map(d => d.key));
+    try { await ensurePin(guild, leagueId); } catch (error) { console.error('Free Agency pin recovery:', error.message); }
     if (!s.windows.length && !s.waivers.length) return;
     // Missing proof access blocks publication; never leak contracts to another channel.
     const proof = await channelFor(guild, leagueId, 'proof'), announcements = await channelFor(guild, leagueId, 'announcements');

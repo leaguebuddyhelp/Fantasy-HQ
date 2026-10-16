@@ -56,7 +56,7 @@ test('public winner reveals signed contract only after completion, sends result 
  const proof=f.edits.filter(e=>e.channelId==='staff').at(-1);assert.equal(proof.payload.components.length,0);
 });
 test('Staff-only proof access is enforced and regular coaches cannot approve/correct/reject', async t=>{
- const f=discordFixture(t);const o=f.submit();f.channels.get('staff').permissionsFor=()=>({has:()=>true});await assert.rejects(()=>f.workflow.syncGuild(f.guild),/Staff-only/);assert.equal(f.sends.length,0);
+ const f=discordFixture(t);const o=f.submit();f.channels.get('staff').permissionsFor=()=>({has:()=>true});await assert.rejects(()=>f.workflow.syncGuild(f.guild),/Staff-only/);assert.equal(f.sends.filter(s=>s.channelId!=='freeAgency').length,0);
  for(const action of ['approve','correct','reject','waiverapprove','waiverreject']){
   let response;
   await f.workflow.handle({guildId:'guild',guild:f.guild,customId:`fa:${action}:${o.id}`,user:{id:'coach-a'},member:{roles:{cache:new Collection([['coach',{name:'LEAGUEbuddy Coach'}]])}},reply:async p=>{response=p;}});
@@ -172,4 +172,15 @@ test('closed-phase FA pin disables new signing while preserving active-offer acc
   assert.equal(controls.find(c=>c.custom_id==='fa:sign').disabled,true);
   assert.notEqual(controls.find(c=>c.custom_id==='fa:active').disabled,true);
  }
+});
+
+test('Free Agency tick refreshes a stale phase pin even without offers and leaves unchanged pins alone',async t=>{
+ const f=discordFixture(t);f.repository.saveLeague('league',{currentPhase:'PRESEASON'});
+ const message=await f.workflow.ensurePin(f.guild,'league');assert.equal(message.components[0].components[0].disabled,true);
+ f.repository.saveLeague('league',{currentPhase:'REGULAR_SEASON'});await f.workflow.tick();
+ assert.equal(message.components[0].components[0].disabled,undefined);assert.match(message.embeds[0].description,/maximum \*\*5 signings/);
+ assert.equal(f.sends.filter(s=>s.channelId==='freeAgency').length,1);const edits=f.edits.length;
+ await f.workflow.tick();assert.equal(f.edits.length,edits);
+ f.repository.saveLeague('league',{currentPhase:'PLAYOFFS'});await f.workflow.tick();assert.equal(message.components[0].components[0].disabled,true);
+ assert.equal(f.sends.filter(s=>s.channelId==='freeAgency').length,1);
 });
