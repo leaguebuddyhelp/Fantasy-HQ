@@ -273,7 +273,7 @@ function createDiscordMockDraft({ repository, simulations, live, client = null }
     }
     function selectionPayload(m, requestedPick, query = '', page = 0, searchToken = null, position = '') {
         if (m.status !== 'ACTIVE' || m.currentPick !== Number(requestedPick)) throw Error('That pick is no longer active.');
-        const saved = simulations.byId(m.leagueId, m.simulationSnapshotId), prefix = `mock:${m.id}`, result = searchToken ? choices(m, query, page) : { pool: position ? live.available(m).filter(p=>p.position_1===position).sort((a,b)=>a.board_number-b.board_number).slice(0,10) : [], page:0,pages:1 };
+        const saved = simulations.byId(m.leagueId, m.simulationSnapshotId), prefix = `mock:${m.id}`, result = searchToken ? choices(m, query, page) : { pool: live.available(m).filter(p=>!position || p.position_1===position).sort((a,b)=>a.board_number-b.board_number).slice(0,10), page:0,pages:1 };
         const info = embed(searchToken ? `🔎 Search results · Page ${result.page + 1}/${result.pages}` : (position ? '🔎 TOP REMAINING '+position : '🏀 CHOOSE A POSITION'), result.pool.map(p => `**${safe(p.name)}** · ${safe(p.position_1)} · ${safe(p.team || p.nationality)}\nBoard #${p.board_number} | AVP ${saved.prospectAggregates[p.prospectId]?.avp?.toFixed(1) || 'Unselected'}`).join('\n\n') || (position||searchToken?'No undrafted prospects match this selection.':'Choose PG, SG, SF, PF or C to see the best remaining players at that position.'));
         const menuPool = searchToken ? result.pool : position ? live.available(m).filter(p=>p.position_1===position).sort((a,b)=>a.board_number-b.board_number).slice(0,25) : [];
         const components = searchToken ? [] : [new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId(`${prefix}:position:${m.currentPick}`).setPlaceholder('Choose primary position').addOptions(['PG','SG','SF','PF','C'].map(pos=>({label:pos+' · '+live.available(m).filter(p=>p.position_1===pos).length+' remaining',value:pos,default:pos===position}))))];
@@ -282,7 +282,7 @@ function createDiscordMockDraft({ repository, simulations, live, client = null }
         if (searchToken) { controls.push(button(`${prefix}:results:${m.currentPick}:${searchToken}:${Math.max(0, result.page - 1)}`, 'Previous').setDisabled(result.page === 0), button(`${prefix}:results:${m.currentPick}:${searchToken}:${result.page + 1}`, 'Next').setDisabled(result.page === result.pages - 1)); }
         components.push(row(...controls));
         const slot = m.lockedDraftOrder[m.currentPick - 1];
-        info.setDescription(`${ownerIcon(m.input, slot)} **Pick #${m.currentPick} · ${ownership(m.input, slot)}**\n\n${info.data.description}`.slice(0, 4096));
+        info.setDescription(`${ownerIcon(m.input, slot)} **Pick #${m.currentPick} · ${ownership(m.input, slot)}**\n\n${!position && !searchToken ? '**Top 10 remaining · Big Board order**\n\n' : ''}${info.data.description}`.slice(0, 4096));
         const needs = teamPositionNeeds(m.input, slot.currentOwnerTeamId, m.selections);
         const team = m.input.teams.find(team => team.teamId === slot.currentOwnerTeamId);
         info.addFields({ name: `🎯 ${safe(team.teamName)} · Position needs`, value: needs.rosterAvailable

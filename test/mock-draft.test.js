@@ -818,3 +818,22 @@ test('live position picker counts and lists primary positions only, in remaining
  assert.ok(!players.some(o=>Number(o.value)===m.input.prospects[0].board_number));
  assert.equal(payload.embeds[0].data.description.match(/Board #/g).length,10);
 });
+
+
+test('live position-choice embed lists the ten best undrafted prospects with original ranks', t => {
+ const f=fixture(t),d=discordFixture(f),ready=f.ready('u0',f.repository.loadOwners('l').map(o=>o.userId));
+ let m=f.live.start('l',ready.id,{id:'u0'});
+ for (const rank of [2,5,1]) {
+  const prospect=f.live.available(m).find(p=>p.board_number===rank);
+  m=f.live.commit('l',m.id,{expectedPick:m.currentPick,userId:f.live.controller(m).userId,prospectId:prospect.prospectId});
+ }
+ m.input.prospects.reverse();
+ const payload=d.workflow.selectionPayload(m,m.currentPick);
+ const description=payload.embeds[0].data.description;
+ const expected=f.live.available(m).sort((a,b)=>a.board_number-b.board_number).slice(0,10);
+ assert.match(description,/Top 10 remaining/);
+ assert.deepEqual([...description.matchAll(/Board #(\d+)/g)].map(match=>Number(match[1])),expected.map(p=>p.board_number));
+ for(const p of expected)assert.ok(description.includes(p.name));
+ assert.equal(payload.components[0].toJSON().components[0].placeholder,'Choose primary position');
+ assert.equal(payload.components.length,2);
+});

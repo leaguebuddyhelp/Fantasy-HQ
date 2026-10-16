@@ -4,7 +4,7 @@ const compactDollars = amount => amount == null ? 'Salary unavailable' : Math.ab
 const dollars = amount => amount == null ? 'Unknown' : `$${Number(amount).toLocaleString('en-US')}`;
 function contractView(player, year) {
     const contract = player.contract;
-    const rows = (contract?.seasons || []).filter(row => /^\d{4}-\d{2}$/.test(row.season));
+    const rows = (contract?.seasons || []).filter(row => /^\d{4}-\d{2}$/.test(row.season) && Number.isFinite(row.salary) && row.salary >= 0).sort((a,b) => a.season.localeCompare(b.season));
     const referenceYear = year ?? (rows.length ? Number(rows[0].season.slice(0, 4)) : 2026);
     const current = rows.find(row => row.season === seasonLabel(referenceYear));
     const future = rows.filter(row => Number(row.season.slice(0,4)) >= referenceYear && Number.isFinite(row.salary) && row.salary >= 0);
@@ -20,9 +20,12 @@ function contractView(player, year) {
     const finalOption = future.find(row => row.season === lastSeason)?.option;
     const termLabel = expiring ? 'expires this season' : `through ${lastSeason}${finalOption === 'PLAYER' ? ' (player option)' : finalOption === 'TEAM' ? ' (team option)' : ''}`;
     const status = `${termLabel}${option ? ` · ${option} this season` : ''}${nextPlayerOption && future.length > 2 ? ' · Player option next season' : ''}`;
-    const compact = known ? `${compactDollars(current.salary)} · ${status}` : 'Salary unavailable';
-    const short = known ? `${compactDollars(current.salary)} this season · ${status}` : `Salary unavailable for ${seasonLabel(referenceYear)}`;
-    return { known, currentSeason: seasonLabel(referenceYear), salary: known ? current.salary : null, yearsRemaining, controlledYears,
+    const totalSalary = future.reduce((sum, row) => sum + row.salary, 0);
+    const totalYears = future.length;
+    const totalLabel = `${totalYears} ${totalYears === 1 ? 'year' : 'years'} · ${compactDollars(totalSalary)} total`;
+    const compact = totalYears ? `${totalLabel} · ${status}` : 'Contract unavailable';
+    const short = totalYears ? `${totalLabel}${known ? ` · ${compactDollars(current.salary)} this season` : ''} · ${status}` : 'Contract unavailable';
+    return { known, currentSeason: seasonLabel(referenceYear), salary: known ? current.salary : null, totalYears, totalSalary: totalYears ? totalSalary : null, yearsRemaining, controlledYears,
         expiring, nextPlayerOption, option, sourceUrl: contract?.sourceUrl || null, fetchedAt: contract?.fetchedAt || null,
         guaranteedTotal: contract?.guaranteedTotal ?? null, seasons: rows, short, compact };
 }

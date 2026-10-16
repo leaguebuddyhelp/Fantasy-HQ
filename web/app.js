@@ -485,6 +485,7 @@ function closeProfile(updateUrl = true) {
 
 function openLeagueDialog(html) {
   elements.leagueDialogContent.innerHTML = html;
+  elements.leagueDialog.classList.toggle("nba-player-dialog", Boolean(elements.leagueDialogContent.querySelector(".nba-player-profile")));
   if (!elements.leagueDialog.open) elements.leagueDialog.showModal();
 }
 
@@ -996,7 +997,7 @@ function contractMarkup(player, detailed = false) {
   if (!view) return '<small>Contract unavailable</small>';
   if (!detailed) return `<small>💵 ${escapeHtml(view.short)}</small>`;
   return `<section class="detail-panel"><h3>Contract</h3><p>${escapeHtml(view.short)}</p>
-    ${view.seasons.length ? `<table><thead><tr><th>Season</th><th>Salary</th><th>Option</th></tr></thead><tbody>${view.seasons.map(row => `<tr><td>${escapeHtml(row.season)}</td><td>${row.salary == null ? 'Unknown' : '$' + Number(row.salary).toLocaleString('en-US')}</td><td>${row.option === 'PLAYER' ? 'Player option' : row.option === 'TEAM' ? 'Team option' : '—'}</td></tr>`).join('')}</tbody></table>` : ''}
+    ${view.seasons.some(row => Number.isFinite(row.salary) && row.salary >= 0) ? `<table><thead><tr><th>Season</th><th>Salary</th><th>Option</th></tr></thead><tbody>${view.seasons.filter(row => Number.isFinite(row.salary) && row.salary >= 0).map(row => `<tr><td>${escapeHtml(row.season)}</td><td>${'$' + Number(row.salary).toLocaleString('en-US')}</td><td>${row.option === 'PLAYER' ? 'Player option' : row.option === 'TEAM' ? 'Team option' : '—'}</td></tr>`).join('')}</tbody></table>` : ''}
     ${view.guaranteedTotal == null ? '' : `<p>Published guaranteed total: $${Number(view.guaranteedTotal).toLocaleString('en-US')}</p>`}
     ${player.tradeValueReason ? `<p>${escapeHtml(player.tradeValueReason)}</p>` : ''}
     ${view.sourceUrl && /^https:\/\/www\.basketball-reference\.com\//.test(view.sourceUrl) ? `<p><a href="${escapeHtml(view.sourceUrl)}" target="_blank" rel="noopener">Payroll source</a> · Updated ${escapeHtml(view.fetchedAt?.slice(0,10) || 'Unknown')}</p>` : ''}
@@ -1005,12 +1006,11 @@ function contractMarkup(player, detailed = false) {
 
 function readonlyPlayerFacts(player) {
   return `
-    <div class="league-facts">
+    <aside class="fact-list nba-player-facts">
       ${fact("Team", player.teamName)}
       ${fact("OVR", player.overall)}
       ${fact("Age", player.age)}
       ${fact("Trade Value", Number(player.tradeValue || 1).toLocaleString("en-US"))}
-      ${fact("Contract", player.contractView?.short)}
       ${fact("Positions", positionLabel(player))}
       ${fact("Archetype", player.archetype)}
       ${fact("Nationality", player.nationality)}
@@ -1022,23 +1022,28 @@ function readonlyPlayerFacts(player) {
       ${fact("Birthdate", player.birthdate)}
       ${fact("Prior to NBA", player.priorToNBA)}
       ${fact("Jersey", player.jerseyNumber)}
-    </div>${contractMarkup(player, true)}`;
+    </aside>`;
 }
 
 function playerDialogMarkup(player) {
   const teamOptions = leagueTeams().map((team) => `<option value="${escapeHtml(team.teamId)}"${team.teamId === player.teamId ? " selected" : ""}>${escapeHtml(team.teamName)}</option>`).join("");
   return `
-    <section class="league-profile">
-      <div class="league-profile-head">
-        <div>
-          <p class="eyebrow">Player profile</p>
+    <section class="nba-player-profile">
+      <section class="profile-hero nba-player-hero">
+        <div class="profile-copy">
+          <span class="profile-rank">NBA player · ${escapeHtml(player.overall ?? "—")} OVR</span>
           <h2>${escapeHtml(player.name)}</h2>
-          <p class="profile-sub">${escapeHtml(player.teamName || "No team")} · ${escapeHtml(positionLabel(player))} · ${escapeHtml(player.overall ?? "—")} OVR</p>
+          <p class="profile-sub">${escapeHtml(player.teamName || "Free Agent")} · ${escapeHtml(positionLabel(player))}${player.nationality ? ' · '+escapeHtml(player.nationality) : ''}</p>
         </div>
-        ${playerPortraitMarkup(player, "league-player-portrait")}
-      </div>
-      ${readonlyPlayerFacts(player)}
-      <section class="detail-panel"><h3>🏆 Player of the Week</h3>${(player.playerOfWeek || []).map(w => `<p><a href="#player-of-the-week" data-award-season="${escapeHtml(w.seasonId)}" data-award-week="${w.week}">Season ${escapeHtml(w.seasonId)} · Week ${w.week} · ${escapeHtml(w.conference)}</a> · ${escapeHtml(w.teamName)}</p>`).join('') || '<p>No weekly awards yet.</p>'}</section>
+        <div class="profile-portrait">${playerPortraitMarkup(player)}</div>
+      </section>
+      <section class="profile-body nba-player-body">
+        <div class="nba-player-reports">
+          ${contractMarkup(player, true)}
+          <section class="report-section"><h3>🏆 Player of the Week</h3>${(player.playerOfWeek || []).map(w => `<p><a href="#player-of-the-week" data-award-season="${escapeHtml(w.seasonId)}" data-award-week="${w.week}">Season ${escapeHtml(w.seasonId)} · Week ${w.week} · ${escapeHtml(w.conference)}</a> · ${escapeHtml(w.teamName)}</p>`).join('') || '<p>No weekly awards yet.</p>'}</section>
+        </div>
+        ${readonlyPlayerFacts(player)}
+      </section>
       ${hasAdminAccess() ? `
         <form id="player-admin-form" class="admin-form" data-player-id="${escapeHtml(player.playerId)}">
           <h3>Admin editor</h3>
@@ -2313,7 +2318,7 @@ for (const kind of ['player','team']) for(const control of ['scope','season'])do
  const output=document.querySelector('#offseason-fa-output'),endpoint='/api/league/admin/offseason-free-agency';let data,urls=[];
  const post=body=>adminRequestJson(endpoint,{method:'POST',body:JSON.stringify(body)});
  const field=(key,row,value)=>`<input data-fa-contract="${key}" data-fa-row="${row}" value="${escapeHtml(String(value??''))}" aria-label="${escapeHtml(key)}">`;
- async function load(){data=await adminRequestJson(endpoint);if(data.receipt){output.innerHTML='<p>Offseason free agency verified. Return to the offseason checklist to advance.</p>';return;}urls.forEach(URL.revokeObjectURL);urls=[];const stage=data.stage,won=data.offers.filter(o=>o.status==='WON');output.innerHTML=`<p><strong>${escapeHtml(stage?.name||'Exclusive re-signing not opened')}</strong> · ${escapeHtml(stage?.status||'Waiting')} ${stage?.deadlineAt?' · Deadline '+escapeHtml(new Date(stage.deadlineAt).toLocaleString()):''}</p><div class="admin-inline">${['open','extend','pause','resume','close','complete'].map(a=>'<button data-fa-action="'+a+'">'+({open:'Open next period',extend:'Extend 24 hours',pause:'Pause clock',resume:'Resume clock',close:'Close period',complete:'Complete period'}[a])+'</button>').join('')}</div><p>Score: 35% annual salary · 25% total value · 25% length · 15% age fit. Rankings use verified offer amounts; missing ages receive a neutral age factor.</p><div>${data.rankings.map(group=>'<details open><summary>'+escapeHtml(group.playerName)+'</summary>'+group.offers.map(o=>'<p><label><input type="checkbox" data-fa-approve="'+escapeHtml(o.id)+'"> '+escapeHtml(data.teams.find(t=>t.teamId===o.teamId)?.teamName||o.teamId)+' · '+o.score.toFixed(2)+' score · Priority '+o.priority+' · $'+o.contract.seasons[0].salary.toLocaleString()+' annually · '+o.contract.seasons.length+' years</label> <button data-fa-reject="'+escapeHtml(o.id)+'">Reject with reason</button></p>').join('')+'</details>').join('')}</div><button id="offseason-fa-prepare">Review selected approvals</button><div id="offseason-fa-confirmation"></div><h4>NBA 2K Transaction Report</h4><p>After all four periods, upload every report page and match the exact displayed contract for every approved signing. Resolve unexpected signings before final verification.</p><input id="offseason-fa-images" type="file" accept="image/jpeg,image/png,image/heic,image/heif,.heic,.heif" multiple><button id="offseason-fa-upload">Upload report photos</button><div>${(data.evidence?.images||[]).map(i=>'<details><summary>'+escapeHtml(i.filename)+' · '+escapeHtml(i.status)+'</summary><button data-fa-original="'+escapeHtml(i.imageId)+'">View photo</button><button data-fa-retry="'+escapeHtml(i.imageId)+'">Retry OCR</button><pre>'+escapeHtml(i.text||i.error||'')+'</pre>'+((i.proposals?.warnings||[]).map(w=>'<p>'+escapeHtml(w)+'</p>').join(''))+(i.proposals?.rows||[]).map(row=>'<p><strong>'+escapeHtml(row.name)+'</strong> → '+escapeHtml(row.playerCandidates.map(p=>p.name).join(' / ')||'Match player manually')+(row.teamId?' · '+escapeHtml(data.teams.find(t=>t.teamId===row.teamId)?.teamName||row.teamId):' · Match team manually')+' · '+row.contractYears+' years · $'+row.reportedTotal.toLocaleString()+' total'+row.flags.map(flag=>'<br>'+escapeHtml(flag)).join('')+'</p>').join('')+'</details>').join('')}</div><table><thead><tr><th>Signing</th><th>Team</th><th>Salary</th><th>Years</th><th>Type</th><th>Option</th></tr></thead><tbody>${won.map((o,i)=>'<tr><td>'+escapeHtml(o.playerId)+'</td><td>'+escapeHtml(data.teams.find(t=>t.teamId===o.teamId)?.teamName||o.teamId)+'</td>'+['salary','years','structure','option'].map(k=>'<td>'+field(k,i,'')+'</td>').join('')+'</tr>').join('')}</tbody></table><label><input id="offseason-fa-reviewed" type="checkbox"> I reviewed every report page, verified all approved signings, and resolved every unexpected signing.</label><button id="offseason-fa-verify">Review final reconciliation</button>`;}
+ async function load(){data=await adminRequestJson(endpoint);if(data.receipt){output.innerHTML='<p>Offseason free agency verified. Return to the offseason checklist to advance.</p>';return;}urls.forEach(URL.revokeObjectURL);urls=[];const stage=data.stage,won=data.offers.filter(o=>o.status==='WON');output.innerHTML=`<p><strong>${escapeHtml(stage?.name||'Exclusive re-signing not opened')}</strong> · ${escapeHtml(stage?.status||'Waiting')} ${stage?.deadlineAt?' · Deadline '+escapeHtml(new Date(stage.deadlineAt).toLocaleString()):''}</p><div class="admin-inline">${['open','extend','pause','resume','close','complete'].map(a=>'<button data-fa-action="'+a+'">'+({open:'Open next period',extend:'Extend 24 hours',pause:'Pause clock',resume:'Resume clock',close:'Close period',complete:'Complete period'}[a])+'</button>').join('')}</div><p>Score: 35% annual salary · 25% total value · 25% length · 15% age fit. Rankings use verified offer amounts; missing ages receive a neutral age factor.</p><div>${data.rankings.map(group=>'<details open><summary>'+escapeHtml(group.playerName)+'</summary>'+group.offers.map(o=>'<p><label><input type="checkbox" data-fa-approve="'+escapeHtml(o.id)+'"> '+escapeHtml(data.teams.find(t=>t.teamId===o.teamId)?.teamName||o.teamId)+' · '+o.score.toFixed(2)+' score · Priority '+o.priority+' · '+o.contract.seasons.length+' years · $'+o.contract.seasons.reduce((sum,row)=>sum+row.salary,0).toLocaleString()+' total · $'+o.contract.seasons[0].salary.toLocaleString()+' starting salary</label> <button data-fa-reject="'+escapeHtml(o.id)+'">Reject with reason</button></p>').join('')+'</details>').join('')}</div><button id="offseason-fa-prepare">Review selected approvals</button><div id="offseason-fa-confirmation"></div><h4>NBA 2K Transaction Report</h4><p>After all four periods, upload every report page and match the exact displayed contract for every approved signing. Resolve unexpected signings before final verification.</p><input id="offseason-fa-images" type="file" accept="image/jpeg,image/png,image/heic,image/heif,.heic,.heif" multiple><button id="offseason-fa-upload">Upload report photos</button><div>${(data.evidence?.images||[]).map(i=>'<details><summary>'+escapeHtml(i.filename)+' · '+escapeHtml(i.status)+'</summary><button data-fa-original="'+escapeHtml(i.imageId)+'">View photo</button><button data-fa-retry="'+escapeHtml(i.imageId)+'">Retry OCR</button><pre>'+escapeHtml(i.text||i.error||'')+'</pre>'+((i.proposals?.warnings||[]).map(w=>'<p>'+escapeHtml(w)+'</p>').join(''))+(i.proposals?.rows||[]).map(row=>'<p><strong>'+escapeHtml(row.name)+'</strong> → '+escapeHtml(row.playerCandidates.map(p=>p.name).join(' / ')||'Match player manually')+(row.teamId?' · '+escapeHtml(data.teams.find(t=>t.teamId===row.teamId)?.teamName||row.teamId):' · Match team manually')+' · '+row.contractYears+' years · $'+row.reportedTotal.toLocaleString()+' total'+row.flags.map(flag=>'<br>'+escapeHtml(flag)).join('')+'</p>').join('')+'</details>').join('')}</div><table><thead><tr><th>Signing</th><th>Team</th><th>Salary</th><th>Years</th><th>Type</th><th>Option</th></tr></thead><tbody>${won.map((o,i)=>'<tr><td>'+escapeHtml(o.playerId)+'</td><td>'+escapeHtml(data.teams.find(t=>t.teamId===o.teamId)?.teamName||o.teamId)+'</td>'+['salary','years','structure','option'].map(k=>'<td>'+field(k,i,'')+'</td>').join('')+'</tr>').join('')}</tbody></table><label><input id="offseason-fa-reviewed" type="checkbox"> I reviewed every report page, verified all approved signings, and resolved every unexpected signing.</label><button id="offseason-fa-verify">Review final reconciliation</button>`;}
  output.addEventListener('change',()=>output.querySelector('#offseason-fa-confirmation')?.replaceChildren());
  function confirm(preview,action,label){const target=output.querySelector('#offseason-fa-confirmation');target.textContent=label+'? ';const button=document.createElement('button');button.textContent='Confirm';button.addEventListener('click',async()=>{button.disabled=true;try{await post({action,token:preview.token});await load();showToast('Confirmed.');}catch(e){showToast(e.message);button.disabled=false;}});target.append(button);}
  output.addEventListener('click',async e=>{const b=e.target.closest('button');if(!b)return;try{

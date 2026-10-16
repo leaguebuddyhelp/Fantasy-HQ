@@ -36,3 +36,35 @@ test('payroll marks coverage, Discord cards show salary seasons and options, and
  const prospects=[{prospectId:'elite',board_number:1,'draft score':96,position_1:'PG'},{prospectId:'other',board_number:2,'draft score':90,position_1:'C'}];
  assert.equal(chooseProspect({draftYear:2027,rosters:{t:[{...player,position1:'PG'}]},prospects},{pickNumber:1,currentOwnerTeamId:'t'},[],null,()=>.999999).prospectId,'elite');
 });
+
+test('contract summaries total known years and dollars, include options, and omit unknown years', () => {
+ const player={contract:{guaranteedTotal:21000000,seasons:[
+  {season:'2026-27',salary:10000000},
+  {season:'2027-28',salary:11000000},
+  {season:'2028-29',salary:12000000,option:'PLAYER'},
+  {season:'2029-30',salary:null},
+ ]}};
+ const view=contractView(player,2026);
+ assert.equal(view.totalYears,3);assert.equal(view.totalSalary,33000000);
+ assert.match(view.short,/3 years · \$33M total/);
+ assert.match(view.short,/player option/);
+ assert.equal(view.guaranteedTotal,21000000);
+ assert.deepEqual(view.seasons.map(row=>row.season),['2026-27','2027-28','2028-29']);
+ assert.equal(contractView(player,2027).totalYears,2);
+ assert.equal(contractView(player,2027).totalSalary,23000000);
+ const card=JSON.stringify(nbaPlayerCard({...player,contractView:view},'test').embeds[0].toJSON());
+ assert.match(card,/3 years · \$33M total/);assert.doesNotMatch(card,/2029-30|Unknown/);
+ const unknown=contractView({contract:{seasons:[{season:'2026-27',salary:null}]}},2026);
+ assert.equal(unknown.totalSalary,null);assert.deepEqual(unknown.seasons,[]);
+ assert.doesNotMatch(unknown.short,/\$0|0 years/);
+ const zero=contractView({contract:{seasons:[{season:'2026-27',salary:0}]}},2026);
+ assert.equal(zero.totalYears,1);assert.equal(zero.totalSalary,0);
+});
+
+test('free-agency offer text includes total years and the full variable salary schedule', () => {
+ const details={salary:'$10M',years:'2+1',structure:'Back (+5%)',option:'Player'};
+ const {normalizeOffer}=require('../src/fantasyhq/offer-score');
+ const {contractText}=require('../src/fantasyhq/discord-free-agency');
+ const {contract}=normalizeOffer(details,{year:2026});
+ assert.match(contractText(details,contract),/3 years · \$31.5M total/);
+});

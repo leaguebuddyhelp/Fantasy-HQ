@@ -21,7 +21,7 @@ function nbaPlayerCard(player, context) {
   embed.addFields({ name: "League", value: `Age ${player.age ?? "—"} · Trade Value ${Number(player.tradeValue || 1).toLocaleString("en-US")}` });
 
   const contract = player.contractView || contractView(player);
-  if (player.contract || player.contractView) embed.addFields({ name: '💵 Contract', value: `${contract.short}\n${contract.seasons.map(row => `${row.season}: ${dollars(row.salary)}${row.option ? ` (${row.option === 'PLAYER' ? 'PO' : 'TO'})` : ''}`).join(' · ')}${contract.guaranteedTotal == null ? '' : `\nPublished guaranteed total: ${dollars(contract.guaranteedTotal)}`}`.slice(0, 1024) });
+  if (player.contract || player.contractView) embed.addFields({ name: '💵 Contract', value: `${contract.short}\n${contract.seasons.filter(row => Number.isFinite(row.salary) && row.salary >= 0).map(row => `${row.season}: ${dollars(row.salary)}${row.option ? ` (${row.option === 'PLAYER' ? 'PO' : 'TO'})` : ''}`).join(' · ')}${contract.guaranteedTotal == null ? '' : `\nPublished guaranteed total: ${dollars(contract.guaranteedTotal)}`}`.slice(0, 1024) });
   if (player.tradeValueReason) embed.addFields({ name: 'Contract value impact', value: player.tradeValueReason.slice(0, 1024) });
 
   const files = [];

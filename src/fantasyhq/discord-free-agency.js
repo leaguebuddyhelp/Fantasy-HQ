@@ -5,7 +5,7 @@ const { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, StringSelect
 const { STAFF_ROLES } = require('./discord-permissions');
 const { createFreeAgencyService, offerWindowDuration, ROSTER_SIZE } = require('./free-agency-service');
 const { parseContractText, normalizeOffer } = require('./offer-score');
-const { compactDollars } = require('../shared/player-contract');
+const { compactDollars, contractView } = require('../shared/player-contract');
 const { activeMemberships } = require('./service-helpers');
 const { recognizeContractText } = require('./box-score/tesseract-provider');
 const EPHEMERAL = MessageFlags.Ephemeral;
@@ -14,7 +14,7 @@ const row = (...c) => new ActionRowBuilder().addComponents(...c);
 const button = (id, label, style = ButtonStyle.Secondary) => new ButtonBuilder().setCustomId(`fa:${id}`).setLabel(label).setStyle(style);
 const embed = (title, description) => new EmbedBuilder().setColor(0xffdc21).setTitle(title).setDescription(description || '—');
 const time = value => `<t:${Math.floor(Date.parse(value) / 1000)}:t>`;
-const contractText = details => `Salary: **${typeof details.salary === 'number' ? compactDollars(details.salary) : details.salary || 'Not read'}**\nYears: **${details.years || 'Not read'}**\nStructure: **${({ FLAT: 'Flat', FRONT: 'Front (-5%)', BACK: 'Back (+5%)' })[details.structure] || details.structure || 'Not read'}**\nOption: **${details.option === 'PLAYER' ? 'Player Option' : details.option === 'TEAM' ? 'Team Option' : details.option || 'None'}**`;
+const contractText = (details, contract = null) => `${contract ? '**'+contractView({contract}).compact+'**\n' : ''}Salary: **${typeof details.salary === 'number' ? compactDollars(details.salary) : details.salary || 'Not read'}**\nYears: **${details.years || 'Not read'}**\nStructure: **${({ FLAT: 'Flat', FRONT: 'Front (-5%)', BACK: 'Back (+5%)' })[details.structure] || details.structure || 'Not read'}**\nOption: **${details.option === 'PLAYER' ? 'Player Option' : details.option === 'TEAM' ? 'Team Option' : details.option || 'None'}**`;
 const isStaff = interaction => Boolean(interaction.member?.roles?.cache?.some(role => STAFF_ROLES.has(role.name)));
 function permanentPayload(settings = {}, phase = 'REGULAR_SEASON') {
   if (phase === 'FREE_AGENCY') return { embeds:[embed('LEAGUEbuddy OFFSEASON FREE AGENCY','Exclusive re-signing, then three rating stages. Each period normally lasts **24 hours**.\n\nKeep up to **5 private active offers**, with unique priorities **1–5**. Open stages allow **3 signings per team per stage**, **9 total**. Exclusive re-signings do not use those limits.\n\nStaff confirms winning offers after the deadline. Use the buttons below for the current stage.')],components:[row(button('sign','SIGN FREE AGENT',ButtonStyle.Primary),button('active','MY ACTIVE OFFERS'))],allowedMentions:{parse:[]} };
@@ -72,7 +72,7 @@ function createDiscordFreeAgency({ repository, service = createFreeAgencyService
     }
     return modal;
   }
-  function confirmation(d) { return { embeds: [embed(`FREE AGENT OFFER · ${playerName(d.leagueId, d.playerId)}`, `${contractText(d.details)}\n\nYour screenshot is the official offer. Staff verifies it before it can win.${d.ocrError ? `\n\n${d.ocrError}\nUse FIX OCR DETAILS or upload a clearer screenshot.` : ''}`)], components: [row(button(`submit:${d.id}`, 'CONFIRM & SUBMIT', ButtonStyle.Success).setDisabled(Boolean(d.ocrError)), button(`edit:${d.id}`, 'FIX OCR DETAILS'), button(`cancel:${d.id}`, 'CANCEL'))] }; }
+  function confirmation(d) { let contract = null; try { contract = normalizeOffer(d.details, { year: require('./asset-valuation').leagueSeasonStartYear(repository.loadLeague(d.leagueId).seasonId) }).contract; } catch { /* Incomplete OCR details remain editable. */ } return { embeds: [embed(`FREE AGENT OFFER · ${playerName(d.leagueId, d.playerId)}`, `${contractText(d.details, contract)}\n\nYour screenshot is the official offer. Staff verifies it before it can win.${d.ocrError ? `\n\n${d.ocrError}\nUse FIX OCR DETAILS or upload a clearer screenshot.` : ''}`)], components: [row(button(`submit:${d.id}`, 'CONFIRM & SUBMIT', ButtonStyle.Success).setDisabled(Boolean(d.ocrError)), button(`edit:${d.id}`, 'FIX OCR DETAILS'), button(`cancel:${d.id}`, 'CANCEL'))] }; }
   function releaseMenu(d, mode, windowId = null, page = 0) {
     const list = service.eligibleReleases(d.leagueId, d.teamId, windowId), pages = Math.max(1, Math.ceil(list.length / 25)); page = Math.max(0, Math.min(page, pages - 1));
     const visible = list.slice(page * 25, page * 25 + 25), rows = [];
@@ -90,7 +90,7 @@ function createDiscordFreeAgency({ repository, service = createFreeAgencyService
       const approved = own.find(o => o.status === 'APPROVED'), pending = own.find(o => o.status === 'PENDING_REVIEW'), current = pending || approved;
       if (w.status === 'OPEN' && Date.now() < Date.parse(w.deadlineAt)) rows.push(row(button(`improve:${d.id}:${w.id}`, `IMPROVE ${playerName(d.leagueId, w.playerId)}`.slice(0,80)), button(`withdraw:${d.id}:${w.id}`, 'WITHDRAW OFFER', ButtonStyle.Danger)));
       if (w.status === 'AWAITING_WINNER_ROSTER_CUT' && s.offers.find(o => o.id === w.winnerOfferId)?.teamId === d.teamId) rows.push(row(button(`cut:${d.id}:${w.id}`, 'CHOOSE ROSTER CUT', ButtonStyle.Primary)));
-      return `**${playerName(d.leagueId, w.playerId)}**\n${contractText(current.details)}\nStaff: ${current.status.replaceAll('_', ' ')}${approved && pending ? ' · previous approved offer remains valid' : ''}\nDeadline: ${time(w.deadlineAt)}${w.cutDeadlineAt && w.winnerOfferId === current.id ? `\nCut deadline: ${time(w.cutDeadlineAt)}` : ''}\nConditional release: ${current.conditionalReleasePlayerId ? playerName(d.leagueId, current.conditionalReleasePlayerId) : 'None'}`;
+      return `**${playerName(d.leagueId, w.playerId)}**\n${contractText(current.details, current.contract)}\nStaff: ${current.status.replaceAll('_', ' ')}${approved && pending ? ' · previous approved offer remains valid' : ''}\nDeadline: ${time(w.deadlineAt)}${w.cutDeadlineAt && w.winnerOfferId === current.id ? `\nCut deadline: ${time(w.cutDeadlineAt)}` : ''}\nConditional release: ${current.conditionalReleasePlayerId ? playerName(d.leagueId, current.conditionalReleasePlayerId) : 'None'}`;
     });
     return { embeds: [embed('MY ACTIVE OFFERS', `FA Signings: **${status.completedSignings}/5** · Active Targets: **${status.activeTargets}/${status.allowedActiveTargets}**\n\n${text.join('\n\n') || 'No active offers.'}`)], components: rows };
   }
@@ -274,12 +274,12 @@ function createDiscordFreeAgency({ repository, service = createFreeAgencyService
     const player = players.find(p => p.playerId === w.playerId), winner = offers.find(o => o.id === w.winnerOfferId);
     const count = new Set(offers.filter(o => o.windowId === w.id && ['PENDING_REVIEW','APPROVED'].includes(o.status)).map(o => o.teamId)).size;
     let description = `**${player?.name || w.playerId}** · ${player?.position1 || '—'}\nStatus: ${w.status.replaceAll('_', ' ')}\nTeams Interested: **${count}**\nOffer Deadline: ${time(w.deadlineAt)}\n\nContract details stay private until signing completes.`;
-    if (w.status === 'COMPLETED' && winner) description = `**${player?.name || w.playerId}** has signed with **${teamName(context, winner.teamId)}**.\n\n${contractText(winner.details)}\nTotal scheduled salary: **${compactDollars(winner.contract.seasons.reduce((sum,r) => sum + r.salary, 0))}**\nPlayer-controlled value: **${compactDollars(winner.contract.guaranteedTotal)}**`;
+    if (w.status === 'COMPLETED' && winner) description = `**${player?.name || w.playerId}** has signed with **${teamName(context, winner.teamId)}**.\n\n${contractText(winner.details, winner.contract)}\nPlayer-controlled value: **${compactDollars(winner.contract.guaranteedTotal)}**`;
     else if (['CANCELLED','NO_VALID_OFFERS'].includes(w.status)) description = `**${player?.name || w.playerId}** · ${player?.position1 || '—'}\nStatus: ${w.status.replaceAll('_',' ')}\n${w.reason}\nNo signing completed.`;
     return { embeds: [embed(w.status === 'COMPLETED' ? 'FREE AGENT SIGNING' : 'FREE AGENT OFFER WINDOW', description).setFooter({ text: `FA Window ${w.id}` })], components: [], allowedMentions: { parse: [] } };
   }
   function proofPayload(context, o, w) {
-    const body = `Player: **${playerName(o.leagueId, o.playerId)}**\nTeam: **${teamName(context, o.teamId)}**\nCoach: <@${o.coachUserId}>\nVersion: **${o.version}** · ${o.status.replaceAll('_',' ')}\nSubmitted: ${time(o.submittedAt)}\nImmutable deadline: ${time(w.deadlineAt)}\n\n${contractText(o.details)}\nConditional release: ${o.conditionalReleasePlayerId ? playerName(o.leagueId, o.conditionalReleasePlayerId) : 'None'}`;
+    const body = `Player: **${playerName(o.leagueId, o.playerId)}**\nTeam: **${teamName(context, o.teamId)}**\nCoach: <@${o.coachUserId}>\nVersion: **${o.version}** · ${o.status.replaceAll('_',' ')}\nSubmitted: ${time(o.submittedAt)}\nImmutable deadline: ${time(w.deadlineAt)}\n\n${contractText(o.details, o.contract)}\nConditional release: ${o.conditionalReleasePlayerId ? playerName(o.leagueId, o.conditionalReleasePlayerId) : 'None'}`;
     const card = embed('FREE AGENT OFFER — STAFF REVIEW', body).setFooter({ text: `FA Proof ${o.id}` });
     if (o.corrections.length) card.addFields({ name: 'OCR original', value: contractText(o.ocrOriginal) }, { name: 'Latest Staff correction', value: `<@${o.corrections.at(-1).actorUserId}> · ${time(o.corrections.at(-1).timestamp)}\n${contractText(o.corrections.at(-1).after)}` });
     const file = new AttachmentBuilder(o.screenshot.path, { name: `contract${path.extname(o.screenshot.path)}` });
@@ -320,7 +320,7 @@ function createDiscordFreeAgency({ repository, service = createFreeAgencyService
       const attempts = state(w.leagueId).deliveries.filter(d => d.key === key);
       const last = attempts.at(-1);
       if (last?.failed && Date.now() - Date.parse(last.timestamp) < Math.min(3600000, 15000 * 2 ** Math.min(attempts.length - 1, 8))) continue;
-      const text = cutoff ? `${playerName(w.leagueId,w.playerId)} is reserved for your team. Choose a roster cut by ${time(w.cutDeadlineAt)}. Open MY ACTIVE OFFERS in your league's Free Agency channel, then CHOOSE ROSTER CUT. If your roster exceeds 15, complete Staff-approved waivers first.` : w.status === 'COMPLETED' && winner?.teamId === o.teamId ? `You signed ${playerName(w.leagueId,w.playerId)}.\n${contractText(winner.details)}` : `${playerName(w.leagueId,w.playerId)}: ${w.status === 'COMPLETED' ? 'another team completed the signing' : 'the offer window closed without a signing'}. Your FA target slot and unexecuted conditional releases are unlocked.`;
+      const text = cutoff ? `${playerName(w.leagueId,w.playerId)} is reserved for your team. Choose a roster cut by ${time(w.cutDeadlineAt)}. Open MY ACTIVE OFFERS in your league's Free Agency channel, then CHOOSE ROSTER CUT. If your roster exceeds 15, complete Staff-approved waivers first.` : w.status === 'COMPLETED' && winner?.teamId === o.teamId ? `You signed ${playerName(w.leagueId,w.playerId)}.\n${contractText(winner.details, winner.contract)}` : `${playerName(w.leagueId,w.playerId)}: ${w.status === 'COMPLETED' ? 'another team completed the signing' : 'the offer window closed without a signing'}. Your FA target slot and unexecuted conditional releases are unlocked.`;
       let failed = false;
       try { const user = await client.users.fetch(o.coachUserId); await user.send({ embeds: [embed(cutoff ? 'FA WINNER · ROSTER CUT REQUIRED' : 'FREE AGENT RESULT', text)], allowedMentions: { parse: [] } }); } catch { failed = true; }
       service.update(w.leagueId, s => s.deliveries.push({ key, failed, timestamp: new Date().toISOString() }));
