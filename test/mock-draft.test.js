@@ -550,21 +550,21 @@ test('lottery result embed offers start and rerun controls, refreshes after reru
     assert.equal(latest.components.length, 0);
 });
 
-test('live start offers installed classes and locks the chosen class to the private mock', async t => {
+test('live start automatically uses the current season and ignores stale class selectors', async t => {
     const f = fixture(t, { alternateClasses: true }), d = discordFixture(f);
     f.repository.saveLeague('l', { seasonNumber: 2 });
     f.repository.saveDraftPicks('l', f.input.picks.map(p => ({ ...p, draftYear: 2028 })));
     const start = d.interaction('mock:start'); await d.workflow.handle(start);
-    assert.equal(f.live.all('l').length,0);assert.equal(start.replies[0].components[0].toJSON().components[0].options.length,5);
-    const choice=d.interaction('mock:startclass');choice.values=['4'];await d.workflow.handle(choice);
-    let m=f.live.all('l')[0];assert.equal(m.classNumber,4);assert.equal(m.draftClassId,'class4');
-    assert.match(choice.replies.at(-1).content,/private Live Mock is ready/);
-    assert.equal(f.live.all('l').length, 1);
+    let m=f.live.all('l')[0];assert.equal(m.classNumber,2);assert.equal(m.draftClassId,'class2');
+    assert.match(start.replies.at(-1).content,/private Live Mock is ready/);
+    const legacy=d.interaction('mock:startclass');legacy.values=['4'];await d.workflow.handle(legacy);
+    assert.equal(f.live.all('l').length,1);assert.equal(f.live.all('l')[0].classNumber,2);
+    assert.throws(()=>f.live.create('l','u0','guild',4),/current league season automatically/);
     f.live.lottery('l', m.id, { id: 'u0' }); m = f.live.lock('l', m.id, { id: 'u0' });
-    assert.ok(m.input.prospects.every(p => p.prospectId.startsWith('class4:')));
+    assert.ok(m.input.prospects.every(p => p.prospectId.startsWith('class2:')));
     f.live.setAvailable('l', m.id, 'u0', false); m = f.live.start('l', m.id, { id: 'u0' });
     m = f.live.commit('l', m.id, { expectedPick: 1, type: 'CPU' });
-    assert.match(m.selections[0].prospect.name, /^CUS4/);
+    assert.match(m.selections[0].prospect.name, /^CUS2/);
 });
 test('weekly mocks follow seasons 1 through 4, remain stable and reject class overrides', async t => {
     const f = fixture(t, { alternateClasses: true });
@@ -794,13 +794,12 @@ test('full-draft AVP covers 60 picks and selected-class snapshots survive defaul
  assert.ok(Object.values(fifth.prospectAggregates).some(a=>a.avp>30));
  assert.ok(Object.values(fifth.prospectAggregates).every(a=>a.frequencyByPick.length===60&&a.availabilityByPick.length===60));
  const live=createLiveMockService({repository:f.repository,simulations:market});
- let m=live.create('l','u0','guild',5);assert.equal(m.classNumber,5);
+ assert.throws(()=>live.create('l','u0','guild',5),/current league season automatically/);
  const first=await market.refresh('l',{seed:'class-one-full-draft'});assert.match(first.draftClassId,/CUS01/);
  const restarted=createMockSimulationService(options);
  assert.equal(restarted.requireActive('l',restarted.inputFor('l',5)).id,fifth.id);
  assert.equal(restarted.requireActive('l').id,first.id);
- m=live.lottery('l',m.id,{id:'u0'});m=live.lock('l',m.id,{id:'u0'});
- assert.match(m.input.draftClassId,/CUS05/);assert.equal(m.simulationSnapshotId,fifth.id);
+ assert.equal(restarted.byId('l',fifth.id).draftClassId,fifth.draftClassId);
  await assert.rejects(restarted.classProjection('l',5),/automatically/);
 });
 

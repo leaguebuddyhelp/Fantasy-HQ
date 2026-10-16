@@ -106,7 +106,9 @@ client.on(Events.MessageCreate, async message => {
 });
 
 const discordActivityCheck = require("./fantasyhq/discord-activity-check").createDiscordActivityCheck({ repository: tradeRepository });
-const gameThreads = require("./fantasyhq/game-threads").createGameThreadService();
+const gameThreads = require("./fantasyhq/game-threads").createGameThreadService({
+  onCreated: ({ guild, leagueId }) => require('./fantasyhq/discord-sportsbook').createDiscordSportsbook({ repository: tradeRepository, submissions: gameRecordStore }).reconcile(guild, leagueId),
+});
 let mockSimulations;
 let discordWeeklyDashboard;
 const weekAdvancement = require("./fantasyhq/week-advancement").createWeekAdvancementService({

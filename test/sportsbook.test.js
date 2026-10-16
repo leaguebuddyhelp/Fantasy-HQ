@@ -134,3 +134,43 @@ test('settlement and original bet history remain available after competition clo
  assert.equal(f.service.mine('league',f.actor).bets[0].id,placed.id);
  assert.equal(f.service.mine('league',f.actor).bets[0].status,'WON');
 });
+
+test('weekly announcements include deadline, matchups, byes, exact special odds and betting controls',()=>{
+ const {weeklyAnnouncement}=require('../src/fantasyhq/discord-sportsbook');
+ const context={league:{leagueId:'league'},seasonId:'1',teams:[{teamId:'a',teamName:'Team A'},{teamId:'b',teamName:'Team B'},{teamId:'c',teamName:'Team C'}]};
+ const week={week:2,deadlineAt:'2026-10-20T12:00:00Z',games:[{team1Id:'a',team2Id:'b'}],byes:['c']};
+ const markets=[{gameId:'g',specialId:'s',specialName:'⭐ Scoring Special',playerName:'Test Player',kind:'PROP_PTS',threshold:35,odds:230,teamIds:['a','b']}];
+ const payload=weeklyAnnouncement({context,week,markets,settings:{gamesChannelId:'games'},guildId:'guild'}),embed=payload.embeds[0].toJSON();
+ assert.match(embed.title,/WEEK 2/);assert.match(embed.description,/Team C/);assert.match(embed.description,/<t:\d+:F>/);
+ assert.match(embed.fields[0].value,/Team A vs Team B/);assert.match(embed.fields[2].value,/Test Player · 35\+ PTS · \*\*\+230\*\*/);
+ assert.equal(payload.components[0].toJSON().components[0].custom_id,'book:open');assert.equal(payload.components[0].toJSON().components[1].custom_id,'book:specials');
+ assert.deepEqual(payload.allowedMentions,{parse:[]});
+ const empty=weeklyAnnouncement({context,week:{...week,deadlineAt:null},markets:[],settings:{},guildId:'guild'});
+ assert.match(empty.embeds[0].data.description,/Countdown starts/);assert.match(empty.embeds[0].data.fields[2].value,/No supported special/);assert.ok(empty.components[0].toJSON().components.slice(0,2).every(b=>b.disabled));
+});
+
+test('weekly announcement retries edit one post, next week posts once and completed/simulated seasons do not publish',async t=>{
+ const f=await setup(t,true);f.repository.saveSettings('league',{...f.repository.loadSettings('league'),discordChannels:{announcements:'announcements'}});
+ const messages=new Map();let sends=0,edits=0;
+ const channel={id:'announcements',messages:{fetch:async id=>{if(typeof id==='object')return messages;return messages.get(id)||null;}},send:async payload=>{
+  const message={id:'post-'+(++sends),author:{id:'bot'},embeds:payload.embeds,payload,edit:async body=>{edits++;message.payload=body;message.embeds=body.embeds;}};messages.set(message.id,message);return message;
+ }};
+ const guild={id:'guild',members:{me:{id:'bot'}},channels:{fetch:async()=>channel}};
+ const discord=require('../src/fantasyhq/discord-sportsbook').createDiscordSportsbook({repository:f.repository,submissions:f.submissions});
+ await Promise.all([discord.reconcile(guild,'league'),discord.reconcile(guild,'league')]);assert.equal(sends,1);
+ await discord.reconcile(guild,'league');assert.equal(sends,1);assert.ok(edits>0);assert.match(messages.get('post-1').payload.embeds[0].data.title,/WEEK 1/);
+ const schedule=f.repository.loadSchedule('league','1');schedule.weeks[0].status='COMPLETED';schedule.weeks[1].status='ACTIVE';schedule.weeks[1].deadlineAt='2026-10-22T12:00:00Z';f.repository.saveSchedule(schedule);f.repository.saveLeague('league',{currentWeek:2});
+ await discord.reconcile(guild,'league');assert.equal(sends,2);assert.match(messages.get('post-2').payload.embeds[0].data.title,/WEEK 2/);
+ await discord.reconcile(guild,'league');assert.equal(sends,2);
+ f.repository.saveSettings('league',{...f.repository.loadSettings('league'),simulationId:'sim'});await discord.reconcile(guild,'league');assert.equal(sends,2);
+ f.repository.saveSettings('league',{...f.repository.loadSettings('league'),simulationId:null});f.repository.saveLeague('league',{regularSeasonStatus:'COMPLETED'});await discord.reconcile(guild,'league');assert.equal(sends,2);
+});
+
+test('special wagers button opens a private filtered slip without changing ordinary markets',async t=>{
+ const f=await setup(t);const players=f.repository.loadPlayers('league');for(const p of players)p.overall=p.teamId==='a'?99:40;f.repository.savePlayers('league',players);
+ const discord=require('../src/fantasyhq/discord-sportsbook').createDiscordSportsbook({repository:f.repository,submissions:f.submissions});
+ let reply,ack;await discord.handle({customId:'book:specials',guildId:'guild',user:{id:f.actor.id},member:f.actor.member,isMessageComponent:()=>true,message:{flags:{has:()=>false}},deferReply:async function(p){ack=p;this.deferred=true;},editReply:async p=>reply=p});
+ assert.equal(ack.flags,64);assert.match(reply.embeds[0].data.title,/Special wagers/);
+ const menu=reply.components.flatMap(r=>r.toJSON().components).find(c=>c.type===3);
+ const state=f.service.refresh('league');assert.ok(menu,'the promoted underdog is available in the specials menu');assert.ok(menu.options.every(o=>state.markets.some(m=>m.specialId&&m.status==='OPEN'&&m.gameId===o.description.slice(5))));
+});

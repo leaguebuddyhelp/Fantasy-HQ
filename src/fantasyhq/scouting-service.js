@@ -2,6 +2,8 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
+const { prospectStatsAvailable, visibleProspectStats } = require('../shared/prospect-stats-access');
+
 const WEEKLY_POINTS = 60;
 const REVEAL_COST = 10;
 const REVEALS = [
@@ -147,7 +149,8 @@ function createScoutingService({ repository, draftClassDir = path.join(process.c
             weekId: context.week?.weekId ?? null,
             scoutingAvailable: Boolean(context.week),
             boardFile: board.file, boardLabel: board.boardLabel,
-            prospect,
+            prospect: visibleProspectStats(prospect, context.league.currentPhase),
+            prospectStatsAvailable: prospectStatsAvailable(context.league.currentPhase),
             level,
             spent: Number(user.spent || 0),
             remaining,
@@ -166,7 +169,8 @@ function createScoutingService({ repository, draftClassDir = path.join(process.c
             return {
                 ...context,
                 boardFile: board.file, boardLabel: board.boardLabel,
-                prospect,
+                prospect: visibleProspectStats(prospect, context.league.currentPhase),
+                prospectStatsAvailable: prospectStatsAvailable(context.league.currentPhase),
                 level,
                 spent: context.week ? Number(user.spent || 0) : null,
                 remaining: context.week ? Math.max(0, WEEKLY_POINTS - Number(user.spent || 0)) : null,

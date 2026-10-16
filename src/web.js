@@ -1,3 +1,4 @@
+const { prospectStatsAvailable, visibleProspectStats } = require('./shared/prospect-stats-access');
 if (require.main === module) {
   require("dotenv").config();
 }
@@ -597,7 +598,7 @@ function unsafeRequestHandler(request, response) {
         const file = resolveDraftClass(null, board.id);
         return { id: board.id, label: board.label, target: board.target, classes: [{ file, label: classLabel(file) }] };
       });
-      sendJson(response, 200, { seasonNumber, phase: draftLeague().currentPhase, activeBoard, canBrowseAll, boards });
+      sendJson(response, 200, { seasonNumber, phase: draftLeague().currentPhase, activeBoard, canBrowseAll, prospectStatsAvailable: prospectStatsAvailable(draftLeague().currentPhase), boards });
     } catch (error) { sendJson(response, 404, { error: error.message }); }
     return;
   }
@@ -623,10 +624,12 @@ function unsafeRequestHandler(request, response) {
       return;
     }
     try {
+      const phase = draftLeague().currentPhase;
       sendJson(response, 200, {
         board: { id: board.id, label: board.label, target: board.target },
         draftClass: { file, label: classLabel(file) },
-        prospects: readProspects(file),
+        prospectStatsAvailable: prospectStatsAvailable(phase),
+        prospects: readProspects(file).map(prospect => visibleProspectStats(prospect, phase)),
       });
     } catch (error) {
       console.error("Website draft data error:", error);

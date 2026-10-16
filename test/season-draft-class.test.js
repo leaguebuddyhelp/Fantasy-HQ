@@ -39,6 +39,7 @@ test('website boards follow every season and phase, rejecting closed boards and 
             const active = ['SETUP', 'PRESEASON'].includes(phase) ? 'top-ten' : 'big-board';
             const list = get('/api/draft-classes');
             assert.equal(list.status, 200); assert.equal(list.body.seasonNumber, season);
+            assert.equal(list.body.prospectStatsAvailable, ['OFFSEASON', 'DRAFT'].includes(phase));
             assert.equal(list.body.activeBoard, active); assert.equal(list.body.boards.length, 1);
             const board = list.body.boards[0];
             assert.equal(board.id, active); assert.equal(board.classes[0].label, `2k27_CUS0${season}`);
@@ -46,6 +47,15 @@ test('website boards follow every season and phase, rejecting closed boards and 
                 const result = get(url);
                 assert.equal(result.status, 200); assert.equal(result.body.draftClass.label, `2k27_CUS0${season}`);
                 assert.ok(result.body.prospects.length > 0);
+                assert.equal(result.body.prospectStatsAvailable, ['OFFSEASON', 'DRAFT'].includes(phase));
+                const original = Object.values(JSON.parse(fs.readFileSync(path.join('draft_class', result.body.draftClass.file), 'utf8')));
+                for (const prospect of result.body.prospects) {
+                    const raw = original.find(p => p.name === prospect.name);
+                    for (const field of ['pts', 'rbs', 'ast', 'stls', 'blks']) {
+                        if (result.body.prospectStatsAvailable) assert.equal(prospect[field], raw[field]);
+                        else assert.equal(Object.hasOwn(prospect, field), false);
+                    }
+                }
                 if (active === 'top-ten') assert.equal(result.body.prospects.length, 10);
             }
             assert.equal(get(`/api/prospects?board=${active === 'top-ten' ? 'big-board' : 'top-ten'}`).status, 403);
@@ -62,6 +72,8 @@ test('website boards follow every season and phase, rejecting closed boards and 
     assert.equal(unlocked.body.boards.find(b=>b.id==='big-board').classes.length, 5);
     const fifth = get('/api/prospects?board=big-board&class=2k27_CUS05',key);
     assert.equal(fifth.status,200);assert.equal(fifth.body.prospects.length,75);
+    assert.equal(fifth.body.prospectStatsAvailable,false);
+    assert.ok(fifth.body.prospects.every(p => !['pts','rbs','ast','stls','blks'].some(field => Object.hasOwn(p,field))));
     assert.equal(fifth.body.prospects.filter(p=>p.image).length,75);
     for (const prospect of fifth.body.prospects) {
       assert.ok(prospect.image.includes('/'+String(prospect.rank).padStart(3,'0')+'-'));

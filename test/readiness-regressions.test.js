@@ -133,7 +133,9 @@ test('all fifteen weeks close with official forfeits, freeze publication and con
     const week = f.repository.loadSchedule('league','1').weeks[weekNumber-1];
     for (const match of week.games) {
       const record = submissions.ensureGame({guildId:'guild',weekNumber,teamQuery:match.team1Id});
-      await submissions.mutate(record.game.gameId,r => recordForfeit(r,{winnerTeamId:match.team1Id,actorUserId:'staff',staffAuthorized:true,reason:'Verified league forfeit'}));
+      const a=Number(match.team1Id.split('-').at(-1)),b=Number(match.team2Id.split('-').at(-1));
+      const winner=(b-a+15)%15<=7?match.team1Id:match.team2Id;
+      await submissions.mutate(record.game.gameId,r => recordForfeit(r,{winnerTeamId:winner,actorUserId:'staff',staffAuthorized:true,reason:'Verified league forfeit'}));
     }
     const preview = service.prepare('guild',actor); assert.equal(preview.final,14); assert.equal(preview.blocked,undefined);
     const result = await service.advance({id:'guild'},actor,preview.token); assert.equal(result.seasonComplete,weekNumber===15);
@@ -143,6 +145,12 @@ test('all fifteen weeks close with official forfeits, freeze publication and con
   assert.ok(Object.values(standings.conferences).flat().every(r => r.scoringGP===0 && r.PF===0 && r.PA===0));
   const transition = createSeasonTransitionService({submissions}); const view = transition.prepare('guild',actor);
   assert.equal(view.blocked,false); assert.equal(view.seeds.East.length,10); assert.equal(view.seeds.West.length,10);
+  assert.ok(standings.unresolvedTies.length>0);
+  const seed=f.repository.loadSettings('league').standingsDrawSeeds['1'];assert.ok(seed);
+  const repeated=transition.prepare('guild',actor);assert.deepEqual(repeated.seeds,view.seeds);transition.cancel(repeated.token,actor);
+  assert.equal(f.repository.loadSettings('league').standingsDrawSeeds['1'],seed);
+  assert.equal(f.repository.loadAuditLog('league').filter(e=>e.action==='standings.tiebreak.draw.created').length,1);
+
   assert.throws(() => transition.confirm('guild',{id:'other',authorized:true},view.token),/another|expired|commissioner/);
   const playoffs = transition.confirm('guild',actor,view.token);
   assert.deepEqual(transition.confirm('guild',actor,view.token),playoffs);
@@ -156,7 +164,7 @@ test('all fifteen weeks close with official forfeits, freeze publication and con
   const migration=transition.prepare('guild',actor);assert.equal(migration.legacyMigration,true);assert.equal(f.repository.loadPlayoffs('league').version,undefined);
   const migrated=transition.confirm('guild',actor,migration.token);assert.equal(migrated.version,2);assert.deepEqual(migrated.legacySeeding,legacy);
   assert.deepEqual(migrated.seeds.East.slice(0,8),legacy.seeds.East);assert.equal(migrated.seeds.East.length,10);
-  assert.deepEqual(createStandingsService({submissions}).getStandings('league','1').conferences,standings.conferences);
+  assert.deepEqual(createStandingsService({submissions}).getStandings('league','1').conferences,view.standings);
 
 });
 

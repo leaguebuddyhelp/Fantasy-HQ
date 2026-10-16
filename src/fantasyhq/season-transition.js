@@ -24,12 +24,16 @@ function createSeasonTransitionService({ submissions, now = Date.now } = {}) {
     if(legacyMigration)for(const c of ['East','West']){const prior=priorPlayoffs.seeds?.[c]||[];eligible[c]=[...prior,...standings.conferences[c].filter(t=>!prior.some(p=>p.teamId===t.teamId))].slice(0,10);}
     require('./postseason-state').validateSeeds(eligible,context.teams);
     if (Object.values(eligible).some(teams => teams.length !== 10)) throw Error('Playoffs require ten teams in each conference.');
-    const view = { legacyMigration, priorPlayoffsDigest:priorPlayoffs?createHash('sha256').update(JSON.stringify(priorPlayoffs)).digest('hex'):null, leagueId, seasonId: context.seasonId, standings: standings.conferences, seeds: eligible, unresolved, pending, blocked: unresolved.length > 0 || official.duplicates.length > 0 };
+    const view = { legacyMigration, priorPlayoffsDigest:priorPlayoffs?createHash('sha256').update(JSON.stringify(priorPlayoffs)).digest('hex'):null, leagueId, seasonId: context.seasonId, standings: standings.conferences, seeds: eligible, unresolved, pending, unresolvedTies: standings.unresolvedTies, blocked: unresolved.length > 0 || official.duplicates.length > 0 };
     view.digest = createHash('sha256').update(JSON.stringify({ ...view, finalVersions: official.games.map(r => [r.game.gameId,r.game.result.extractionId]) })).digest('hex');
     return view;
   }
   function prepare(guildId, actor) {
-    authorize(actor, guildId); const view = inspect(guildId); if (view.alreadyStarted || view.blocked) return view;
+    authorize(actor, guildId); let view = inspect(guildId); if (view.alreadyStarted || view.blocked) return view;
+    if (view.unresolvedTies?.length) {
+      require('./standings-tiebreakers').ensureStandingsDraw(repository, view.leagueId, view.seasonId);
+      view = inspect(guildId);
+    }
     const token = randomUUID(); confirmations.set(token, { guildId, actorId: actor.id, digest: view.digest, seeds: structuredClone(view.seeds), seedChanges: [], root: repository.dataRoot, expiresAt: now()+300000 });
     return { ...view, token };
   }
@@ -45,7 +49,7 @@ function createSeasonTransitionService({ submissions, now = Date.now } = {}) {
     const schedule = repository.loadSchedule(view.leagueId, view.seasonId);
     const publicationGames = officialRegularGames(submissions.records(), { leagueId: view.leagueId, seasonId: view.seasonId, schedule }).games;
     schedule.statsPublication = { throughWeek: 15, publishedAt: timestamp, gameIds: publicationGames.map(r => r.game.gameId), snapshots: require('./official-game').publicationSnapshot(publicationGames) };
-    const playoffs = require('./postseason-state').initializePostseason({ teams: context.teams, now: now(), leagueId: view.leagueId, seasonId: view.seasonId, seasonNumber:context.league.seasonNumber, startedAt: timestamp, standings: view.standings, seeds: confirmation.seeds, tiebreakers: ['PCT','W','HEAD_TO_HEAD','POINT_DIFFERENTIAL','POINTS_SCORED','STABLE_TEAM_ID'], ...(view.legacyMigration?{legacySeeding:structuredClone(priorLegacy(repository,view.leagueId))}:{}), pendingAtTransition: view.pending, pendingPolicy: 'Existing regular-season trade proofs, FA windows and waiver requests may finish under their saved rules. New workflows are closed.', seedChanges: confirmation.seedChanges });
+    const playoffs = require('./postseason-state').initializePostseason({ teams: context.teams, now: now(), leagueId: view.leagueId, seasonId: view.seasonId, seasonNumber:context.league.seasonNumber, startedAt: timestamp, standings: view.standings, seeds: confirmation.seeds, tiebreakers: ['PCT','NBA_TWO_TEAM_AND_MULTI_TEAM_TIEBREAKERS','RECORDED_RANDOM_DRAW'], ...(view.legacyMigration?{legacySeeding:structuredClone(priorLegacy(repository,view.leagueId))}:{}), pendingAtTransition: view.pending, pendingPolicy: 'Existing regular-season trade proofs, FA windows and waiver requests may finish under their saved rules. New workflows are closed.', seedChanges: confirmation.seedChanges });
     require('./storage-safety').createStorageBackup(repository.dataRoot, { label: 'before-playoffs' });
     repository.commitSeasonTransition({ leagueId: view.leagueId, league: { ...context.league, currentPhase: 'PLAYOFFS' }, playoffs, schedule, auditEntry: { action: 'season.playoffs.started', userId: actor.id, requestId: token, timestamp, leagueId: view.leagueId, seasonId: view.seasonId, metadata: { seeds: confirmation.seeds, seedChanges: confirmation.seedChanges, pending: view.pending } } });
     confirmations.delete(token); return playoffs;

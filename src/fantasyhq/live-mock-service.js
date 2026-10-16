@@ -41,7 +41,10 @@ function createLiveMockService({ repository, simulations, now = () => Date.now()
         return matches[0];
     }
     function create(leagueId, userId, guildId, classNumber = null) {
-        const owner = coach(leagueId, userId), input = simulations.inputFor(leagueId, classNumber), snapshot = simulations.requireActive(leagueId, input);
+        const currentClass = Number(repository.loadLeague(leagueId).league.seasonNumber);
+        if (classNumber != null && (!Number.isInteger(Number(classNumber)) || Number(classNumber) < 1)) throw Error('Choose a valid draft class.');
+        if (classNumber != null && Number(classNumber) !== currentClass) throw Error('Live mocks use the draft class for the current league season automatically.');
+        const owner = coach(leagueId, userId), input = simulations.inputFor(leagueId, currentClass), snapshot = simulations.requireActive(leagueId, input);
         return transaction(leagueId, state => {
             const existing = Object.values(state.mocks).find(m => LIVE.has(m.status) && m.hostUserId === userId && m.seasonId === input.seasonId);
             if (existing) { if (existing.draftClassId !== input.draftClassId) throw Error('You already have an active mock with another draft class. Finish that mock first.'); return existing; }

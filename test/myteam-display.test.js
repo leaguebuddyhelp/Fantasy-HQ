@@ -42,11 +42,11 @@ test('myteam handles empty rosters, unknown payroll and oversized imports', () =
   assert.match(JSON.stringify(embed.toJSON()), /\+25 players/);
 });
 
-test('contract wording uses salary and end season while preserving option and unknown information', () => {
+test('contract wording shows known total years and dollars with season and option details', () => {
   const player = { contract: { seasons: [{ season: '2026-27', salary: 30000000 }, { season: '2027-28', salary: 33000000, option: 'PLAYER' }] } };
   const view = contractView(player, 2026);
-  assert.equal(view.short, '$30M this season · through 2027-28 (player option)');
-  assert.equal(view.compact, '$30M · through 2027-28 (player option)');
-  assert.equal(contractView(player, 2027).compact, '$33M · expires this season · Player option this season');
-  assert.equal(contractView({}, 2026).compact, 'Salary unavailable');
+  assert.equal(view.short, '2 years · $63M total · $30M this season · through 2027-28 (player option)');
+  assert.equal(view.compact, '2 years · $63M total · through 2027-28 (player option)');
+  assert.equal(contractView(player, 2027).compact, '1 year · $33M total · expires this season · Player option this season');
+  assert.equal(contractView({}, 2026).compact, 'Contract unavailable');
 });

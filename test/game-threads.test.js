@@ -157,3 +157,13 @@ test('ownership access reconciliation works for completed weeks and playoff phas
  await f.service.syncAccess(f.guild,{owners,staffUserIds:['staff']});
  const members=f.channels.get(game.discordThreadId).memberIds;assert.equal(members.has(old),false);assert.equal(members.has('successor'),true);assert.equal(members.has('staff'),true);assert.equal(f.calls.length,14);
 });
+
+test('weekly announcement follow-up runs after persisted deadlines and retries without interrupting thread creation',async t=>{
+ const f=fixture(t);let calls=0;
+ const service=createGameThreadService({submissions:f.submissions,syncOwners:async()=>({staffUserIds:[]}),logger:{error(){}},onCreated:async({guild,leagueId,result})=>{
+  calls++;assert.equal(guild.id,'guild');assert.equal(leagueId,'test');assert.ok(f.repository.loadSchedule('test','1').weeks[0].deadlineAt);assert.equal(result.failed,0);
+  if(calls===1)throw Error('Announcement unavailable');
+ }});
+ const first=await service.create(f.guild);assert.equal(first.created,14);assert.equal(first.announcementError,'Announcement unavailable');
+ const retry=await service.create(f.guild);assert.equal(retry.created,0);assert.equal(retry.existing,14);assert.equal(retry.announcementError,undefined);assert.equal(calls,2);
+});

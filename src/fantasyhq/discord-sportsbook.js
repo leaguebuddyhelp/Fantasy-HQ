@@ -6,15 +6,33 @@ const money=c=>'$'+((c||0)/100).toFixed(2);
 const odds=n=>n>0?'+'+n:String(n);
 const button=(id,label)=>new ButtonBuilder().setCustomId(id).setLabel(label).setStyle(ButtonStyle.Secondary);
 const row=(...items)=>new ActionRowBuilder().addComponents(...items);
+function weeklyAnnouncement({context,week,markets,settings,guildId}) {
+ const names=new Map(context.teams.map(t=>[t.teamId,t.teamName]));
+ const name=id=>names.get(id)||id;
+ const specials=markets.filter(m=>m.specialId);
+ const deadline=Number.isFinite(Date.parse(week.deadlineAt))?`<t:${Math.floor(Date.parse(week.deadlineAt)/1000)}:F> (<t:${Math.floor(Date.parse(week.deadlineAt)/1000)}:R>)`:'Countdown starts when game threads are created.';
+ const embed=new EmbedBuilder().setTitle(`🏀 WEEK ${week.week} · LEAGUE UPDATE`).setColor(0xffdc21)
+  .setDescription(`**${week.games.length} games · 48-hour game window**\n**Deadline:** ${deadline}\n**Byes:** ${(week.byes||[]).map(name).join(', ')||'None'}\n\nArrange your game in its private thread, set the 2K game date, and submit both teams’ box scores. The home team must stream. Stats and standings publish when the week advances.`)
+  .addFields({name:'This week’s matchups',value:week.games.map(g=>`${name(g.team1Id)} vs ${name(g.team2Id)}`).join('\n').slice(0,1024)||'No games scheduled.'},
+   {name:'🎟️ Betting',value:`${new Set(markets.map(m=>m.gameId)).size} games with open markets · Straight bets $1–$50 · Parlays $1–$25 (up to five selections).\nFictional league dollars only. No betting on your own team or players. Lines close when a game’s Streamlink is submitted. Your slip, wallet and bet history stay private.`},
+   {name:'🔥 Weekly special wagers',value:specials.slice(0,5).map(m=>{
+    const selection=m.playerName?`${m.playerName} · ${m.threshold!=null?m.threshold+'+':m.selection+' '+m.line} ${m.kind.replace('PROP_','')}`:name(m.selection)+' to win';
+    return `**${m.specialName||'Weekly Special'}** · ${selection} · **${odds(m.odds)}**\n${m.teamIds.map(name).join(' vs ')}`;
+   }).join('\n\n').slice(0,1024)||'No supported special wagers are open yet. Check back as verified game data becomes available.'})
+  .setFooter({text:'SPORTSBOOK:'+context.league.leagueId+':'+context.seasonId+':W'+week.week});
+ const components=[row(button('book:open','🎟️ Place a bet').setDisabled(!markets.length),button('book:specials','🔥 Special wagers').setDisabled(!specials.length),button('book:wallet:0','💵 Wallet & bets'))];
+ if(settings.gamesChannelId)components.push(row(new ButtonBuilder().setLabel('Games').setStyle(ButtonStyle.Link).setURL(`https://discord.com/channels/${guildId}/${settings.gamesChannelId}`)));
+ return {embeds:[embed],components,allowedMentions:{parse:[]}};
+}
 function createDiscordSportsbook({repository,submissions,now=Date.now}) {
  const service=require('./sportsbook-service').createSportsbookService({repository,submissions,now});
  function label(m,context){const teams=new Map(context.teams.map(t=>[t.teamId,t.teamName]));return `${m.playerName||teams.get(m.selection)||m.selection} · ${m.kind} ${m.line??m.threshold??''} · ${odds(m.odds)}`;}
  function controls(){return row(button('book:open','🎟️ Markets'),button('book:wallet:0','💵 Wallet & bets'),button('book:leaderboard','🏆 Leaderboard'));}
  function marketPanel(context,actor,cart,page=0){
   const state=service.refresh(context.league.leagueId),team=require('./coach-identity').requireCoachIdentity(repository,context,actor.member,actor.id).teamId;
-  const markets=state.markets.filter(m=>m.status==='OPEN'&&m.seasonId===context.seasonId&&m.week===context.league.currentWeek&&m.simulationId===(repository.loadSettings(context.league.leagueId).simulationId||null)&&!m.teamIds.includes(team));
+  const markets=state.markets.filter(m=>m.status==='OPEN'&&m.seasonId===context.seasonId&&m.week===context.league.currentWeek&&m.simulationId===(repository.loadSettings(context.league.leagueId).simulationId||null)&&!m.teamIds.includes(team)&&(!cart.specialsOnly||m.specialId));
   page=Math.max(0,Math.min(page,Math.max(0,Math.ceil(markets.length/25)-1)));cart.markets=markets;cart.page=page;
-  const embed=new EmbedBuilder().setTitle('🎟️ Sportsbook · Week '+context.league.currentWeek).setColor(0xffdc21).setDescription('Fictional league dollars. Select a line to add it to your slip. Select it again to remove it. Up to five different markets per parlay. Betting closes when a Streamlink is submitted.\n\n**Your slip**\n'+(cart.ids.map(id=>{const m=state.markets.find(m=>m.id===id);return m?label(m,context):'Unavailable line';}).join('\n')||'No selections yet.'));
+  const embed=new EmbedBuilder().setTitle((cart.specialsOnly?'🔥 Special wagers · Week ':'🎟️ Sportsbook · Week ')+context.league.currentWeek).setColor(0xffdc21).setDescription('Fictional league dollars. Select a line to add it to your slip. Select it again to remove it. Up to five different markets per parlay. Betting closes when a Streamlink is submitted.\n\n**Your slip**\n'+(cart.ids.map(id=>{const m=state.markets.find(m=>m.id===id);return m?label(m,context):'Unavailable line';}).join('\n')||'No selections yet.'));
   const components=[];
   if(markets.length)components.push(row(new StringSelectMenuBuilder().setCustomId('book:select:'+cart.id).setPlaceholder('Choose a line · page '+(page+1)).addOptions(markets.slice(page*25,page*25+25).map((m,j)=>({label:label(m,context).slice(0,100),description:('Game '+m.gameId).slice(0,100),value:String(page*25+j),default:cart.ids.includes(m.id)})))));
   components.push(row(button('book:page:'+cart.id+':'+(page-1),'Previous').setDisabled(page===0),button('book:page:'+cart.id+':'+(page+1),'Next').setDisabled((page+1)*25>=markets.length),button('book:wager:'+cart.id,'Review wager').setDisabled(!cart.ids.length),button('book:clear:'+cart.id,'Clear slip')),controls());
@@ -31,8 +49,8 @@ function createDiscordSportsbook({repository,submissions,now=Date.now}) {
    for(const [id,c]of carts)if(c.expiresAt<=now())carts.delete(id);
    if(action==='wager'){const cart=cartFor(parts[2]);return await i.showModal(new ModalBuilder().setCustomId('book:stake:'+cart.id).setTitle('Review your wager').addComponents(row(new TextInputBuilder().setCustomId('amount').setLabel('Wager in league dollars ($1–$50; parlay $25)').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(8))));}
    if(i.isMessageComponent?.()&&i.message?.flags?.has(MessageFlags.Ephemeral))await i.deferUpdate();else await i.deferReply({flags:MessageFlags.Ephemeral});
-   if(['open','page','select','clear'].includes(action)){
-    let cart;if(action==='open'){cart={id:randomUUID(),userId:actor.id,leagueId,root:repository.dataRoot,expiresAt:now()+900000,ids:[]};carts.set(cart.id,cart);}else cart=cartFor(parts[2]);
+   if(['open','specials','page','select','clear'].includes(action)){
+    let cart;if(action==='open'||action==='specials'){cart={specialsOnly:action==='specials',id:randomUUID(),userId:actor.id,leagueId,root:repository.dataRoot,expiresAt:now()+900000,ids:[]};carts.set(cart.id,cart);}else cart=cartFor(parts[2]);
     if(action==='clear')cart.ids=[];
     if(action==='select'){const selected=cart.markets[Number(i.values[0])];if(!selected)throw Error('Choose a current market.');if(cart.ids.includes(selected.id))cart.ids=cart.ids.filter(id=>id!==selected.id);else{if(cart.ids.length>=5)throw Error('A parlay allows at most five selections.');if(cart.ids.some(id=>cart.markets.find(m=>m.id===id)?.group===selected.group))throw Error('Remove the conflicting selection from your slip first.');cart.ids.push(selected.id);}}
     return await respond(marketPanel(context,actor,cart,action==='page'?Number(parts[3]):cart.page||0));
@@ -50,13 +68,14 @@ function createDiscordSportsbook({repository,submissions,now=Date.now}) {
  async function reconcile(guild,leagueId){
   const settings=repository.loadSettings(leagueId),context=repository.loadLeague(leagueId);
   if(settings.discordChannels?.staff){const channel=await guild.channels.fetch(settings.discordChannels.staff);await require('../shared/discord-singleton-panel').ensureSingletonPanel({key:repository.dataRoot+':'+leagueId+':sportsbook',channel,botId:guild.members.me.id,savedId:settings.sportsbookStaffMessageId,title:'🎟️ Sportsbook Staff Review',payload:{embeds:[new EmbedBuilder().setTitle('🎟️ Sportsbook Staff Review').setDescription('Review corrected payouts and the private wager ledger. Confirm each correction before applying it.')],components:[row(button('book:staff:0','Review payouts'))],allowedMentions:{parse:[]}},save:id=>repository.saveSettings(leagueId,{...repository.loadSettings(leagueId),sportsbookStaffMessageId:id})});}
-  if(settings.simulationId||context.league.currentPhase!=='REGULAR_SEASON')return;
-  const state=service.refresh(leagueId),markets=state.markets.filter(m=>m.seasonId===context.seasonId&&m.week===context.league.currentWeek&&m.status==='OPEN'&&!m.simulationId);if(!markets.length)return;
+  if(settings.simulationId||context.league.currentPhase!=='REGULAR_SEASON'||context.league.regularSeasonStatus==='COMPLETED')return;
+  const week=repository.loadSchedule(leagueId,context.seasonId).weeks.find(w=>w.week===context.league.currentWeek&&w.status==='ACTIVE');if(!week)return;
+  const state=service.refresh(leagueId),markets=state.markets.filter(m=>m.seasonId===context.seasonId&&m.week===context.league.currentWeek&&m.status==='OPEN'&&!m.simulationId);
   const key=`${context.seasonId}:W${context.league.currentWeek}`,receipt=state.publications?.[key],channelId=settings.discordChannels?.announcements;if(!channelId)throw Error('Set up the weekly announcement channel.');
-  const channel=await guild.channels.fetch(channelId),payload={embeds:[new EmbedBuilder().setTitle('🏀 LEAGUEbuddy Sportsbook is open').setColor(0xffdc21).setDescription(`Week ${context.league.currentWeek} lines, player props, Weekly Specials and parlays are available in Discord.\n\nFictional league dollars only. Your wallet, slip and bet history are private. Betting closes when a game’s Streamlink is submitted.`).setFooter({text:'SPORTSBOOK:'+leagueId+':'+key})],components:[controls()],allowedMentions:{parse:[]}};
+  const channel=await guild.channels.fetch(channelId),payload=weeklyAnnouncement({context,week,markets,settings,guildId:guild.id});
   if(receipt?.messageId){let message;try{message=await channel.messages.fetch(receipt.messageId);}catch(error){if(Number(error.code)!==10008)throw error;}if(message){if(message.author.id!==guild.members.me.id)throw Error('Sportsbook announcement identity mismatch.');await message.edit(payload);return;}}
   await publishPermanentPost({key:repository.dataRoot+':sportsbook:'+key,channel,marker:'SPORTSBOOK:'+leagueId+':'+key,receipt:receipt?.messageId?null:receipt,now,payload:async()=>payload,save:receipt=>service.publication(leagueId,key,receipt)});
  }
  return {handle,reconcile};
 }
-module.exports={createDiscordSportsbook};
+module.exports={createDiscordSportsbook,weeklyAnnouncement};

@@ -11,6 +11,7 @@ const state = {
   position: new Set(),
   query: "",
   sort: "rank",
+  prospectStatsAvailable: false,
   statsPosition: new Set(),
   statsSortDirection: "asc",
   statsSortKey: "rank",
@@ -430,13 +431,13 @@ function openProfile(id, source = "big-board", updateUrl = true) {
   const strengths = values(prospect, "strength");
   const weaknesses = values(prospect, "weakness");
   const positions = prospectPositions(prospect).join("/");
-  const production = [
+  const production = (state.prospectStatsAvailable ? [
     stat("PTS", prospect.pts),
     stat("REB", prospect.rbs),
     stat("AST", prospect.ast),
     stat("STL", prospect.stls),
     stat("BLK", prospect.blks),
-  ].filter(Boolean);
+  ] : []).filter(Boolean);
   elements.dialogContent.innerHTML = `
     <section class="profile-hero">
       <div class="profile-copy">
@@ -899,6 +900,7 @@ async function refreshLeagueSite() {
     state.boards = draft.boards;
     state.canBrowseAllDraftClasses = draft.canBrowseAll === true;
     state.draftSeasonNumber = draft.seasonNumber;
+    state.prospectStatsAvailable = draft.prospectStatsAvailable === true;
     if (elements.dialog.open) closeProfile();
     await loadDraftClass();
   }
@@ -1313,7 +1315,7 @@ async function loadDraftClass(selection) {
   renderClassSwitcher();
   const early = !!classEntry('top-ten', state.classLabel);
   const full = !!classEntry('big-board', state.classLabel);
-  for (const [id, visible] of [['early-top-ten', early], ['big-board', full], ['draft-stats', full]]) {
+  for (const [id, visible] of [['early-top-ten', early], ['big-board', full], ['draft-stats', full && state.prospectStatsAvailable]]) {
     document.getElementById(id).hidden = !visible;
     document.querySelectorAll(`a[href="#${id}"]`).forEach(link => { link.hidden = !visible; });
   }
@@ -1367,6 +1369,7 @@ async function initialize() {
     state.boards = draftPayload.boards;
     state.canBrowseAllDraftClasses = draftPayload.canBrowseAll === true;
     state.draftSeasonNumber = draftPayload.seasonNumber;
+    state.prospectStatsAvailable = draftPayload.prospectStatsAvailable === true;
     const currentUrl = new URL(window.location.href);
     const requestedClass = currentUrl.searchParams.get("class");
     await loadDraftClass(requestedClass);
@@ -1592,6 +1595,7 @@ elements.adminKeySave.addEventListener("click", async () => {
     state.boards = draft.boards;
     state.canBrowseAllDraftClasses = draft.canBrowseAll === true;
     state.draftSeasonNumber = draft.seasonNumber;
+    state.prospectStatsAvailable = draft.prospectStatsAvailable === true;
     await loadDraftClass();
     await loadAdminPanels();
     if (hasAdminAccess()) await loadAdminWorkflow();
@@ -1838,7 +1842,7 @@ async function refreshStandings() {
   const label = document.querySelector('#standings-week'), container = document.querySelector('#standings-tables');
   try {
     const data = await requestJson('/api/league/standings');
-    label.textContent = `${data.publishedThroughWeek ? 'Through Week ' + data.publishedThroughWeek : 'Awaiting first week advancement'} · ${data.countedGames} published games`;
+    label.textContent = `${data.publishedThroughWeek ? 'Through Week ' + data.publishedThroughWeek : 'Awaiting first week advancement'} · ${data.countedGames} published games${data.unresolvedTies?.length ? ' · Complete ties await the playoff seeding draw' : ''}`;
     container.innerHTML = ['East', 'West'].map(conference => `<section class="admin-panel"><h3>${conference === 'East' ? 'EASTERN' : 'WESTERN'} CONFERENCE</h3><div class="standings-scroll"><table class="standings-table"><thead><tr>${['Rank', 'Team', 'GP', 'W', 'L', 'PCT', 'PF', 'PA', 'DIFF'].map(h => `<th scope="col">${h}</th>`).join('')}</tr></thead><tbody>${data.conferences[conference].map(team => `<tr><td>${team.rank}</td><td><button type="button" data-standings-team="${escapeHtml(team.teamId)}">${teamLogoMarkup(team.teamName)}${escapeHtml(team.teamName)}</button></td>${['GP', 'W', 'L', 'PCT', 'PF', 'PA', 'DIFF'].map(k => `<td>${k === 'PCT' ? team.PCT.toFixed(3).replace(/^0\./, '.') : k === 'DIFF' && team.DIFF > 0 ? '+' + team.DIFF : team[k]}</td>`).join('')}</tr>`).join('')}</tbody></table></div></section>`).join('');
   } catch (error) {
     label.textContent = container.children.length ? `Could not reload: ${error.message}. Showing previously loaded standings.` : error.message;

@@ -19,7 +19,7 @@ function scoutingCard(info) {
         prospect.stls != null ? `${prospect.stls} SPG` : null,
         prospect.blks != null ? `${prospect.blks} BPG` : null,
     ].filter(Boolean).join(' · ');
-    if (stats) embed.addFields({ name: 'Production', value: stats });
+    if (info.prospectStatsAvailable === true && stats) embed.addFields({ name: 'Production', value: stats });
     const strengths = [prospect.strength_1, prospect.strength_2, prospect.strength_3].filter(Boolean).join('\n');
     const weaknesses = [prospect.weakness_1, prospect.weakness_2, prospect.weakness_3].filter(Boolean).join('\n');
     if (strengths) embed.addFields({ name: 'Strengths', value: strengths, inline: true });

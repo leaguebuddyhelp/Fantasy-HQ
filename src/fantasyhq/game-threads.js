@@ -4,7 +4,7 @@ const { gamePayload } = require('./discord-game-submissions');
 const locks = new Map();
 const HOURS_48 = 48 * 60 * 60 * 1000;
 function threadName(week, a, b) { return `W${week} • ${a} vs ${b}`.slice(0, 100); }
-function createGameThreadService({ submissions = createGameSubmissionService(), syncOwners = guild => require('./role-ownership').roleOwnership.sync(guild), now = () => new Date(), logger = console } = {}) {
+function createGameThreadService({ submissions = createGameSubmissionService(), syncOwners = guild => require('./role-ownership').roleOwnership.sync(guild), now = () => new Date(), logger = console, onCreated = null } = {}) {
     const repository = submissions.repository;
     function context(guildId) { return repository.loadLeagueContext({ guildId }); }
     function active(guildId) { const c = context(guildId); if (c.league.currentPhase !== 'REGULAR_SEASON') throw Error('League must be in REGULAR_SEASON.'); const schedule = repository.loadSchedule(c.league.leagueId, c.seasonId); const weeks = schedule.weeks.filter(w => w.status === 'ACTIVE'); if (weeks.length !== 1 || weeks[0].week !== c.league.currentWeek) throw Error('Exactly one current ACTIVE week is required.'); return { ...c, schedule, week: weeks[0] }; }
@@ -72,6 +72,8 @@ function createGameThreadService({ submissions = createGameSubmissionService(), 
                 if (message) await message.edit(gamePayload(fresh, require("./game-activity").activityView(submissions.load(game.gameId)))); else { message = await thread.send({ ...gamePayload(fresh, require("./game-activity").activityView(submissions.load(game.gameId))), allowedMentions: { parse: [], roles: [...new Set([...teamRoleIds, ...(fresh.staffRoleIds || [])])] } }); await submissions.setMessage(game.gameId, message.id); }
             } catch (error) { result.failed++; result.errors.push({ gameId: record?.game.gameId, team1Id: match.team1Id, message: error.message }); logger.error('Game thread creation:', match.team1Id, error.message); if (record) await submissions.mutate(record.game.gameId, r => { r.game.threadError = error.message; }); }
         }
+        if (onCreated) try { await onCreated({ guild, leagueId: c.league.leagueId, result }); }
+        catch (error) { result.announcementError = error.message; logger.error('Weekly announcement:', error.message); }
         return result;
     }
     async function syncAccess(guild, { owners, staffUserIds = [], staffRoleIds = [] } = {}) {

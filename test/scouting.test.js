@@ -131,3 +131,21 @@ test('scouting closes before season start and after rollover, with no offseason 
     assert.equal(f.service.inspect('guild', 'coach-a', 1).scoutingAvailable, false);
     assert.throws(() => f.service.scout('guild', 'coach-a', 1), /active regular-season week/);
 });
+
+
+test('Discord scouting exposes production only during offseason and draft without changing internal board data',t=>{
+ const f=fixture(t),file=path.join(f.draftClassDir,'2k27_CUS01 - Big Board.json');
+ const board=JSON.parse(fs.readFileSync(file,'utf8'));Object.assign(board['1'],{pts:22,rbs:6,ast:7,stls:2,blks:1});fs.writeFileSync(file,JSON.stringify(board));
+ for(const phase of ['REGULAR_SEASON','PLAYOFFS','OFFSEASON','DRAFT','FREE_AGENCY']){
+  f.repository.saveLeague('league',{currentPhase:phase});const available=['OFFSEASON','DRAFT'].includes(phase);
+  const info=f.service.inspect('guild','coach',1),page=f.service.boardPage('guild','coach',0);
+  assert.equal(info.prospectStatsAvailable,available);assert.equal(page.prospects[0].prospectStatsAvailable,available);
+  for(const field of ['pts','rbs','ast','stls','blks']){
+   assert.equal(info.prospect[field],available?board['1'][field]:undefined);
+   assert.equal(page.prospects[0].prospect[field],available?board['1'][field]:undefined);
+  }
+  assert.equal(f.service.boardForContext(f.service.contextFor('guild')).prospects[0].pts,22);
+  const fields=require('../src/fantasyhq/discord-scouting').scoutingCard(info).embeds[0].data.fields;
+  assert.equal(fields.some(field=>field.name==='Production'),available);
+ }
+});

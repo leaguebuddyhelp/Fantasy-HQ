@@ -30,7 +30,8 @@ test('website replaces draft class tabs with a season label and ignores stale cl
         assert.equal(await page.locator('#big-board-class-label').textContent(), `2k27_CUS0${season}`);
         assert.equal(await page.locator('#early-top-ten').isVisible(), board === 'top-ten');
         assert.equal(await page.locator('#big-board').isVisible(), board === 'big-board');
-        assert.equal(await page.locator('#draft-stats').isVisible(), board === 'big-board');
+        assert.equal(await page.locator('#draft-stats').isVisible(), false); // Stats stay closed until offseason/draft access is confirmed.
+        assert.equal(await page.locator('a[href="#draft-stats"]').evaluate(el => el.hidden), true);
         assert.equal(await page.locator('a[href="#early-top-ten"]').isVisible(), false); // dropdown stays collapsed
         assert.equal(await page.locator('a[href="#early-top-ten"]').evaluate(el => el.hidden), board !== 'top-ten');
         assert.equal(await page.locator('a[href="#big-board"]').evaluate(el => el.hidden), board !== 'big-board');
