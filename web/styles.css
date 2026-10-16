@@ -3104,3 +3104,18 @@ body[data-workspace-navigation="true"] #main-content > section { padding-block: 
 }
 
 .nba-player-dialog .league-dialog-close { float: none; display: block; margin: 18px 18px -60px auto; }
+
+
+.league-player-card .card-tags {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  align-items: flex-start;
+}
+.league-player-card .player-build {
+  flex-basis: 100%;
+  white-space: normal;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+.league-player-card .grade-chip { margin-left: 0; }

@@ -577,7 +577,6 @@ function playerCardMarkup(player, rank) {
           <span class="grade-chip">OVR ${overall ?? "—"}</span>
           <span class="grade-chip">AGE ${player.age ?? "—"}</span>
           <span class="grade-chip">TV ${Number(player.tradeValue || 1).toLocaleString("en-US")}</span>
-          ${contractMarkup(player)}
         </div>
       </div>
     </button>`;
