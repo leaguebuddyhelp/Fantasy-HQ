@@ -1,6 +1,6 @@
 const { ChannelType, PermissionFlagsBits: P } = require('discord.js');
 const { ensureLeagueRoles } = require('./discord-roles');
-const CHANNEL_LAYOUT_VERSION = 6;
+const CHANNEL_LAYOUT_VERSION = 7;
 const CHANNELS = [
     ['announcements', 'announcements', 'publicRead', 'League announcements, deadlines and important updates.'],
     ['news', 'news', 'publicRead', 'Staff-approved league journalism, verified reports and recorded corrections.'],
@@ -53,8 +53,8 @@ function createChannelSetupService(repository = require('./repository').createFa
                 ...staff.map(id => ({ id, allow: write })),
                 ...(!['staff', 'committee'].includes(access) ? [coach, gm].map(id => ({
                     id,
-                    allow: ['chat', 'trade'].includes(access) ? write : access === 'games' ? [P.ViewChannel, P.ReadMessageHistory, P.SendMessagesInThreads, P.AttachFiles, P.EmbedLinks] : (access === 'activity' || key === 'news') ? [P.ViewChannel, P.ReadMessageHistory, P.AddReactions] : [P.ViewChannel, P.ReadMessageHistory],
-                    ...(feed ? { deny: noPosting.filter(p => access !== 'games' || p !== P.SendMessagesInThreads) } : {}),
+                    allow: ['chat', 'trade'].includes(access) ? write : ['games', 'block'].includes(access) ? [P.ViewChannel, P.ReadMessageHistory, P.SendMessagesInThreads, P.AttachFiles, P.EmbedLinks] : (access === 'activity' || key === 'news') ? [P.ViewChannel, P.ReadMessageHistory, P.AddReactions] : [P.ViewChannel, P.ReadMessageHistory],
+                    ...(feed ? { deny: noPosting.filter(p => !['games', 'block'].includes(access) || p !== P.SendMessagesInThreads) } : {}),
                 })) : []),
                 ...(access === 'committee' ? [{ id: committee, allow: write }] : []),
             ];

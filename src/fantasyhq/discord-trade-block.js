@@ -1,8 +1,18 @@
-const { ChannelType } = require('discord.js');
+const { ChannelType, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } = require('discord.js');
 const { nbaPlayerCard } = require('../shared/discord-player-card');
 const { requireLeagueStaff } = require('./discord-permissions');
 
-function createDiscordTradeBlock({ repository, playerService }) {
+function createDiscordTradeBlock({ repository, playerService, tradeWorkflow }) {
+    function tradeForComponents() {
+        return [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('tradeblock:tradefor').setLabel('Trade for').setStyle(ButtonStyle.Primary))];
+    }
+    async function handleTradeForButton(interaction) {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        const ctx = context(interaction.guildId);
+        const entry = load(ctx.leagueId).entries.find(item => item.messageId === interaction.message.id && item.threadId === interaction.channelId);
+        if (!entry) throw Error('This player is no longer listed on the trade block.');
+        await tradeWorkflow.startForPlayer(interaction, { playerId: entry.playerId, teamId: entry.teamId });
+    }
     function context(guildId) {
         const ctx = repository.loadLeagueContext({ guildId });
         return { ...ctx, leagueId: ctx.league.leagueId };
@@ -54,9 +64,9 @@ function createDiscordTradeBlock({ repository, playerService }) {
         const roles = await interaction.guild.roles.fetch();
         const coachRole = [...roles.values()].find(role => !role.managed && role.name.trim().toLowerCase() === 'leaguebuddy coach');
         const card = nbaPlayerCard(player, `${team.teamName} Trade Block · added by ${interaction.member?.displayName || interaction.user.username}`);
-        const message = await thread.send({ ...card, content: `${coachRole ? `<@&${coachRole.id}> ` : ''}**${team.teamName}** put **${player.name}** on the trade block.`, allowedMentions: { parse: [], roles: coachRole ? [coachRole.id] : [] } });
+        const message = await thread.send({ ...card, components: tradeForComponents(), content: `${coachRole ? `<@&${coachRole.id}> ` : ''}**${team.teamName}** put **${player.name}** on the trade block.`, allowedMentions: { parse: [], roles: coachRole ? [coachRole.id] : [] } });
         const fresh = load(ctx.leagueId);
-        fresh.entries.push({ teamId: team.teamId, playerId: player.playerId, messageId: message.id, threadId: thread.id, addedBy: interaction.user.id, addedAt: new Date().toISOString() });
+        fresh.entries.push({ teamId: team.teamId, playerId: player.playerId, messageId: message.id, threadId: thread.id, addedBy: interaction.user.id, addedAt: new Date().toISOString(), tradeForButtonVersion: 1 });
         save(ctx.leagueId, fresh);
         await interaction.editReply({ content: `${player.name} added to the ${team.teamName} trade block: <#${thread.id}>`, allowedMentions: { parse: [] } });
     }
@@ -100,12 +110,22 @@ function createDiscordTradeBlock({ repository, playerService }) {
             const entries = load(ctx.leagueId).entries;
             if (!entries.length) continue;
             const current = new Map(playerService.listPlayers(ctx.leagueId, ctx.seasonId).map(player => [player.playerId, player.teamId]));
-            for (const entry of entries.filter(item => current.get(item.playerId) !== item.teamId)) {
-                try { await dropEntry(guild, ctx.leagueId, entry); } catch (error) { console.error('Trade block cleanup:', error.message); }
+            for (const entry of entries) {
+                try {
+                    if (current.get(entry.playerId) !== entry.teamId) await dropEntry(guild, ctx.leagueId, entry);
+                    else if (entry.tradeForButtonVersion !== 1) {
+                        const thread = await guild.channels.fetch(entry.threadId);
+                        const message = await thread.messages.fetch(entry.messageId);
+                        await message.edit({ components: tradeForComponents() });
+                        const fresh = load(ctx.leagueId);
+                        const saved = fresh.entries.find(item => item.messageId === entry.messageId && item.threadId === entry.threadId);
+                        if (saved) { saved.tradeForButtonVersion = 1; save(ctx.leagueId, fresh); }
+                    }
+                } catch (error) { console.error('Trade block cleanup:', error.message); }
             }
         }
     }
     function tick(client) { if (!running) running = sweep(client).finally(() => { running = null; }); return running; }
-    return { handleTradeBlockCommand, handleTradeBlockAutocomplete, tick };
+    return { handleTradeForButton, handleTradeBlockCommand, handleTradeBlockAutocomplete, tick };
 }
 module.exports = { createDiscordTradeBlock };

@@ -270,3 +270,27 @@ test('pending trade packages use private participant rooms and never the shared 
         } else assert.match(click.followup.content, /not a private thread/);
     }
 });
+
+
+test('Trade for privately seeds a draft with the listed player going to the clicking coach', async t => {
+ const f=fixture(t),i=f.interaction('tradeblock:tradefor');
+ i.deferReply=async payload=>{i.deferred=true;i.ack=payload;};
+ i.editReply=async payload=>{i.payload=payload;};
+ await f.workflow.startForPlayer(i,{playerId:'bravo-player-0',teamId:'bravo'});
+ assert.equal(i.ack.flags,64);
+ const [draft]=f.repository.loadTrades('league');
+ assert.equal(draft.status,'DRAFT');assert.equal(draft.initiatingUserId,'coach-alpha');
+ assert.deepEqual(draft.participatingTeams,['alpha','bravo']);
+ assert.deepEqual(draft.transfers,[{assetType:'PLAYER',assetId:'bravo-player-0',fromTeamId:'bravo',toTeamId:'alpha'}]);
+ assert.equal(i.payload.embeds[0].data.title,'Build a Trade');
+ assert.match(JSON.stringify(i.payload.embeds[0].toJSON()),/bravo team player 0/);
+});
+
+test('Trade for rejects own players, moved players, and unassigned coaches without creating a draft', async t => {
+ const f=fixture(t);
+ const make=opts=>{const i=f.interaction('tradeblock:tradefor',opts);i.deferReply=async()=>{i.deferred=true;};i.editReply=async()=>assert.fail('Rejected click must not show a builder');return i;};
+ await assert.rejects(()=>f.workflow.startForPlayer(make(),{playerId:'alpha-player-0',teamId:'alpha'}),/own team/);
+ await assert.rejects(()=>f.workflow.startForPlayer(make(),{playerId:'charlie-player-0',teamId:'bravo'}),/no longer on/);
+ await assert.rejects(()=>f.workflow.startForPlayer(make({roles:['coach']}),{playerId:'bravo-player-0',teamId:'bravo'}),/team role/);
+ assert.equal(f.repository.loadTrades('league').length,0);
+});

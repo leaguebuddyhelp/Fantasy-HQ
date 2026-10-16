@@ -231,6 +231,20 @@ function createDiscordTradeWorkflow(options = {}) {
         await ephemeral(interaction, payload);
     }
 
+    async function startForPlayer(interaction, { playerId, teamId }) {
+        if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        const context = repository.loadLeagueContext({ guildId: interaction.guildId });
+        const settings = settingsFor(context.league.leagueId);
+        const initiatorId = privateTeamId(interaction, context, settings);
+        if (!initiatorId) throw Error('Use your assigned team to trade for a listed player.');
+        if (initiatorId === teamId) throw Error('That player is on your own team. Choose another team’s trade block.');
+        const player = tradeService.getLiveSnapshot(context.league.leagueId, context.seasonId).players.find(p => p.playerId === playerId);
+        if (!player || player.teamId !== teamId) throw Error('That player is no longer on the listed team. Refresh the trade block.');
+        const draft = tradeService.createDraft({ leagueId: context.league.leagueId, seasonId: context.seasonId, initiatingUserId: interaction.user.id, initiatingTeamId: initiatorId, secondTeamId: teamId });
+        tradeService.updateDraft({ leagueId: draft.leagueId, tradeId: draft.tradeId, actorUserId: interaction.user.id, transfers: [{ assetType: 'PLAYER', assetId: playerId, fromTeamId: teamId, toTeamId: initiatorId }] });
+        await interaction.editReply(builderPayload(tradeService.getTrade(draft.leagueId, draft.tradeId)));
+    }
+
     function sourcePayload(trade, kind) {
         const context = repository.loadLeague(trade.leagueId, trade.seasonId);
         const options = trade.participatingTeams.map(teamId => new ButtonBuilder()
@@ -892,7 +906,7 @@ function createDiscordTradeWorkflow(options = {}) {
         live.set(client, timer);
     }
 
-    return { ensurePins, handleProofMessage, handleTradeInteraction, reconcile, refreshTradeCounts, restore, tradeService };
+    return { startForPlayer, ensurePins, handleProofMessage, handleTradeInteraction, reconcile, refreshTradeCounts, restore, tradeService };
 }
 
 module.exports = { createDiscordTradeWorkflow };

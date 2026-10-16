@@ -139,7 +139,7 @@ const discordPlayerStats = require("./fantasyhq/discord-player-stats").createDis
   playerService: require("./fantasyhq/player-service").createPlayerService({ repository: discordStatsRepository }),
   statsService: require("./fantasyhq/player-stats-service").createPlayerStatsService({ repository: discordStatsRepository, publishedOnly: true }),
 });
-const discordTradeBlock = require("./fantasyhq/discord-trade-block").createDiscordTradeBlock({ repository: discordStatsRepository, playerService: require("./fantasyhq/player-service").createPlayerService({ repository: discordStatsRepository }) });
+const discordTradeBlock = require("./fantasyhq/discord-trade-block").createDiscordTradeBlock({ repository: discordStatsRepository, tradeWorkflow: discordTrades, playerService: require("./fantasyhq/player-service").createPlayerService({ repository: discordStatsRepository }) });
 const discordTeamStatsRepository = require("./fantasyhq/repository").createFantasyHQRepository();
 const discordTeamStats = require("./fantasyhq/discord-team-stats").createDiscordTeamStatsHandlers({
   repository: discordTeamStatsRepository,
@@ -931,6 +931,7 @@ async function handleInteraction(interaction) {
   if ((interaction.isButton() || interaction.isStringSelectMenu() || interaction.isModalSubmit()) && interaction.customId.startsWith('offfa:')) { await require('./fantasyhq/discord-offseason-free-agency').createDiscordOffseasonFreeAgency({ repository: tradeRepository }).handle(interaction); return; }
   if ((interaction.isButton() || interaction.isStringSelectMenu() || interaction.isModalSubmit()) && interaction.customId.startsWith('fa:')) { await discordFreeAgency.handle(interaction); return; }
   if ((interaction.isButton() || interaction.isStringSelectMenu() || interaction.isModalSubmit()) && interaction.customId.startsWith('mock:')) { await discordMocks.handle(interaction); return; }
+  if (interaction.isButton() && interaction.customId === "tradeblock:tradefor") { await discordTradeBlock.handleTradeForButton(interaction); return; }
   if ((interaction.isButton() || interaction.isStringSelectMenu()) && interaction.customId.startsWith("trade:")) { await discordTrades.handleTradeInteraction(interaction); return; }
   if (interaction.isButton() && /^(cleanupconfirm|cleanupcancel):/.test(interaction.customId)) { await require("./fantasyhq/discord-game-cleanup").handleCleanupButton(interaction, gameCleanup); return; }
   if (interaction.isButton() && interaction.customId.startsWith("gamerecreate:")) { await require("./fantasyhq/discord-game-threads").handleGameThreadsButton(interaction, gameThreads, gameCleanup); return; }
