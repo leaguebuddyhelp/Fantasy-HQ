@@ -65,14 +65,13 @@ roleOwnership.setOwnerChangeHandler(async change => {
   try { await discordLeagueFeeds.ensureAvailableTeams(guild, change.leagueId); }
   catch (error) { console.error('Available teams ownership refresh:', error.message); }
   await gameThreads.syncAccess(guild, change);
-  if (change.phase === 'REGULAR_SEASON' && tradeRepository.loadLeague(change.leagueId).league.regularSeasonStatus !== 'COMPLETED') setImmediate(() => gameThreads.create(guild).catch(error => console.error('Owner-change thread repair:', error.message)));
 });
 const gameApprovals = require("./fantasyhq/discord-game-approvals").createDiscordGameApprovals({ submissions: gameRecordStore });
 const discordPostseason = require('./fantasyhq/discord-postseason').createDiscordPostseason({submissions:gameRecordStore});
 gameRecordStore.setFinalizationHandler(record => {
   if(record.game.seriesId) {
     discordPostseason.service.synchronize(record.game.leagueId);
-    setImmediate(async()=>{try {const guild=await client.guilds.fetch(record.game.guildId);if(tradeRepository.loadLeague(record.game.leagueId).league.currentPhase==='PLAYOFFS')await discordPostseason.createThreads(guild);else await discordPostseason.refreshPin(guild);await require('./fantasyhq/discord-postseason-stats').createDiscordPostseasonStats({repository:tradeRepository}).ensurePin(guild,record.game.leagueId);}catch(error){console.error('Postseason follow-up:',error.message);}});
+    setImmediate(async()=>{try {const guild=await client.guilds.fetch(record.game.guildId);await discordPostseason.refreshPin(guild);await require('./fantasyhq/discord-postseason-stats').createDiscordPostseasonStats({repository:tradeRepository}).ensurePin(guild,record.game.leagueId);}catch(error){console.error('Postseason follow-up:',error.message);}});
   }
   setImmediate(() => { try { require('./fantasyhq/sportsbook-service').createSportsbookService({repository:tradeRepository,submissions:gameRecordStore}).settle(record.game.leagueId); } catch(error) { console.error('Sportsbook game settlement:',error.message); } });
   setImmediate(() => { try { require('./fantasyhq/news-service').createNewsService({ repository: tradeRepository, submissions: gameRecordStore }).detect(record.game.leagueId); } catch(error) { console.error('Verified game news:', error.message); } });
@@ -112,7 +111,6 @@ const gameThreads = require("./fantasyhq/game-threads").createGameThreadService(
 let mockSimulations;
 let discordWeeklyDashboard;
 const weekAdvancement = require("./fantasyhq/week-advancement").createWeekAdvancementService({
-  threads: gameThreads,
   onAdvanced: async ({ guild, leagueId }) => {
     try { await require('./fantasyhq/discord-player-of-week').createDiscordPlayerOfWeek({ repository: tradeRepository, submissions: gameRecordStore }).reconcile(guild, leagueId); }
     catch (error) { console.error('Player of the Week publication:', error.message); }
@@ -127,8 +125,8 @@ const weekAdvancement = require("./fantasyhq/week-advancement").createWeekAdvanc
   },
 });
 const gameCleanup = require("./fantasyhq/game-thread-cleanup").createGameThreadCleanupService({ submissions: gameRecordStore });
-discordWeeklyDashboard = require('./fantasyhq/discord-weekly-dashboard').createDiscordWeeklyDashboard({ repository: tradeRepository, weekService: weekAdvancement, cleanupService: gameCleanup, threadService: gameThreads });
-require("./web").setGameThreadRuntime({ client, service: gameThreads, repository: gameThreads.repository, weekService: weekAdvancement, cleanupService: gameCleanup, threadService: gameThreads });
+discordWeeklyDashboard = require('./fantasyhq/discord-weekly-dashboard').createDiscordWeeklyDashboard({ repository: tradeRepository, weekService: weekAdvancement, cleanupService: gameCleanup });
+require("./web").setGameThreadRuntime({ client, service: gameThreads, repository: gameThreads.repository, weekService: weekAdvancement, cleanupService: gameCleanup });
 const scoutingService = require("./fantasyhq/scouting-service").createScoutingService({ repository: require("./fantasyhq/repository").createFantasyHQRepository() });
 const scoutingCommands = require("./fantasyhq/discord-scouting");
 mockSimulations = require('./fantasyhq/mock-simulations').createMockSimulationService({ repository: tradeRepository, scoutingService });
@@ -783,7 +781,7 @@ const handlers = {
   week: interaction => require("./fantasyhq/discord-week").handleWeekCommand(interaction, weekAdvancement),
   availableteams: interaction => require("./fantasyhq/discord-available-teams").handleAvailableTeams(interaction, { repository: tradeRepository, ownership: roleOwnership, feeds: discordLeagueFeeds }),
   standings: interaction => require("./fantasyhq/discord-standings").handleStandings(interaction),
-  games: interaction => interaction.options.getSubcommand() === "cleanup" ? require("./fantasyhq/discord-game-cleanup").handleCleanupCommand(interaction, gameCleanup) : require("./fantasyhq/discord-game-threads").handleGameThreads(interaction, gameThreads, gameCleanup),
+  games: interaction => interaction.options.getSubcommand() === "cleanup" ? require("./fantasyhq/discord-game-cleanup").handleCleanupCommand(interaction, gameCleanup) : require("./fantasyhq/discord-game-threads").handleGameThreads(interaction, gameThreads, gameCleanup, discordPostseason),
   game: gameSubmissions.setup,
   myteam: handleMyTeamCommand,
   freeagents: handleFreeAgentsCommand,
@@ -887,7 +885,6 @@ client.once(Events.ClientReady, async (readyClient) => {
         const binding = tradeRepository.loadGuildLeagueBinding(guild.id);
         if (!binding) continue;
         for (const [name, operation] of [
-          ['Game threads', () => gameThreads.reconcile(guild)],
           ['Weekly awards', () => manager.reconcile(guild, binding.leagueId)],
           ['Streams', () => require('./fantasyhq/discord-streams').createDiscordStreams({ repository: tradeRepository, submissions: gameRecordStore }).reconcile(guild, binding.leagueId)],
           ['Sportsbook announcement', () => require('./fantasyhq/discord-sportsbook').createDiscordSportsbook({repository:tradeRepository,submissions:gameRecordStore}).reconcile(guild,binding.leagueId)],

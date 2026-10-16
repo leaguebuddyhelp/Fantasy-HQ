@@ -48,3 +48,11 @@ test('unauthorized Discord postseason controls do not mutate state',async t=>{
   await f.manager.handle({guildId:'g',user:{id:'coach'},member:{roles:[]},guild:{roles:{cache:new Map()}},customId:'post:advance',reply:async p=>response=p});
   assert.match(response.content,/Commish|Manage Server/);assert.equal(f.manager.service.inspect('l').revision,old);
 });
+
+test('postseason refresh never creates threads; only games create invokes creation',async t=>{
+ const f=fixture(t);let reply;
+ await f.manager.handle({guildId:'g',guild:f.guild,customId:'post:refresh',user:{id:'c'},memberPermissions:{has:()=>true},deferReply:async function(){this.deferred=true;},editReply:async p=>reply=p});
+ assert.equal(f.created(),0);assert.equal(f.submissions.records().length,0);assert.match(reply.embeds[0].data.description,/\/games create/);
+ await require('../src/fantasyhq/discord-game-threads').handleGameThreads({guildId:'g',guild:f.guild,user:{id:'c'},memberPermissions:{has:()=>true},editReply:async p=>reply=p},{repository:f.repository},null,f.manager);
+ assert.equal(f.created(),4);assert.equal(f.submissions.records().length,4);assert.match(reply.content,/Postseason game threads created/);
+});

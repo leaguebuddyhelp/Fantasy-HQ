@@ -91,16 +91,6 @@ function createGameThreadService({ submissions = createGameSubmissionService(), 
         catch (error) { result.announcementError = error.message; logger.error('Weekly announcement:', error.message); }
         return result;
     }
-    async function reconcile(guild) {
-        const c = context(guild.id);
-        if (c.league.currentPhase !== 'REGULAR_SEASON' || c.league.regularSeasonStatus === 'COMPLETED' || repository.loadSettings(c.league.leagueId)?.simulationId) return { skipped: true };
-        const live = active(guild.id), records = submissions.records();
-        const needsRepair = live.week.games.some(match => {
-            const record = records.find(r => r.game.leagueId === c.league.leagueId && r.game.seasonId === c.seasonId && r.game.weekId === live.week.weekId && r.game.team1Id === match.team1Id && r.game.team2Id === match.team2Id);
-            return !record || (!record.game.discordThreadCleanedAt && (!record.game.discordThreadId || !record.game.discordMessageId || record.game.threadError));
-        });
-        return needsRepair ? create(guild) : { skipped: true };
-    }
     async function syncAccess(guild, { owners, staffUserIds = [], staffRoleIds = [] } = {}) {
         const c = context(guild.id); owners ||= repository.loadOwners(c.league.leagueId);
         const errors = [];
@@ -121,6 +111,6 @@ function createGameThreadService({ submissions = createGameSubmissionService(), 
         }
         if (errors.length) throw Error(`${errors.length} private thread access repairs failed. Inspect game threadAccessError and retry ownership sync.`);
     }
-    return { reconcile, syncAccess, configure, create, status, reopenCleanedWeek, repository, configuration: guildId => ({ gamesChannelId: repository.loadSettings(context(guildId).league.leagueId)?.gamesChannelId || null }) };
+    return { syncAccess, configure, create, status, reopenCleanedWeek, repository, configuration: guildId => ({ gamesChannelId: repository.loadSettings(context(guildId).league.leagueId)?.gamesChannelId || null }) };
 }
 module.exports = { createGameThreadService, threadName, HOURS_48 };

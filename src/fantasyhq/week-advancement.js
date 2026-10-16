@@ -1,6 +1,6 @@
 const { randomUUID } = require('crypto');
 const confirmations = new Map(), jobs = new Map();
-function createWeekAdvancementService({ submissions = require('./game-submissions').createGameSubmissionService(), threads, now = () => Date.now(), onAdvanced = null } = {}) {
+function createWeekAdvancementService({ submissions = require('./game-submissions').createGameSubmissionService(), now = () => Date.now(), onAdvanced = null } = {}) {
   const repository = submissions.repository;
   function authorize(actor) { if (!actor?.authorized || !actor.id) throw Error('Commissioner authorization required.'); }
   function inspect(guildId) {
@@ -50,7 +50,6 @@ function createWeekAdvancementService({ submissions = require('./game-submission
     require('./storage-safety').createStorageBackup(repository.dataRoot, { label: `before-week-${view.week}-advance` });
     const weeklyAward = require('./player-of-week').createPlayerOfWeekService({ repository, submissions, now }).prepareWeek(leagueId, view.seasonId, view.week, schedule);
     repository.commitWeekTransition({ leagueId, expectedWeek: view.week, schedule, league, awards: weeklyAward?.awards || null, auditEntry: { action: 'week.advanced', userId: actor.id, commissionerUserId: actor.commissionerUserId || null, operator: actor.operator || actor.id, timestamp, week: view.week, force: c.force, unresolved: view.unresolved, requestId: token, result } });
-    if (next) { try { result.threads = await threads.create(guild); result.deadlineAt = result.threads.deadlineAt || null; } catch (error) { result.threadError = error.message; } }
     if (onAdvanced) {
       try { await onAdvanced({ guild, leagueId, seasonId: view.seasonId, result }); }
       catch (error) { console.error('Week advancement follow-up failed:', error.message); }

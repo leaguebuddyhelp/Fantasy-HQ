@@ -12,13 +12,12 @@ function weeklyAnnouncement({context,week,markets,settings,guildId}) {
  const specials=markets.filter(m=>m.specialId);
  const deadline=Number.isFinite(Date.parse(week.deadlineAt))?`<t:${Math.floor(Date.parse(week.deadlineAt)/1000)}:F> (<t:${Math.floor(Date.parse(week.deadlineAt)/1000)}:R>)`:'Countdown starts when game threads are created.';
  const embed=new EmbedBuilder().setTitle(`🏀 WEEK ${week.week} · LEAGUE UPDATE`).setColor(0xffdc21)
-  .setDescription(`**${week.games.length} games · 48-hour game window**\n**Deadline:** ${deadline}\n**Byes:** ${(week.byes||[]).map(name).join(', ')||'None'}\n\nArrange your game in its private thread, set the 2K game date, and submit both teams’ box scores. The home team must stream. Stats and standings publish when the week advances.`)
-  .addFields({name:'This week’s matchups',value:week.games.map(g=>`${name(g.team1Id)} vs ${name(g.team2Id)}`).join('\n').slice(0,1024)||'No games scheduled.'},
-   {name:'🎟️ Betting',value:`${new Set(markets.map(m=>m.gameId)).size} games with open markets · Straight bets $1–$50 · Parlays $1–$25 (up to five selections).\nFictional league dollars only. No betting on your own team or players. Lines close when a game’s Streamlink is submitted. Your slip, wallet and bet history stay private.`},
+  .setDescription(`**${week.games.length} games · 48-hour game window**\n**Deadline:** ${deadline}\n**Byes:** ${(week.byes||[]).map(bye=>typeof bye==='string'?name(bye):names.get(bye.teamId)||bye.teamName||bye.teamId||'Unknown team').join(', ')||'None'}\n\nSchedule your game in its thread, set the 2K date, and upload both box scores. Home team streams. Stats and standings publish at week advancement.`)
+  .addFields({name:'🎟️ Betting',value:`${new Set(markets.map(m=>m.gameId)).size} games open · $1–$50 straight bets · $1–$25 parlays (up to 5 legs).\nBetting closes at Streamlink submission. No bets on your own team or players. League dollars only · Private slips and wallets.`},
    {name:'🔥 Weekly special wagers',value:specials.slice(0,5).map(m=>{
     const selection=m.playerName?`${m.playerName} · ${m.threshold!=null?m.threshold+'+':m.selection+' '+m.line} ${m.kind.replace('PROP_','')}`:name(m.selection)+' to win';
-    return `**${m.specialName||'Weekly Special'}** · ${selection} · **${odds(m.odds)}**\n${m.teamIds.map(name).join(' vs ')}`;
-   }).join('\n\n').slice(0,1024)||'No supported special wagers are open yet. Check back as verified game data becomes available.'})
+    return `**${m.specialName||'Weekly Special'}** · ${selection} · **${odds(m.odds)}**`;
+   }).join('\n').slice(0,1024)||'No special wagers are currently open.'})
   .setFooter({text:'SPORTSBOOK:'+context.league.leagueId+':'+context.seasonId+':W'+week.week});
  const components=[row(button('book:open','🎟️ Place a bet').setDisabled(!markets.length),button('book:specials','🔥 Special wagers').setDisabled(!specials.length),button('book:wallet:0','💵 Wallet & bets'))];
  if(settings.gamesChannelId)components.push(row(new ButtonBuilder().setLabel('Games').setStyle(ButtonStyle.Link).setURL(`https://discord.com/channels/${guildId}/${settings.gamesChannelId}`)));

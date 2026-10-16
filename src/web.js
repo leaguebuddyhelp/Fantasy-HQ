@@ -564,11 +564,7 @@ function unsafeRequestHandler(request, response) {
             repository.appendAuditLog(context.league.leagueId, { action: 'website.games-channel.configured', userId, operator, leagueId: context.league.leagueId, timestamp: new Date().toISOString(), metadata: { gamesChannelId: result.gamesChannelId } });
             sendJson(response, 200, result);
           }
-          else if (input.action === 'create') {
-            const result = await service.create(guild);
-            repository.appendAuditLog(context.league.leagueId, { action: 'website.game-threads.created', userId, operator, leagueId: context.league.leagueId, timestamp: new Date().toISOString(), metadata: { week: result.week, created: result.created, existing: result.existing, failed: result.failed } });
-            sendJson(response, 200, result);
-          }
+          else if (input.action === 'create') sendJson(response, 410, { error: 'Use /games create in Discord to create or repair game threads.' });
           else throw Error('Unknown action.');
         } else sendJson(response, 405, { error: 'Method not allowed.' });
       } catch (error) { sendJson(response, 400, { error: error.message }); }

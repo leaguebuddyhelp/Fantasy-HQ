@@ -10,8 +10,8 @@ function statusPayload(state) {
   const label = id => Object.values(state.seeds).flat().find(t=>t.teamId===id)?.teamName || id;
   const round=state.rounds.at(-1);
   return {embeds:[new EmbedBuilder().setColor(0xffdc21).setTitle(`${state.roundComplete ? 'ROUND COMPLETE' : 'POSTSEASON'} · ${state.stage.replaceAll('_',' ')}`)
-    .setDescription(`Deadline: <t:${Math.floor(Date.parse(round.deadlineAt)/1000)}:F>\n\n${current.map(s=>`**${label(s.team1Id)} vs ${label(s.team2Id)}** · ${s.wins[s.team1Id]}–${s.wins[s.team2Id]}${s.winnerTeamId?' · Winner: '+label(s.winnerTeamId):''}`).join('\n')}\n\n${state.conflicts.length ? '⚠️ '+state.conflicts.map(c=>c.reason).join('\n') : state.roundComplete ? 'Commissioner confirmation is required to continue.' : 'Only the next game in each series is open.'}`)],
-    components:[new ActionRowBuilder().addComponents(button('post:refresh','Refresh / Repair Threads'),button('post:advance','Review Next Round',ButtonStyle.Primary),button('post:extend','Extend Deadline')),
+    .setDescription(`Deadline: <t:${Math.floor(Date.parse(round.deadlineAt)/1000)}:F>\n\n${current.map(s=>`**${label(s.team1Id)} vs ${label(s.team2Id)}** · ${s.wins[s.team1Id]}–${s.wins[s.team2Id]}${s.winnerTeamId?' · Winner: '+label(s.winnerTeamId):''}`).join('\n')}\n\n${state.conflicts.length ? '⚠️ '+state.conflicts.map(c=>c.reason).join('\n') : state.roundComplete ? 'Commissioner confirmation is required to continue.' : 'Run /games create to open or repair the next games in each series.'}`)],
+    components:[new ActionRowBuilder().addComponents(button('post:refresh','Refresh Status'),button('post:advance','Review Next Round',ButtonStyle.Primary),button('post:extend','Extend Deadline')),
       ...(state.stage==='PLAY_IN'?[new ActionRowBuilder().addComponents(button('post:final:East','Create East Final Play-In'),button('post:final:West','Create West Final Play-In'))]:[]),
       new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId('post:series').setPlaceholder('Manage a matchup').addOptions(current.map(s=>({label:`${label(s.team1Id)} vs ${label(s.team2Id)}`.slice(0,100),value:s.id,description:`${s.wins[s.team1Id]}–${s.wins[s.team2Id]} · ${s.status}`}))))],allowedMentions:{parse:[]}};
 }
@@ -88,7 +88,7 @@ function createDiscordPostseason({submissions,syncOwners=guild=>require('./role-
       else if(action==='advance') {const p=service.prepareAdvance(leagueId,a);await i.editReply({content:`Advance to ${p.nextMatchups[0].stage.replaceAll('_',' ')}?\n${p.nextMatchups.map(s=>s.team1Id+' vs '+s.team2Id).join('\n')}`,components:[new ActionRowBuilder().addComponents(button(`post:advance-confirm:${p.token}`,'Confirm Advance Round',ButtonStyle.Primary))]});return;}
       else if(action==='advance-confirm') {service.advance(leagueId,a,arg);}
       else if(action!=='refresh')throw Error('Unknown postseason control.');
-      await createThreads(i.guild);await i.editReply(statusPayload(service.inspect(leagueId)));
+      await refreshPin(i.guild);await i.editReply(statusPayload(service.inspect(leagueId)));
     }catch(error){if(i.deferred||i.replied)await i.editReply({content:error.message,components:[],embeds:[]});else await i.reply({content:error.message,flags:64});}
   }
   function publishChampion(guild,leagueId,state){const key=repository.dataRoot+':'+leagueId+':'+state.seasonId;if(publishing.has(key))return publishing.get(key);const task=publishChampionOnce(guild,leagueId,state).finally(()=>publishing.delete(key));publishing.set(key,task);return task;}

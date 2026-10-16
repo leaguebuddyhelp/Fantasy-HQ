@@ -7,8 +7,16 @@ function recreatePreviewPayload(preview) {
 function creationPayload(result) {
     return { embeds: [new EmbedBuilder().setColor(result.failed ? 0xe67e22 : 0xffdc21).setTitle(`WEEK ${result.week} GAME THREADS`).setDescription(`${result.created} created · ${result.existing} reused · ${result.failed} failed${result.cleaned ? ` · ${result.cleaned} intentionally cleaned` : ''}\n${result.deadlineAt ? `Deadline: <t:${Math.floor(Date.parse(result.deadlineAt) / 1000)}:F>` : 'Countdown starts after the first thread is created.'}\n\nRun /games create again to repair missing threads without replacing conversations or resetting the clock.${result.failed ? '\n'+result.errors.slice(0,5).map(e=>e.message).join('\n') : ''}${result.announcementError ? '\nWeekly announcement needs retry: '+result.announcementError : ''}`)], components: [], allowedMentions: { parse: [] } };
 }
-async function handleGameThreads(interaction, service, cleanupService) {
+async function handleGameThreads(interaction, service, cleanupService, postseason) {
     const a = actor(interaction);
+    const phase = service.repository.loadLeagueContext({ guildId: interaction.guildId }).league.currentPhase;
+    if (phase === 'PLAYOFFS') {
+        if (!postseason) throw Error('Postseason creation is unavailable. Restart the connected bot.');
+        if (interaction.options?.getBoolean?.('replace') === true) throw Error('Postseason threads are reused by series. Use /games create without replace.');
+        await postseason.createThreads(interaction.guild);
+        await interaction.editReply({ content: 'Postseason game threads created or repaired. Run /games create again when the next games or round are ready.', components: [] });
+        return;
+    }
     if (interaction.options?.getBoolean?.('replace') !== true) {
         const result = await service.create(interaction.guild);
         await interaction.editReply(creationPayload(result));

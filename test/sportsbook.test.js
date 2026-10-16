@@ -135,18 +135,18 @@ test('settlement and original bet history remain available after competition clo
  assert.equal(f.service.mine('league',f.actor).bets[0].status,'WON');
 });
 
-test('weekly announcements include deadline, matchups, byes, exact special odds and betting controls',()=>{
+test('weekly announcements include deadline, resolved byes, exact special odds without matchup lists and betting controls',()=>{
  const {weeklyAnnouncement}=require('../src/fantasyhq/discord-sportsbook');
  const context={league:{leagueId:'league'},seasonId:'1',teams:[{teamId:'a',teamName:'Team A'},{teamId:'b',teamName:'Team B'},{teamId:'c',teamName:'Team C'}]};
- const week={week:2,deadlineAt:'2026-10-20T12:00:00Z',games:[{team1Id:'a',team2Id:'b'}],byes:['c']};
+ const week={week:2,deadlineAt:'2026-10-20T12:00:00Z',games:[{team1Id:'a',team2Id:'b'}],byes:[{teamId:'c',conference:'East'},'a']};
  const markets=[{gameId:'g',specialId:'s',specialName:'⭐ Scoring Special',playerName:'Test Player',kind:'PROP_PTS',threshold:35,odds:230,teamIds:['a','b']}];
  const payload=weeklyAnnouncement({context,week,markets,settings:{gamesChannelId:'games'},guildId:'guild'}),embed=payload.embeds[0].toJSON();
  assert.match(embed.title,/WEEK 2/);assert.match(embed.description,/Team C/);assert.match(embed.description,/<t:\d+:F>/);
- assert.match(embed.fields[0].value,/Team A vs Team B/);assert.match(embed.fields[2].value,/Test Player · 35\+ PTS · \*\*\+230\*\*/);
+ assert.ok(!JSON.stringify(embed).includes('[object Object]'));assert.ok(!JSON.stringify(embed).includes(' vs '));assert.equal(embed.fields.length,2);assert.match(embed.fields[1].value,/Test Player · 35\+ PTS · \*\*\+230\*\*/);
  assert.equal(payload.components[0].toJSON().components[0].custom_id,'book:open');assert.equal(payload.components[0].toJSON().components[1].custom_id,'book:specials');
  assert.deepEqual(payload.allowedMentions,{parse:[]});
  const empty=weeklyAnnouncement({context,week:{...week,deadlineAt:null},markets:[],settings:{},guildId:'guild'});
- assert.match(empty.embeds[0].data.description,/Countdown starts/);assert.match(empty.embeds[0].data.fields[2].value,/No supported special/);assert.ok(empty.components[0].toJSON().components.slice(0,2).every(b=>b.disabled));
+ assert.match(empty.embeds[0].data.description,/Countdown starts/);assert.match(empty.embeds[0].data.fields[1].value,/No special wagers/);assert.ok(empty.components[0].toJSON().components.slice(0,2).every(b=>b.disabled));
 });
 
 test('weekly announcement retries edit one post, next week posts once and completed/simulated seasons do not publish',async t=>{

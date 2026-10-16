@@ -94,9 +94,10 @@ test('existing website admin endpoint configures channel, creates and reports th
     setGameThreadRuntime({ client: { isReady: () => true, guilds: { fetch: async () => f.guild } }, service: f.service, repository: f.repository });
     function request(body) { return new Promise(resolve => { const req = Readable.from(body ? [JSON.stringify({ operator: 'Test Commissioner', ...body })] : []); Object.assign(req, { method: body ? 'POST' : 'GET', url: '/api/league/admin/game-threads', headers: { 'x-leaguebuddy-admin-key': 'fixture-key' } }); let code; requestHandler(req, { writeHead: c => code = c, end: b => resolve({ code, data: JSON.parse(b) }) }); }); }
     assert.equal((await request({ action: 'configure', channelId: 'games' })).code, 200);
-    assert.equal((await request({ action: 'create' })).data.created, 14);
+    assert.equal((await request({ action: 'create' })).code, 410);
+    assert.equal(f.calls.length,0);
     assert.equal(f.repository.loadAuditLog('test').at(-1).operator, 'Test Commissioner');
-    const read = await request(); assert.equal(read.data.gamesChannelId, 'games'); assert.equal(read.data.games.filter(g => g.discordThreadId).length, 14);
+    const read = await request(); assert.equal(read.data.gamesChannelId, 'games'); assert.equal(read.data.games.filter(g => g.discordThreadId).length, 0);
 });
 
 test('both staff roles join all new and existing threads without duplicate coach membership', async t => {
@@ -174,13 +175,12 @@ test('games create repairs safely by default and preserves existing messages and
  assert.equal(f.calls.length,14);assert.deepEqual(f.submissions.records().map(r=>[r.game.gameId,r.game.discordThreadId,r.game.discordMessageId]),before);
  assert.equal(f.repository.loadSchedule('test','1').weeks[0].deadlineAt,deadline);assert.match(reply.embeds[0].data.description,/0 created · 14 reused · 0 failed/);
 });
-test('automatic recovery retries partial creation after restart, preserves cleaned threads and skips inactive seasons',async t=>{
- const f=fixture(t);f.failCreate();assert.equal((await f.service.reconcile(f.guild)).failed,1);
+test('manual command retries partial creation after restart without automatic recovery',async t=>{
+ const f=fixture(t);f.failCreate();assert.equal((await f.service.create(f.guild)).failed,1);
  const restarted=createGameThreadService({submissions:f.submissions,syncOwners:async()=>({staffUserIds:[]}),logger:{error(){}}});
- assert.equal((await restarted.reconcile(f.guild)).created,1);assert.equal(f.calls.length,14);assert.equal((await restarted.reconcile(f.guild)).skipped,true);
- const game=f.submissions.records()[0].game;await f.submissions.mutate(game.gameId,r=>r.game.discordThreadCleanedAt=new Date().toISOString());f.channels.delete(game.discordThreadId);
- assert.equal((await restarted.reconcile(f.guild)).skipped,true);assert.equal(f.calls.length,14);
- f.repository.saveLeague('test',{currentPhase:'PLAYOFFS'});assert.equal((await restarted.reconcile(f.guild)).skipped,true);
+ assert.equal(restarted.reconcile,undefined);assert.equal(f.calls.length,13);
+ await require('../src/fantasyhq/discord-game-threads').handleGameThreads({guild:f.guild,guildId:'guild',user:{id:'commish'},memberPermissions:{has:()=>true},editReply:async()=>{}},restarted);
+ assert.equal(f.calls.length,14);
 });
 test('a week change during Discord creation cannot roll back the schedule or block the next-week job',async t=>{
  const f=fixture(t),parent=f.channels.get('games'),original=parent.threads.create;let release,started;
@@ -195,7 +195,7 @@ test('a week change during Discord creation cannot roll back the schedule or blo
 test('all 15 weeks repeat creation, approval, publication and advancement without duplicate threads or clock resets',async t=>{
  const f=fixture(t),actor={authorized:true,id:'commissioner'};
  const advance=require('../src/fantasyhq/week-advancement').createWeekAdvancementService({submissions:f.submissions,threads:f.service});
- await f.service.reconcile(f.guild);
+ await f.service.create(f.guild);
  for(let week=1;week<=15;week++){
   const saved=f.repository.loadSchedule('test','1').weeks[week-1],records=f.submissions.records().filter(r=>r.game.weekNumber===week);
   assert.equal(records.length,14);assert.equal(new Set(records.map(r=>r.game.discordThreadId)).size,14);assert.equal(Date.parse(saved.deadlineAt)-Date.parse(saved.startedAt),HOURS_48);
@@ -206,8 +206,9 @@ test('all 15 weeks repeat creation, approval, publication and advancement withou
   });
   const prep=advance.prepare('guild',actor);assert.equal(prep.blocked,undefined);const result=await advance.advance(f.guild,actor,prep.token);
   assert.equal(result.seasonComplete,week===15);assert.equal(f.repository.loadSchedule('test','1').statsPublication.throughWeek,week);
-  const replay=await advance.advance(f.guild,actor,prep.token);assert.equal(replay.alreadyApplied,true);assert.equal(f.calls.length,Math.min(week+1,15)*14);
+  const replay=await advance.advance(f.guild,actor,prep.token);assert.equal(replay.alreadyApplied,true);assert.equal(f.calls.length,week*14);
+  if(week<15){assert.equal(f.repository.loadSchedule('test','1').weeks[week].deadlineAt,undefined);await f.service.create(f.guild);}
  }
- assert.equal(f.calls.length,210);assert.equal(f.submissions.records().length,210);assert.equal((await f.service.reconcile(f.guild)).skipped,true);
+ assert.equal(f.calls.length,210);assert.equal(f.submissions.records().length,210);assert.equal(f.service.reconcile,undefined);
  assert.ok(f.repository.loadSchedule('test','1').weeks.every(w=>w.status==='COMPLETED'));
 });

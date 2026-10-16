@@ -94,7 +94,7 @@ test('weekly embeds stay within Discord limits and provide only existing navigat
  const e=report.embeds[0].toJSON();assert.ok(e.description.length<=4096);assert.ok(e.fields.every(x=>x.value.length<=1024));assert.ok(e.fields.reduce((n,x)=>n+x.name.length+x.value.length,e.title.length+e.description.length+e.footer.text.length)<6000);
  assert.equal(report.components[0].components[0].data.custom_id,'weeklystaff:advance:1');
  assert.equal(report.components[0].components[0].data.label,'Review & Advance Week');
- assert.equal(report.components[0].components[2].data.custom_id,'weeklystaff:delete:1');
+ assert.equal(report.components[0].components[1].data.custom_id,'weeklystaff:delete:1');
  const coach=coachPayload(f.service.teamDashboard('g',f.a.team1Id,true));assert.equal(coach.components[0].components[1].data.custom_id,'fa:active');assert.equal(coach.embeds.length,1);
 });
 module.exports={fixture};
@@ -142,10 +142,10 @@ test('Staff report next-week button respects blockers and confirms the full exis
  await adapter.button(interaction);assert.match(reply.embeds[0].data.title,/COMPLETE WEEK 1/);assert.equal(f.repository.loadLeague('l').league.currentWeek,1);assert.equal(created,0);
  const customId=reply.components[0].toJSON().components[1].custom_id;
  await require('../src/fantasyhq/discord-week').handleWeekButton({...interaction,customId},weekService);
- assert.equal(f.repository.loadLeague('l').league.currentWeek,2);assert.equal(created,1);assert.equal(followups,1);
+ assert.equal(f.repository.loadLeague('l').league.currentWeek,2);assert.equal(created,0);assert.equal(followups,1);
  assert.equal(f.repository.loadSchedule('l','1').statsPublication.throughWeek,1);assert.equal(f.repository.loadSchedule('l','1').statsPublication.gameIds.length,14);
  await adapter.ensureReport(f.guild);assert.equal(f.sent.length,2);assert.match(message.embeds[0].title,/CLOSED/);
- await adapter.button(interaction);assert.match(reply.content,/stale/);assert.equal(created,1);
+ await adapter.button(interaction);assert.match(reply.content,/stale/);assert.equal(created,0);
 });
 
 test('last week offers regular season completion and closed reports have no advance or delete controls',t=>{
