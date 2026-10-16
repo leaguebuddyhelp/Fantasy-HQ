@@ -1,6 +1,6 @@
 const { randomUUID, createHash } = require('crypto');
 const pending = new Map();
-const FIELDS = { move: ['playerId','fromTeamId','toTeamId'], remove: ['playerId','teamId'], bulk: ['teamId','updates'], update: ['playerId','patch'], add: ['teamId','player'] };
+const FIELDS = { move: ['playerId','fromTeamId','toTeamId'], remove: ['playerId','teamId'], bulk: ['teamId','updates'], update: ['playerId','patch'], add: ['teamId','player'], assign: ['teamId','playerId','contractDetails'] };
 function stable(value) {
   if (Array.isArray(value)) return value.map(stable);
   if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort().filter(k => value[k] !== undefined).map(k => [k, stable(value[k])]));

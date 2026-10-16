@@ -26,4 +26,22 @@ test('website correction preview binds commissioner credentials and exact mutati
  const moved=await post('/api/league/admin/rosters/move-player',{...args,correctionToken:preview.body.token});
  assert.equal(moved.status,200);assert.equal(moved.body.membership.teamId,'b');
  assert.equal(f.repository.loadAuditLog('league').at(-1).correction.confirmedBy,'commish');
+ function getPool(key='isolated-key') {
+  return new Promise(resolve=>{const req=new PassThrough();req.url='/api/league/admin/rosters/free-agents';req.method='GET';req.headers={'x-leaguebuddy-admin-key':key};let status;requestHandler(req,{writeHead(code){status=code;},end(data){resolve({status,body:JSON.parse(data)});}});req.end();});
+ }
+ assert.equal((await getPool('wrong')).status,403);
+ const releaseArgs={playerId:'a-0',teamId:'b'};
+ const releasePreview=await post('/api/league/admin/rosters/correction-preview',{action:'remove',payload:releaseArgs,reason:'Release player from imported roster'});
+ assert.equal((await post('/api/league/admin/rosters/remove-player',{...releaseArgs,correctionToken:releasePreview.body.token})).status,200);
+ assert.ok((await getPool()).body.players.some(p=>p.playerId==='a-0'));
+ const assignArgs={playerId:'a-0',teamId:'c',contractDetails:{salary:'$7M',years:'2+1',structure:'FLAT',option:'Player'}};
+ assert.equal((await post('/api/league/admin/rosters/assign-free-agent',assignArgs,'wrong')).status,403);
+ assert.equal((await post('/api/league/admin/rosters/assign-free-agent',assignArgs)).status,400);
+ const assignPreview=await post('/api/league/admin/rosters/correction-preview',{action:'assign',payload:assignArgs,reason:'Record the verified free-agent signing'});
+ assert.equal(assignPreview.status,200);
+ const assigned=await post('/api/league/admin/rosters/assign-free-agent',{...assignArgs,correctionToken:assignPreview.body.token});
+ assert.equal(assigned.status,200);assert.equal(assigned.body.player.playerId,'a-0');assert.equal(assigned.body.player.teamId,'c');
+ assert.equal(assigned.body.player.contractView.totalSalary,21000000);
+ assert.ok(!(await getPool()).body.players.some(p=>p.playerId==='a-0'));
+
 });

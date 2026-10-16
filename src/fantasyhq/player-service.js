@@ -106,6 +106,7 @@ function createPlayerService(options = {}) {
       ...validated,
       updatedAt: new Date().toISOString(),
     };
+    if ('teamId' in validated && !validated.teamId && current.teamId) delete nextBase.contract;
     players[playerIndex] = nextBase;
 
     const memberships = repository.loadRosterMemberships(leagueId);

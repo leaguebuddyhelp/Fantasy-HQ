@@ -42,6 +42,49 @@ function createRosterService(options = {}) {
       }));
   }
 
+  function freeAgentLock(leagueId, seasonId, playerId, lockRepository = repository) {
+    const state = lockRepository.loadFreeAgencyState(leagueId);
+    const { ACTIVE_WINDOWS, playerTransactionLock } = require('./transaction-locks');
+    if (state.windows.some(window => String(window.seasonId) === String(seasonId) && window.playerId === playerId && ACTIVE_WINDOWS.has(window.status))) return 'Player has an active free-agent offer window.';
+    if ((state.offseason?.[String(seasonId)]?.offers || []).some(offer => offer.playerId === playerId && offer.status === 'ACTIVE')) return 'Player has active offseason offers.';
+    return playerTransactionLock(lockRepository, leagueId, String(seasonId), playerId) || null;
+  }
+
+  function freeAgents(leagueId, seasonId) {
+    const assigned = new Set(activeMemberships(repository.loadRosterMemberships(leagueId), seasonId).map(m => m.playerId));
+    const state = repository.loadFreeAgencyState(leagueId), trades = repository.loadTrades(leagueId);
+    const lockRepository = { loadFreeAgencyState: () => state, loadTrades: () => trades };
+    return repository.loadPlayers(leagueId).filter(player => !player.retiredAt && !assigned.has(player.playerId))
+      .map(player => ({ ...player, teamId: null, signingBlockedReason: freeAgentLock(leagueId, seasonId, player.playerId, lockRepository) }))
+      .sort((a,b) => Number(b.overall || 0) - Number(a.overall || 0) || String(a.name || '').localeCompare(String(b.name || '')));
+  }
+
+  function assignFreeAgent({ leagueId, seasonId, teamId, playerId, contractDetails, actingUserId, operator }) {
+    const correction = require('./roster-corrections').authorizeRosterEdit(repository, 'assign', arguments[0]);
+    const context = repository.loadLeague(leagueId, seasonId);
+    if (!context.teams.some(team => team.teamId === teamId)) throw Error('Choose a valid league team.');
+    const players = repository.loadPlayers(leagueId), player = players.find(p => p.playerId === playerId);
+    if (!player || player.retiredAt) throw Error('Choose a current free agent.');
+    const memberships = repository.loadRosterMemberships(leagueId);
+    if (activeMemberships(memberships, seasonId).some(m => m.playerId === playerId)) throw Error('That player is already on a roster. Refresh the free-agent list.');
+    const lock = freeAgentLock(leagueId, seasonId, playerId);
+    if (lock) throw Error(lock);
+    const timestamp = new Date().toISOString();
+    const contractYear = require('./asset-valuation').leagueSeasonStartYear(context.seasonId) + (['OFFSEASON','DRAFT','FREE_AGENCY'].includes(context.league.currentPhase) ? 1 : 0);
+    const normalized = require('./offer-score').normalizeOffer(contractDetails || {}, { year: contractYear, timestamp });
+    const previousContract = player.contract || null;
+    player.teamId = teamId;
+    player.contract = { ...normalized.contract, source: 'manual' };
+    player.updatedAt = timestamp;
+    memberships.push({ membershipId: randomUUID(), leagueId, seasonId: String(seasonId), teamId, playerId, active: true, startedAt: timestamp, updatedAt: timestamp, source: 'admin-free-agent', jerseyNumber: player.jerseyNumber, position1: player.position1, position2: player.position2 });
+    repository.commitRosterTransaction({ leagueId, players, rosterMemberships: memberships, auditEntry: {
+      action: 'roster.freeagent.assigned', correction, userId: String(actingUserId || 'system'), ...(operator ? { operator: String(operator) } : {}), leagueId, seasonId: String(seasonId), timestamp,
+      metadata: { playerId, teamId, playerName: player.name, contract: player.contract, previousContract },
+    } });
+    notifyRosterMovement({ leagueId, seasonId: String(seasonId), playerIds: [playerId], reason: 'PLAYER_SIGNED' });
+    return require('./player-service').createPlayerService({ repository }).getPlayer(leagueId, seasonId, playerId);
+  }
+
   function movePlayer({ leagueId, seasonId, playerId, fromTeamId, toTeamId, actingUserId, operator }) {
     const correction = require('./roster-corrections').authorizeRosterEdit(repository, 'move', arguments[0]);
     const memberships = repository.loadRosterMemberships(leagueId);
@@ -293,6 +336,8 @@ function createRosterService(options = {}) {
   }
 
   return {
+    freeAgents,
+    assignFreeAgent,
     applyRosterImport,
     bulkUpdateRoster,
     currentRosterEntries,

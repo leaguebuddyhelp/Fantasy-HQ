@@ -47,6 +47,7 @@ const state = {
   playerDetailCache: new Map(),
   currentRosterTeamId: "",
   currentRosterDetail: null,
+  currentRosterFreeAgents: [],
   adminAuthenticated: false,
   adminKey: window.sessionStorage.getItem("leaguebuddyAdminKey") || "",
   importPreview: null,
@@ -1083,7 +1084,13 @@ async function showPlayerDetail(playerId) {
   openLeagueDialog(playerDialogMarkup(player));
 }
 
-function rosterManagerMarkup(team) {
+function freeAgentOptions(players, query = '') {
+  const needle = query.trim().toLowerCase();
+  return '<option value="">Choose a free agent</option>' + players.filter(player => !needle || [player.name, player.position1, player.position2].some(value => String(value || '').toLowerCase().includes(needle)))
+    .map(player => `<option value="${escapeHtml(player.playerId)}"${player.signingBlockedReason ? ' disabled' : ''}>${escapeHtml(player.name)} · ${escapeHtml(positionLabel(player))} · ${escapeHtml(player.overall ?? '—')} OVR${player.signingBlockedReason ? ' · Unavailable: '+escapeHtml(player.signingBlockedReason) : ''}</option>`).join('');
+}
+
+function rosterManagerMarkup(team, freeAgents = []) {
   const destinationOptions = leagueTeams().map((entry) => `<option value="${escapeHtml(entry.teamId)}">${escapeHtml(entry.teamName)}</option>`).join("");
   return `
     <div class="admin-summary">
@@ -1093,7 +1100,7 @@ function rosterManagerMarkup(team) {
     <div class="roster-table-wrap">
       <table class="roster-table">
         <thead>
-          <tr><th>Player</th><th>OVR</th><th>Jersey</th><th>Pos 1</th><th>Pos 2</th><th>Move</th><th>Remove</th></tr>
+          <tr><th>Player</th><th>OVR</th><th>Jersey</th><th>Pos 1</th><th>Pos 2</th><th>Move</th><th>Release</th></tr>
         </thead>
         <tbody>
           ${team.roster.map((entry) => `
@@ -1111,7 +1118,7 @@ function rosterManagerMarkup(team) {
                   <button type="button" data-move-player="${escapeHtml(entry.player.playerId)}" data-from-team="${escapeHtml(team.teamId)}">Move</button>
                 </div>
               </td>
-              <td><button type="button" data-remove-player="${escapeHtml(entry.player.playerId)}" data-team-id="${escapeHtml(team.teamId)}">Remove</button></td>
+              <td><button type="button" data-remove-player="${escapeHtml(entry.player.playerId)}" data-team-id="${escapeHtml(team.teamId)}">Release</button></td>
             </tr>`).join("")}
         </tbody>
       </table>
@@ -1120,27 +1127,18 @@ function rosterManagerMarkup(team) {
       <button type="button" id="save-roster-bulk">Save roster edits</button>
     </div>
     <form id="add-player-form" class="admin-form admin-form-compact">
-      <h4>Add player</h4>
+      <h4>Add free agent</h4>
+      <p>Choose an existing player and enter their new contract. Released players return to this pool.</p>
       <div class="admin-form-grid">
-        <label><span>Name</span><input name="name" required></label>
-        <label><span>OVR</span><input name="overall" type="number" min="0" max="99" required></label>
-        <label><span>Jersey</span><input name="jerseyNumber" type="number"></label>
-        <label><span>Position 1</span><input name="position1" required></label>
-        <label><span>Position 2</span><input name="position2"></label>
-        <label><span>Nationality</span><input name="nationality"></label>
-        <label><span>Archetype</span><input name="archetype"></label>
-        <label><span>Height</span><input name="height"></label>
-        <label><span>Height Cm</span><input name="heightCm" type="number"></label>
-        <label><span>Weight Lbs</span><input name="weightLbs" type="number"></label>
-        <label><span>Wingspan</span><input name="wingspan"></label>
-        <label><span>Years In NBA</span><input name="yearsInNBA" type="number"></label>
-        <label><span>Birthdate</span><input name="birthdate"></label>
-        <label><span>Prior To NBA</span><input name="priorToNBA"></label>
-        <label><span>Image URL</span><input name="imageUrl"></label>
-        <label><span>Profile URL</span><input name="profileUrl"></label>
+        <label><span>Search free agents</span><input type="search" data-free-agent-search placeholder="Name or position"></label>
+        <label><span>Free agent (${freeAgents.length})</span><select name="playerId" required>${freeAgentOptions(freeAgents)}</select></label>
+        <label><span>Starting annual salary</span><input name="salary" required placeholder="$6.66M"></label>
+        <label><span>Contract years</span><input name="years" required placeholder="3 or 3+1"></label>
+        <label><span>Salary structure</span><select name="structure"><option value="FLAT">Flat</option><option value="FRONT">Front-loaded (-5%)</option><option value="BACK">Back-loaded (+5%)</option></select></label>
+        <label><span>Final-year option</span><select name="option"><option value="None">None</option><option value="Team">Team option</option><option value="Player">Player option</option></select></label>
       </div>
       <div class="admin-inline">
-        <button type="submit">Add player</button>
+        <button type="submit"${freeAgents.some(player => !player.signingBlockedReason) ? '' : ' disabled'}>Add to roster</button>
       </div>
       <input type="hidden" name="teamId" value="${escapeHtml(team.teamId)}">
     </form>`;
@@ -1153,10 +1151,11 @@ async function loadRosterManager(teamId = elements.rosterTeamSelect.value) {
     return;
   }
   setPanelMessage(elements.rosterManager, "Loading roster manager…");
-  const team = await getTeamDetail(teamId);
+  const [team, pool] = await Promise.all([getTeamDetail(teamId), adminRequestJson('/api/league/admin/rosters/free-agents')]);
   if (state.currentRosterTeamId !== teamId) return;
   state.currentRosterDetail = team;
-  elements.rosterManager.innerHTML = rosterManagerMarkup(team);
+  state.currentRosterFreeAgents = pool.players;
+  elements.rosterManager.innerHTML = rosterManagerMarkup(team, pool.players);
   elements.rosterManager.querySelectorAll("[data-move-select]").forEach((select) => {
     select.value = team.teamId;
   });
@@ -1293,18 +1292,15 @@ async function removeRosterPlayer(playerId, teamId) {
 }
 
 async function addPlayerToRoster(form) {
-  const payload = normalizePatchValues(serializeForm(form));
-  const correction = await rosterCorrection('add', { teamId: payload.teamId, player: payload });
-  await adminRequestJson("/api/league/admin/rosters/add-player", {
-    method: "POST",
-    body: JSON.stringify({ ...payload, ...correction }),
-  });
-  state.teamDetailCache.delete(payload.teamId);
+  const values = serializeForm(form);
+  const payload = { teamId: values.teamId, playerId: values.playerId, contractDetails: { salary: values.salary, years: values.years, structure: values.structure, option: values.option } };
+  const correction = await rosterCorrection('assign', payload);
+  await adminRequestJson('/api/league/admin/rosters/assign-free-agent', { method: 'POST', body: JSON.stringify({ ...payload, ...correction }) });
+  state.teamDetailCache.clear();
+  state.playerDetailCache.delete(payload.playerId);
   await refreshLeagueSite();
   await loadAdminPanels();
   await loadRosterManager(payload.teamId);
-  form.reset();
-  form.querySelector('[name="teamId"]').value = payload.teamId;
 }
 
 async function loadDraftClass(selection) {
@@ -1725,6 +1721,13 @@ elements.rosterManager.addEventListener("click", async (event) => {
       showToast(error.message);
     }
   }
+});
+
+elements.rosterManager.addEventListener('input', event => {
+  if (!event.target.matches('[data-free-agent-search]')) return;
+  const select = event.target.form.querySelector('[name="playerId"]'), selected = select.value;
+  select.innerHTML = freeAgentOptions(state.currentRosterFreeAgents, event.target.value);
+  if ([...select.options].some(option => option.value === selected)) select.value = selected;
 });
 
 elements.rosterManager.addEventListener("submit", async (event) => {

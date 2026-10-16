@@ -935,6 +935,28 @@ function unsafeRequestHandler(request, response) {
     return;
   }
 
+  if (url.pathname === '/api/league/admin/rosters/free-agents' && request.method === 'GET') {
+    if (!isAdminRequest(request, url)) { sendJson(response, 403, { error: 'Admin authorization required.' }); return; }
+    try {
+      const context = boundLeagueContext();
+      sendJson(response, 200, { players: rosterService.freeAgents(context.league.leagueId, context.seasonId) });
+    } catch (error) { sendJson(response, 400, { error: error.message }); }
+    return;
+  }
+
+  if (url.pathname === '/api/league/admin/rosters/assign-free-agent' && request.method === 'POST') {
+    if (!isAdminRequest(request, url)) { sendJson(response, 403, { error: 'Admin authorization required.' }); return; }
+    parseJsonBody(request).then(body => {
+      const context = boundLeagueContext();
+      const player = rosterService.assignFreeAgent({ leagueId: context.league.leagueId, seasonId: context.seasonId,
+        teamId: body.teamId, playerId: body.playerId, contractDetails: body.contractDetails, correctionToken: body.correctionToken,
+        actingUserId: require('./shared/website-auth').websiteActor(request, context, { commissioner: true }).id, operator: websiteOperator(body),
+      });
+      sendJson(response, 200, { player });
+    }).catch(error => sendJson(response, 400, { error: error.message }));
+    return;
+  }
+
   if (url.pathname === "/api/league/admin/rosters/add-player" && request.method === "POST") {
     if (!isAdminRequest(request, url)) {
       sendJson(response, 403, { error: "Admin authorization required." });
