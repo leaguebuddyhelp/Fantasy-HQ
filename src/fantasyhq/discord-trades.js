@@ -258,7 +258,7 @@ function createDiscordTradeWorkflow(options = {}) {
         const transfers = trade.transfers || [];
         const values = kind === "PLAYER"
             ? snapshot.players.filter(player => player.teamId === teamId && !transfers.some(item => item.assetType === "PLAYER" && item.assetId === player.playerId))
-                .map(player => ({ label: `${player.name} · ${player.overall ?? "—"} OVR`.slice(0, 100), description: `${player.contractView?.short || "Contract unavailable"} · Age ${player.age ?? "—"} · Trade Value ${Number(player.tradeValue || 1).toLocaleString("en-US")}`.slice(0, 100), value: encodeURIComponent(player.playerId) }))
+                .map(player => ({ label: `${player.name} · ${player.overall ?? "—"} OVR`.slice(0, 100), description: `Trade Value ${Number(player.tradeValue || 1).toLocaleString("en-US")}`.slice(0, 100), value: encodeURIComponent(player.playerId) }))
             : snapshot.picks.filter(pick => pick.currentOwnerTeamId === teamId && !transfers.some(item => item.assetType === "PICK" && item.assetId === pick.pickId))
                 .map(pick => ({ label: `${pick.draftYear} ${teamName(repository.loadLeague(trade.leagueId, trade.seasonId), pick.originalTeamId)} ${pick.round === 1 ? "1st" : "2nd"}`.slice(0, 100), description: `${PICK_PROTECTIONS[pick.protection]?.label || "Unprotected"} · Trade Value ${Number(pick.tradeValue).toLocaleString("en-US")}`.slice(0, 100), value: encodeURIComponent(pick.pickId) }));
         const typeName = kind === "PLAYER" ? "player" : "pick";
