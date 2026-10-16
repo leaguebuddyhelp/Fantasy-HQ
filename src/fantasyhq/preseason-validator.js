@@ -23,7 +23,7 @@ function createPreseasonValidator(options = {}) {
     const checks = {
       teamsValid: context.teams.length === 30,
       conferenceBalance: eastTeams === 15 && westTeams === 15,
-      rostersValid: rosterCounts.every(row => row.count === 15) && new Set(memberships.map(m => m.playerId)).size === memberships.length,
+      rostersValid: rosterCounts.every(row => row.count >= 14 && row.count <= 15) && new Set(memberships.map(m => m.playerId)).size === memberships.length,
       dataValid: blockingIssues.length === 0,
       scheduleValid: false,
       weekOneExists: Boolean(schedule?.weeks?.some((week) => week.week === 1)),
@@ -36,7 +36,10 @@ function createPreseasonValidator(options = {}) {
     if (!checks.teamsValid) errors.push(`Expected 30 teams, found ${context.teams.length}.`);
     if (!checks.conferenceBalance) errors.push(`Expected 15 East and 15 West teams, found ${eastTeams} East and ${westTeams} West.`);
     if (!checks.leagueSettingsValid) errors.push("League settings are missing.");
-    for (const { team, count } of rosterCounts) if (count !== 15) errors.push(`${team.teamName}: ${count}/15 players. Complete roster cutdowns before starting the regular season.`);
+    for (const { team, count } of rosterCounts) {
+      if (count < 14) errors.push(`${team.teamName}: ${count} players. Add players to reach the 14-player minimum before starting the regular season.`);
+      if (count > 15) errors.push(`${team.teamName}: ${count}/15 players. Complete roster cutdowns before starting the regular season.`);
+    }
     if (new Set(memberships.map(m => m.playerId)).size !== memberships.length) errors.push('Resolve duplicate roster memberships before starting the regular season.');
 
     if (schedule) {
