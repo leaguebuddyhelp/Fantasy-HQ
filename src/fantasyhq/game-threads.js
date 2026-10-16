@@ -18,25 +18,35 @@ function createGameThreadService({ submissions = createGameSubmissionService(), 
         for (const record of records) await submissions.mutate(record.game.gameId, r => { if (r.game.discordThreadCleanedAt) r.game.discordThreadCleanedAt = null; });
         return records.length;
     }
-    function create(guild) { const key = `${repository.dataRoot}:${guild.id}`; if (locks.has(key)) return locks.get(key); const work = run(guild).finally(() => locks.delete(key)); locks.set(key, work); return work; }
+    async function create(guild) { const c = active(guild.id); const key = `${repository.dataRoot}:${guild.id}:${c.seasonId}:${c.week.weekId}`; if (locks.has(key)) return locks.get(key); const work = run(guild).finally(() => locks.delete(key)); locks.set(key, work); return work; }
     async function run(guild) {
         const c = active(guild.id), parent = await channel(guild, repository.loadSettings(c.league.leagueId)?.gamesChannelId);
+        function current() {
+            const fresh = active(guild.id);
+            if (fresh.league.leagueId !== c.league.leagueId || fresh.seasonId !== c.seasonId || fresh.week.weekId !== c.week.weekId) throw Error('Active week changed. Creation stopped; use /games create for the current week.');
+            return fresh;
+        }
+        current();
         const permissions = parent.permissionsFor(guild.members.me);
         if (!permissions?.has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.CreatePrivateThreads, PermissionFlagsBits.SendMessagesInThreads, PermissionFlagsBits.ReadMessageHistory])) throw Error('Bot needs View Channel, Create Private Threads, Send Messages in Threads and Read Message History in the Games channel.');
         const synced = await syncOwners(guild);
+        current();
         // Upgrade an unlaunched legacy week without resetting a week that already has threads.
         const linked = submissions.records().some(r => r.game.leagueId === c.league.leagueId && r.game.seasonId === c.seasonId && r.game.weekId === c.week.weekId && r.game.discordThreadId);
-        if (!c.week.threadsStartedAt && !linked && (c.week.startedAt || c.week.deadlineAt)) { delete c.week.startedAt; delete c.week.deadlineAt; repository.saveSchedule(c.schedule); }
+        if (!c.week.threadsStartedAt && !linked && (c.week.startedAt || c.week.deadlineAt)) { const latest = current(); delete latest.week.startedAt; delete latest.week.deadlineAt; delete c.week.startedAt; delete c.week.deadlineAt; repository.saveSchedule(latest.schedule); }
         let deadlineAt = c.week.deadlineAt || null;
         const owners = repository.loadOwners(c.league.leagueId), result = { week: c.week.week, scheduled: c.week.games.length, existing: 0, created: 0, cleaned: 0, failed: 0, errors: [], deadlineAt };
         for (const match of c.week.games) {
+            current();
             let record;
             try {
                 record = submissions.ensureGame({ guildId: guild.id, weekNumber: c.week.week, teamQuery: match.team1Id });
                 const game = record.game;
                 if (game.discordThreadCleanedAt) { result.cleaned++; continue; }
                 let thread = null;
-                if (game.discordThreadId) { try { thread = await guild.channels.fetch(game.discordThreadId); } catch (e) { if (e.code !== 10003) throw e; } if (thread && (thread.type !== ChannelType.PrivateThread || thread.guildId !== guild.id)) throw Error('Existing linked channel is not a private thread in this server.'); }
+                if (game.discordThreadId) { try { thread = await guild.channels.fetch(game.discordThreadId, { force: true }); } catch (e) { if (e.code !== 10003) throw e; } if (thread && (thread.type !== ChannelType.PrivateThread || thread.guildId !== guild.id)) throw Error('Existing linked channel is not a private thread in this server.'); }
+                current();
+                if (game.discordThreadId && submissions.records().some(r => r.game.gameId !== game.gameId && r.game.discordThreadId === game.discordThreadId)) throw Error('Thread is linked to multiple games. Repair the links before retrying.');
                 const coaches = [match.team1Id, match.team2Id].map(id => owners.filter(o => o.teamId === id));
                 const ids = [...new Set([match.team1Id, match.team2Id].flatMap((teamId, i) => synced?.teamMemberIds?.[teamId] || coaches[i].map(o => o.userId)).filter(Boolean))];
                 const teamRoleIds = [match.team1Id, match.team2Id].map(id => synced?.teamRoleIds?.[id]).filter(Boolean);
@@ -53,12 +63,15 @@ function createGameThreadService({ submissions = createGameSubmissionService(), 
                     }
                     await submissions.mutate(game.gameId, r => { r.game.discordThreadId = thread.id; r.game.discordMessageId = null; r.game.threadCreationPending = false; r.game.threadCreatedAt = new Date(thread.createdTimestamp || Date.now()).toISOString(); }); result.created++;
                 }
+                current();
                 // Start the shared clock only after Discord has actually supplied a thread.
                 if (!c.week.threadsStartedAt) {
                     c.week.startedAt = (linked && c.week.startedAt) || now().toISOString();
                     c.week.threadsStartedAt = c.week.startedAt;
                     c.week.deadlineAt = new Date(Date.parse(c.week.startedAt) + HOURS_48).toISOString();
-                    repository.saveSchedule(c.schedule);
+                    const latest = current();
+                    Object.assign(latest.week, { startedAt: c.week.startedAt, threadsStartedAt: c.week.threadsStartedAt, deadlineAt: c.week.deadlineAt });
+                    repository.saveSchedule(latest.schedule);
                 }
                 deadlineAt = c.week.deadlineAt; result.deadlineAt = deadlineAt;
                 if (thread.archived) await thread.setArchived(false);
@@ -66,15 +79,27 @@ function createGameThreadService({ submissions = createGameSubmissionService(), 
                 const prior = new Set([...(game.coachUserIds || []), ...(game.staffUserIds || [])]);
                 for (const id of prior) if (!desired.has(id)) { if (!thread.members.remove) throw Error('Thread membership removal unavailable; repair required.'); await thread.members.remove(id); }
                 for (const id of desired) await thread.members.add(id);
+                current();
                 await submissions.mutate(game.gameId, r => { r.game.threadCreatedAt ||= thread.createdTimestamp ? new Date(thread.createdTimestamp).toISOString() : null; r.game.startedAt = c.week.startedAt; r.game.deadlineAt = deadlineAt; Object.assign(r.game, require('./game-decisions').cpuState(repository, r.game)); r.game.coachUserIds = ids; r.game.staffUserIds = synced.staffUserIds || []; r.game.teamRoleIds = teamRoleIds; r.game.staffRoleIds = synced.staffRoleIds || []; r.game.threadError = null; });
                 const fresh = submissions.load(game.gameId).game;
                 let message = null; if (fresh.discordMessageId) { try { message = await thread.messages.fetch(fresh.discordMessageId); } catch (e) { if (e.code !== 10008) throw e; } }
                 if (message) await message.edit(gamePayload(fresh, require("./game-activity").activityView(submissions.load(game.gameId)))); else { message = await thread.send({ ...gamePayload(fresh, require("./game-activity").activityView(submissions.load(game.gameId))), allowedMentions: { parse: [], roles: [...new Set([...teamRoleIds, ...(fresh.staffRoleIds || [])])] } }); await submissions.setMessage(game.gameId, message.id); }
             } catch (error) { result.failed++; result.errors.push({ gameId: record?.game.gameId, team1Id: match.team1Id, message: error.message }); logger.error('Game thread creation:', match.team1Id, error.message); if (record) await submissions.mutate(record.game.gameId, r => { r.game.threadError = error.message; }); }
         }
+        current();
         if (onCreated) try { await onCreated({ guild, leagueId: c.league.leagueId, result }); }
         catch (error) { result.announcementError = error.message; logger.error('Weekly announcement:', error.message); }
         return result;
+    }
+    async function reconcile(guild) {
+        const c = context(guild.id);
+        if (c.league.currentPhase !== 'REGULAR_SEASON' || c.league.regularSeasonStatus === 'COMPLETED' || repository.loadSettings(c.league.leagueId)?.simulationId) return { skipped: true };
+        const live = active(guild.id), records = submissions.records();
+        const needsRepair = live.week.games.some(match => {
+            const record = records.find(r => r.game.leagueId === c.league.leagueId && r.game.seasonId === c.seasonId && r.game.weekId === live.week.weekId && r.game.team1Id === match.team1Id && r.game.team2Id === match.team2Id);
+            return !record || (!record.game.discordThreadCleanedAt && (!record.game.discordThreadId || !record.game.discordMessageId || record.game.threadError));
+        });
+        return needsRepair ? create(guild) : { skipped: true };
     }
     async function syncAccess(guild, { owners, staffUserIds = [], staffRoleIds = [] } = {}) {
         const c = context(guild.id); owners ||= repository.loadOwners(c.league.leagueId);
@@ -86,7 +111,7 @@ function createGameThreadService({ submissions = createGameSubmissionService(), 
             const desired = new Set([...ids,...staffUserIds]), prior = new Set([...(game.coachUserIds || []),...(game.staffUserIds || [])]);
             if (!game.threadAccessError && JSON.stringify([...desired].sort()) === JSON.stringify([...prior].sort()) && JSON.stringify(game.staffRoleIds || []) === JSON.stringify(staffRoleIds)) continue;
             try {
-                const thread = await guild.channels.fetch(game.discordThreadId);
+                const thread = await guild.channels.fetch(game.discordThreadId, { force: true });
                 if (!thread || thread.type !== ChannelType.PrivateThread) throw Error('Saved private game thread is unavailable.');
                 if (thread.archived) await thread.setArchived(false);
                 for (const id of prior) if (!desired.has(id)) await thread.members.remove(id);
@@ -96,6 +121,6 @@ function createGameThreadService({ submissions = createGameSubmissionService(), 
         }
         if (errors.length) throw Error(`${errors.length} private thread access repairs failed. Inspect game threadAccessError and retry ownership sync.`);
     }
-    return { syncAccess, configure, create, status, reopenCleanedWeek, repository, configuration: guildId => ({ gamesChannelId: repository.loadSettings(context(guildId).league.leagueId)?.gamesChannelId || null }) };
+    return { reconcile, syncAccess, configure, create, status, reopenCleanedWeek, repository, configuration: guildId => ({ gamesChannelId: repository.loadSettings(context(guildId).league.leagueId)?.gamesChannelId || null }) };
 }
 module.exports = { createGameThreadService, threadName, HOURS_48 };

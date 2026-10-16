@@ -14,7 +14,7 @@ function createDiscordSeasonStart({repository=require('./repository').createFant
    if(!result.ready){await interaction.editReply({content:`Cannot start regular season:\n${result.errors.join('\n')}`.slice(0,1900),components:[]});return;}
    for(const [id,p] of pending)if(p.expires<now())pending.delete(id);
    const token=randomUUID();pending.set(token,{guildId:interaction.guildId,userId:interaction.user.id,leagueId:c.league.leagueId,seasonId:c.seasonId,expires:now()+300000});
-   await interaction.editReply({content:'Start the regular season? This activates Week 1. Its 48-hour countdown starts when game threads are created. After starting, use /games create to open the matchup threads.',components:[new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`setupflow:startconfirm:${token}`).setLabel('Start regular season').setStyle(ButtonStyle.Success),new ButtonBuilder().setCustomId(`setupflow:startcancel:${token}`).setLabel('Cancel').setStyle(ButtonStyle.Secondary))]});return;
+   await interaction.editReply({content:'Start the regular season? This activates Week 1. Its 48-hour countdown starts when game threads are created. Matchup threads are created automatically; use /games create to retry immediately.',components:[new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`setupflow:startconfirm:${token}`).setLabel('Start regular season').setStyle(ButtonStyle.Success),new ButtonBuilder().setCustomId(`setupflow:startcancel:${token}`).setLabel('Cancel').setStyle(ButtonStyle.Secondary))]});return;
   }
   const p=pending.get(value);
   if(!p||p.userId!==interaction.user.id||p.guildId!==interaction.guildId||p.leagueId!==c.league.leagueId||p.seasonId!==c.seasonId||p.expires<now())throw Error('Confirmation expired or belongs to another session. Open /league setup again.');
@@ -23,7 +23,7 @@ function createDiscordSeasonStart({repository=require('./repository').createFant
   if(c.league.currentPhase!=='PRESEASON')throw Error('Season phase changed. Open /league setup again.');
   leagueService.startRegularSeason({leagueId:p.leagueId,seasonId:p.seasonId,actingUserId:p.userId,validator:params=>validator.validate(params)});
   pending.delete(value);
-  await interaction.editReply({content:'Regular season started. Week 1 is active. Its 48-hour countdown starts when game threads are created. Run /games create to create its private matchup threads.',components:[new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('setupflow:refresh').setLabel('Back to league setup').setStyle(ButtonStyle.Secondary))]});
+  await interaction.editReply({content:'Regular season started. Week 1 is active. Its 48-hour countdown starts when game threads are created. Private matchup threads are created automatically within a minute. Use /games create to create or repair them immediately.',components:[new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('setupflow:refresh').setLabel('Back to league setup').setStyle(ButtonStyle.Secondary))]});
  }
  return {handle};
 }

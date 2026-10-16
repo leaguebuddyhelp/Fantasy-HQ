@@ -23,7 +23,7 @@ const commands = [
   new SlashCommandBuilder().setName("teamstats").setDescription("View a team's official regular-season statistics.")
     .addStringOption(option => option.setName("team").setDescription("Search for a league team.").setRequired(true).setAutocomplete(true)),
   new SlashCommandBuilder().setName("games").setDescription("Manage active-week private game threads.")
-    .addSubcommand(sub => sub.setName("create").setDescription("Confirm replacement of all ACTIVE-week game threads."))
+    .addSubcommand(sub => sub.setName("create").setDescription("Create or repair ACTIVE-week threads without replacing existing ones.").addBooleanOption(option => option.setName("replace").setDescription("Confirm replacing all current threads; deletes their Discord conversation history.")))
     .addSubcommand(sub => sub.setName("cleanup").setDescription("Confirm deletion of all game threads for a selected week.").addIntegerOption(option => option.setName("week").setDescription("Regular-season week to clean, including unfinished games.").setRequired(true).setMinValue(1).setMaxValue(15))),
   new SlashCommandBuilder().setName("game").setDescription("Set up screenshot submission in an existing private game thread.")
     .addSubcommand(sub => sub.setName("setup").setDescription("Link this private thread to a scheduled game and post Submit Game.")

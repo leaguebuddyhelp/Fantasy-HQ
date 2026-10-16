@@ -28,7 +28,8 @@ function staffPayload(view, counts = transactionCounts(view)) {
   if (view.storageIssues?.length || view.notificationFailures) embed.addFields({ name: '⚠ Recovery needed', value: `${view.storageIssues?.length || 0} unreadable game records · ${view.notificationFailures || 0} failed notification attempts. Staff can inspect the website checklist and storage backups.` });
   const controls = [];
   if (!view.closed) controls.push(
-    new ButtonBuilder().setCustomId(`weeklystaff:advance:${view.week}`).setLabel(view.week === 15 ? 'Complete Regular Season' : 'Create Next Week Threads').setEmoji('📅').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId(`weeklystaff:advance:${view.week}`).setLabel(view.week === 15 ? 'Complete Regular Season' : 'Review & Advance Week').setEmoji('📅').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId(`weeklystaff:repair:${view.week}`).setLabel('Create / Repair Threads').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId(`weeklystaff:delete:${view.week}`).setLabel('Delete Threads').setEmoji('🗑️').setStyle(ButtonStyle.Danger));
   controls.push(new ButtonBuilder().setCustomId('offseason:review').setLabel('Offseason checklist').setStyle(ButtonStyle.Secondary));
   const base = websiteBase();
@@ -49,7 +50,7 @@ function coachPayload(view) {
   if (links.length) rows.push(new ActionRowBuilder().addComponents(...links));
   return { embeds: [embed], components: rows, allowedMentions: { parse: [] } };
 }
-function createDiscordWeeklyDashboard({ repository = require('./repository').createFantasyHQRepository(), service, weekService, cleanupService, now = Date.now, logger = console } = {}) {
+function createDiscordWeeklyDashboard({ repository = require('./repository').createFantasyHQRepository(), service, weekService, cleanupService, threadService, now = Date.now, logger = console } = {}) {
   service ||= createWeeklyDashboardService({ repository, now });
   async function staffChannel(guild, leagueId) {
     const id = repository.loadSettings(leagueId)?.discordChannels?.staff;
@@ -131,7 +132,10 @@ function createDiscordWeeklyDashboard({ repository = require('./repository').cre
         const view = service.report(interaction.guildId), row = repository.loadSettings(view.leagueId)?.weeklyStaffReports?.[`${interaction.guildId}:${view.seasonId}:${view.weekId}`];
         if (!view.available || view.closed || Number(interaction.customId.split(':')[2]) !== view.week || row?.messageId !== interaction.message?.id || row?.channelId !== interaction.channelId) throw Error('This weekly report is closed or stale. Use the current report.');
         const action = interaction.customId.split(':')[1];
-        if (action === 'delete') {
+        if (action === 'repair') {
+          if (!threadService) throw Error('Thread creation is unavailable. Use /games create.');
+          await interaction.editReply(require('./discord-game-threads').creationPayload(await threadService.create(interaction.guild)));
+        } else if (action === 'delete') {
           if (!cleanupService) throw Error('Thread cleanup is unavailable. Restart the connected bot and retry.');
           const preview = await cleanupService.prepare(interaction.guild, { authorized: true, id: interaction.user.id, guildId: interaction.guildId }, view.week);
           await interaction.editReply(require('./discord-game-cleanup').previewPayload(preview));

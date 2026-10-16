@@ -73,12 +73,12 @@ test('Discord command and website reject unauthorized creation', async () => {
     const { handleGameThreads } = require('../src/fantasyhq/discord-game-threads'); await assert.rejects(handleGameThreads({ guildId: 'guild', memberPermissions: { has: () => false }, member: { roles: [] } }, { create: () => { throw Error('Should not run'); } }), /Commish/);
     const { requestHandler } = require('../src/web'); let status; requestHandler({ url: '/api/league/admin/game-threads', method: 'POST', headers: {} }, { writeHead: c => status = c, end() { } }); assert.equal(status, 403);
 });
-test('confirmed games create replaces every active-week thread regardless of saved submissions and preserves game history', async t => {
+test('confirmed games create replace:true replaces every active-week thread regardless of saved submissions and preserves game history', async t => {
     const f = fixture(t); await f.service.create(f.guild); const game = f.submissions.records()[0].game, oldIds = f.submissions.records().map(r => r.game.discordThreadId);
     const history = { submissions: [{ submissionId: 'saved', status: 'RECEIVED' }], media: [{ mediaId: 'image', submissionId: 'saved', storedFile: 'originals/image.jpg' }], extractions: [{ extractionId: 'ocr', submissionId: 'saved', status: 'READY_FOR_REVIEW' }] };
     await f.submissions.mutate(game.gameId, r => Object.assign(r, structuredClone(history)));
     const cleanup = createGameThreadCleanupService({ submissions: f.submissions }), { handleGameThreads, handleGameThreadsButton } = require('../src/fantasyhq/discord-game-threads'); let preview, result;
-    const interaction = { guildId: 'guild', guild: f.guild, user: { id: 'commish', username: 'Commissioner' }, memberPermissions: { has: () => true }, member: { roles: [] }, editReply: async value => { preview = value; } };
+    const interaction = { options: { getBoolean: () => true }, guildId: 'guild', guild: f.guild, user: { id: 'commish', username: 'Commissioner' }, memberPermissions: { has: () => true }, member: { roles: [] }, editReply: async value => { preview = value; } };
     await handleGameThreads(interaction, f.service, cleanup); assert.equal(f.calls.length, 14); assert.equal(preview.embeds[0].data.title, 'REPLACE WEEK 1 GAME THREADS');
     const button = preview.components[0].toJSON().components[1]; assert.match(button.custom_id, /^gamerecreate:confirm:1:/);
     await handleGameThreadsButton({ ...interaction, customId: button.custom_id, deferReply: async () => { }, editReply: async value => { result = value; } }, f.service, cleanup);
@@ -166,4 +166,48 @@ test('weekly announcement follow-up runs after persisted deadlines and retries w
  }});
  const first=await service.create(f.guild);assert.equal(first.created,14);assert.equal(first.announcementError,'Announcement unavailable');
  const retry=await service.create(f.guild);assert.equal(retry.created,0);assert.equal(retry.existing,14);assert.equal(retry.announcementError,undefined);assert.equal(calls,2);
+});
+
+test('games create repairs safely by default and preserves existing messages and deadline',async t=>{
+ const f=fixture(t);await f.service.create(f.guild);const before=f.submissions.records().map(r=>[r.game.gameId,r.game.discordThreadId,r.game.discordMessageId]),deadline=f.repository.loadSchedule('test','1').weeks[0].deadlineAt;let reply;
+ await require('../src/fantasyhq/discord-game-threads').handleGameThreads({guild:f.guild,guildId:'guild',user:{id:'commish'},memberPermissions:{has:()=>true},editReply:async p=>reply=p},f.service);
+ assert.equal(f.calls.length,14);assert.deepEqual(f.submissions.records().map(r=>[r.game.gameId,r.game.discordThreadId,r.game.discordMessageId]),before);
+ assert.equal(f.repository.loadSchedule('test','1').weeks[0].deadlineAt,deadline);assert.match(reply.embeds[0].data.description,/0 created · 14 reused · 0 failed/);
+});
+test('automatic recovery retries partial creation after restart, preserves cleaned threads and skips inactive seasons',async t=>{
+ const f=fixture(t);f.failCreate();assert.equal((await f.service.reconcile(f.guild)).failed,1);
+ const restarted=createGameThreadService({submissions:f.submissions,syncOwners:async()=>({staffUserIds:[]}),logger:{error(){}}});
+ assert.equal((await restarted.reconcile(f.guild)).created,1);assert.equal(f.calls.length,14);assert.equal((await restarted.reconcile(f.guild)).skipped,true);
+ const game=f.submissions.records()[0].game;await f.submissions.mutate(game.gameId,r=>r.game.discordThreadCleanedAt=new Date().toISOString());f.channels.delete(game.discordThreadId);
+ assert.equal((await restarted.reconcile(f.guild)).skipped,true);assert.equal(f.calls.length,14);
+ f.repository.saveLeague('test',{currentPhase:'PLAYOFFS'});assert.equal((await restarted.reconcile(f.guild)).skipped,true);
+});
+test('a week change during Discord creation cannot roll back the schedule or block the next-week job',async t=>{
+ const f=fixture(t),parent=f.channels.get('games'),original=parent.threads.create;let release,started;
+ const begun=new Promise(resolve=>started=resolve);let once=true;
+ parent.threads.create=async options=>{if(once){once=false;started();await new Promise(resolve=>release=resolve);}return original(options);};
+ const old=f.service.create(f.guild);await begun;
+ const schedule=f.repository.loadSchedule('test','1');schedule.weeks[0].status='COMPLETED';schedule.weeks[1].status='ACTIVE';schedule.statsPublication={throughWeek:1};f.repository.saveSchedule(schedule);f.repository.saveLeague('test',{currentWeek:2});
+ const next=await f.service.create(f.guild);assert.equal(next.week,2);assert.equal(next.created,14);
+ release();await assert.rejects(old,/Active week changed/);
+ const saved=f.repository.loadSchedule('test','1');assert.equal(saved.weeks[0].status,'COMPLETED');assert.equal(saved.weeks[1].status,'ACTIVE');assert.equal(saved.statsPublication.throughWeek,1);assert.equal(f.repository.loadLeague('test').league.currentWeek,2);
+});
+test('all 15 weeks repeat creation, approval, publication and advancement without duplicate threads or clock resets',async t=>{
+ const f=fixture(t),actor={authorized:true,id:'commissioner'};
+ const advance=require('../src/fantasyhq/week-advancement').createWeekAdvancementService({submissions:f.submissions,threads:f.service});
+ await f.service.reconcile(f.guild);
+ for(let week=1;week<=15;week++){
+  const saved=f.repository.loadSchedule('test','1').weeks[week-1],records=f.submissions.records().filter(r=>r.game.weekNumber===week);
+  assert.equal(records.length,14);assert.equal(new Set(records.map(r=>r.game.discordThreadId)).size,14);assert.equal(Date.parse(saved.deadlineAt)-Date.parse(saved.startedAt),HOURS_48);
+  assert.equal((await f.service.create(f.guild)).created,0);assert.equal(f.repository.loadSchedule('test','1').weeks[week-1].deadlineAt,saved.deadlineAt);
+  for(const record of records)await f.submissions.mutate(record.game.gameId,r=>{
+   r.submissions=[{submissionId:'s',status:'FINAL'}];r.extractions=[{extractionId:'e',submissionId:'s',status:'READY_FOR_REVIEW',issues:[]}];
+   Object.assign(r.game,{status:'FINAL',finalizedAt:new Date().toISOString(),result:{submissionId:'s',extractionId:'e',scores:{[r.game.team1Id]:110,[r.game.team2Id]:100}}});
+  });
+  const prep=advance.prepare('guild',actor);assert.equal(prep.blocked,undefined);const result=await advance.advance(f.guild,actor,prep.token);
+  assert.equal(result.seasonComplete,week===15);assert.equal(f.repository.loadSchedule('test','1').statsPublication.throughWeek,week);
+  const replay=await advance.advance(f.guild,actor,prep.token);assert.equal(replay.alreadyApplied,true);assert.equal(f.calls.length,Math.min(week+1,15)*14);
+ }
+ assert.equal(f.calls.length,210);assert.equal(f.submissions.records().length,210);assert.equal((await f.service.reconcile(f.guild)).skipped,true);
+ assert.ok(f.repository.loadSchedule('test','1').weeks.every(w=>w.status==='COMPLETED'));
 });

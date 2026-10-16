@@ -127,8 +127,8 @@ const weekAdvancement = require("./fantasyhq/week-advancement").createWeekAdvanc
   },
 });
 const gameCleanup = require("./fantasyhq/game-thread-cleanup").createGameThreadCleanupService({ submissions: gameRecordStore });
-discordWeeklyDashboard = require('./fantasyhq/discord-weekly-dashboard').createDiscordWeeklyDashboard({ repository: tradeRepository, weekService: weekAdvancement, cleanupService: gameCleanup });
-require("./web").setGameThreadRuntime({ client, service: gameThreads, repository: gameThreads.repository, weekService: weekAdvancement, cleanupService: gameCleanup });
+discordWeeklyDashboard = require('./fantasyhq/discord-weekly-dashboard').createDiscordWeeklyDashboard({ repository: tradeRepository, weekService: weekAdvancement, cleanupService: gameCleanup, threadService: gameThreads });
+require("./web").setGameThreadRuntime({ client, service: gameThreads, repository: gameThreads.repository, weekService: weekAdvancement, cleanupService: gameCleanup, threadService: gameThreads });
 const scoutingService = require("./fantasyhq/scouting-service").createScoutingService({ repository: require("./fantasyhq/repository").createFantasyHQRepository() });
 const scoutingCommands = require("./fantasyhq/discord-scouting");
 mockSimulations = require('./fantasyhq/mock-simulations').createMockSimulationService({ repository: tradeRepository, scoutingService });
@@ -887,6 +887,7 @@ client.once(Events.ClientReady, async (readyClient) => {
         const binding = tradeRepository.loadGuildLeagueBinding(guild.id);
         if (!binding) continue;
         for (const [name, operation] of [
+          ['Game threads', () => gameThreads.reconcile(guild)],
           ['Weekly awards', () => manager.reconcile(guild, binding.leagueId)],
           ['Streams', () => require('./fantasyhq/discord-streams').createDiscordStreams({ repository: tradeRepository, submissions: gameRecordStore }).reconcile(guild, binding.leagueId)],
           ['Sportsbook announcement', () => require('./fantasyhq/discord-sportsbook').createDiscordSportsbook({repository:tradeRepository,submissions:gameRecordStore}).reconcile(guild,binding.leagueId)],

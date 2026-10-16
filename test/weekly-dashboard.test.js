@@ -93,8 +93,8 @@ test('weekly embeds stay within Discord limits and provide only existing navigat
  const f=fixture(t);const report=staffPayload(f.service.report('g'));
  const e=report.embeds[0].toJSON();assert.ok(e.description.length<=4096);assert.ok(e.fields.every(x=>x.value.length<=1024));assert.ok(e.fields.reduce((n,x)=>n+x.name.length+x.value.length,e.title.length+e.description.length+e.footer.text.length)<6000);
  assert.equal(report.components[0].components[0].data.custom_id,'weeklystaff:advance:1');
- assert.equal(report.components[0].components[0].data.label,'Create Next Week Threads');
- assert.equal(report.components[0].components[1].data.custom_id,'weeklystaff:delete:1');
+ assert.equal(report.components[0].components[0].data.label,'Review & Advance Week');
+ assert.equal(report.components[0].components[2].data.custom_id,'weeklystaff:delete:1');
  const coach=coachPayload(f.service.teamDashboard('g',f.a.team1Id,true));assert.equal(coach.components[0].components[1].data.custom_id,'fa:active');assert.equal(coach.embeds.length,1);
 });
 module.exports={fixture};
@@ -105,7 +105,7 @@ test('report recovers a deleted saved Staff channel only when the replacement is
  f.channel.name='lb-league-staff';
  f.guild.channels.fetch=async id=>{if(id==='deleted')throw Object.assign(Error('Unknown Channel'),{code:10003});if(id===undefined)return new Map([['staff',f.channel]]);return fetch(id);};
  f.setUnsafe(true);await assert.rejects(f.discord().ensureReport(f.guild),/Staff-only/);assert.equal(f.repository.loadSettings('l').discordChannels.staff,'deleted');
- f.setUnsafe(false);await f.discord().ensureReport(f.guild);assert.equal(f.repository.loadSettings('l').discordChannels.staff,'staff');assert.equal(f.sent.length,1);assert.equal(f.sent[0].components[0].components[0].data.label,'Create Next Week Threads');
+ f.setUnsafe(false);await f.discord().ensureReport(f.guild);assert.equal(f.repository.loadSettings('l').discordChannels.staff,'staff');assert.equal(f.sent.length,1);assert.equal(f.sent[0].components[0].components[0].data.label,'Review & Advance Week');
 });
 test('Staff channel recovery refuses duplicate names and does not hide permission errors',async t=>{
  const f=fixture(t);f.guild.channels.fetch=async id=>{if(id)throw Object.assign(Error('Unknown Channel'),{code:10003});return new Map([['a',{name:'lb-league-staff'}],['b',{name:'lb-league-staff'}]]);};
