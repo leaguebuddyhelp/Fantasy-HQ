@@ -106,7 +106,14 @@ client.on(Events.MessageCreate, async message => {
 
 const discordActivityCheck = require("./fantasyhq/discord-activity-check").createDiscordActivityCheck({ repository: tradeRepository });
 const gameThreads = require("./fantasyhq/game-threads").createGameThreadService({
-  onCreated: ({ guild, leagueId }) => require('./fantasyhq/discord-sportsbook').createDiscordSportsbook({ repository: tradeRepository, submissions: gameRecordStore }).reconcile(guild, leagueId),
+  onCreated: async ({ guild, leagueId }) => {
+    const errors = [];
+    for (const [label, publish] of [
+      ['Staff report', () => discordWeeklyDashboard.ensureReport(guild)],
+      ['Weekly announcement', () => require('./fantasyhq/discord-sportsbook').createDiscordSportsbook({ repository: tradeRepository, submissions: gameRecordStore }).reconcile(guild, leagueId)],
+    ]) try { await publish(); } catch (error) { errors.push(`${label}: ${error.message}`); }
+    if (errors.length) throw Error(errors.join(' · '));
+  },
 });
 let mockSimulations;
 let discordWeeklyDashboard;

@@ -87,7 +87,7 @@ function createGameThreadService({ submissions = createGameSubmissionService(), 
             } catch (error) { result.failed++; result.errors.push({ gameId: record?.game.gameId, team1Id: match.team1Id, message: error.message }); logger.error('Game thread creation:', match.team1Id, error.message); if (record) await submissions.mutate(record.game.gameId, r => { r.game.threadError = error.message; }); }
         }
         current();
-        if (onCreated) try { await onCreated({ guild, leagueId: c.league.leagueId, result }); }
+        if (c.week.threadsStartedAt && onCreated) try { await onCreated({ guild, leagueId: c.league.leagueId, result }); }
         catch (error) { result.announcementError = error.message; logger.error('Weekly announcement:', error.message); }
         return result;
     }
