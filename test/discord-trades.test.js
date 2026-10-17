@@ -49,6 +49,8 @@ function fixture(t, testMode = false, logger = { error() { } }) {
             update: async payload => { result.payload = payload; result.replied = true; },
             followUp: async payload => { result.followup = payload; result.payload = payload; },
             deferReply: async payload => { result.deferred = true; result.deferPayload = payload; },
+            deferUpdate: async () => { result.deferred = true; result.deferredUpdate = true; },
+            editReply: async payload => { result.payload = payload; },
         };
         return result;
     }
@@ -59,6 +61,7 @@ test("pinned builder supports third teams, routed assets, value/roster feedback,
     const f = fixture(t);
     const opened = f.interaction("trade:build");
     await f.workflow.handleTradeInteraction(opened);
+    assert.equal(opened.deferredUpdate, true);
     assert.equal(opened.payload.components[0].components[0].toJSON().options.length, 2);
     const selectedTeam = f.interaction("trade:select-other:alpha:0", { kind: "select", selected: ["bravo"] });
     await f.workflow.handleTradeInteraction(selectedTeam);

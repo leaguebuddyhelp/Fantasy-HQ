@@ -667,6 +667,11 @@ function createDiscordTradeWorkflow(options = {}) {
             if (root !== "trade") return false;
             // These steps fetch members, create threads and post announcements; Discord expires an unacknowledged interaction after 3 seconds.
             if (interaction.isButton() && ['gm', 'vote', 'test-vote', 'proof'].includes(action) && !interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+            // Builder clicks acknowledge first: disk reads on a busy host can exceed the 3-second window and show "interaction failed".
+            if (!['gm', 'vote', 'test-vote', 'proof'].includes(action) && !interaction.deferred && !interaction.replied && typeof interaction.deferUpdate === 'function') {
+                await interaction.deferUpdate();
+                interaction.update = payload => interaction.editReply(payload);
+            }
             if (interaction.guildId && !['build', 'gm', 'vote', 'test-vote', 'proof', 'close', 'cancel'].includes(action)) {
                 const context = repository.loadLeagueContext({ guildId: interaction.guildId });
                 const settings = settingsFor(context.league.leagueId);
