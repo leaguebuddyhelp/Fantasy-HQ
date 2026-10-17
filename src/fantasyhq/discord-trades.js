@@ -403,29 +403,10 @@ function createDiscordTradeWorkflow(options = {}) {
                 await saveTradeReference(trade.leagueId, trade.tradeId, trade.version, "gmMessages", sent);
             } catch (error) { console.error(`Trade ${trade.tradeId}: could not DM ${team.teamId}: ${error.message}`); }
         }
-        const channelId = settings.discordChannels?.submitTrade;
-        const channel = channelId ? await guild.channels.fetch(channelId).catch(() => null) : null;
-        if (channel) {
-            // Pending negotiations belong only to the involved coaches. Never fall back to a shared post.
-            const userIds = [...new Set(trade.currentVersion.teams.map(team => team.coachUserId).filter(Boolean))];
-            if (settings.testMode && !userIds.includes(trade.currentVersion.initiatingUserId)) userIds.push(trade.currentVersion.initiatingUserId);
-            let thread = trade.currentVersion.proposalThreadId ? await guild.channels.fetch(trade.currentVersion.proposalThreadId).catch(error => {
-                if (Number(error.code) === 10003) return null;
-                throw error;
-            }) : null;
-            if (!thread) {
-                thread = await channel.threads.create({ name: `Trade ${trade.tradeId.slice(0, 8)} · v${trade.version}`, type: ChannelType.PrivateThread, invitable: false, autoArchiveDuration: 10080, reason: 'Private LEAGUEbuddy trade proposal' });
-                await saveTradeReference(trade.leagueId, trade.tradeId, trade.version, 'proposalThreadId', thread.id);
-                await saveTradeReference(trade.leagueId, trade.tradeId, trade.version, 'proposalMessageId', null);
-                trade = tradeService.getTrade(trade.leagueId, trade.tradeId);
-            }
-            if (thread.type !== ChannelType.PrivateThread || thread.parentId !== channel.id) throw Error('Trade proposal room is not a private thread in Submit Trade. Repair its stored reference.');
-            if (thread.archived) await thread.setArchived(false);
-            for (const userId of userIds) await thread.members.add(userId);
-            if (!trade.currentVersion.proposalMessageId) {
-                const message = await thread.send({ content: userIds.map(id => `<@${id}>`).join(" "), embeds: [offerEmbed(trade)], components: trade.currentVersion.teams.filter(team => team.teamId !== trade.initiatingTeamId).map(team => gmButtons(trade, team.teamId)), allowedMentions: { users: userIds } });
-                await saveTradeReference(trade.leagueId, trade.tradeId, trade.version, 'proposalMessageId', message.id);
-            }
+        const missed = trade.currentVersion.teams.filter(entry => entry.teamId !== trade.initiatingTeamId && !(trade.currentVersion.gmMessages || sent).some(m => m.teamId === entry.teamId));
+        if (missed.length && trade.currentVersion.initiatingUserId) {
+            const names = missed.map(entry => teamName(context, entry.teamId)).join(", ");
+            client.users.fetch(trade.currentVersion.initiatingUserId).then(user => user.send(`Trade ${trade.tradeId.slice(0, 8)}: I couldn't DM the GM of ${names}. They need to allow DMs from server members, then you can resend the offer.`)).catch(() => {});
         }
     }
 
