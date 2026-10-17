@@ -39,7 +39,7 @@ function detectLayout(located, meta) {
 }
 async function readScreenshot(worker, suppliedImage) {
   let recognitionCalls = 0;
-  const recognize = (...args) => { recognitionCalls++; return worker.recognize(...args); };
+  const recognize = (...args) => { if (worker.aborted) return Promise.reject(new Error('OCR processing was stopped.')); recognitionCalls++; return worker.recognize(...args); };
   // Apply EXIF orientation and decode camera formats before inspecting coordinates.
   const sourceMeta = await sharp(suppliedImage.bytes,{limitInputPixels:60000000}).metadata();
   if (sourceMeta.format === 'heif') suppliedImage = {...suppliedImage,bytes:await require('../offseason-image').normalize(suppliedImage.bytes)};
@@ -109,7 +109,7 @@ async function readScreenshot(worker, suppliedImage) {
       readings.push({text:data.text.trim(),confidence:data.confidence,height});
       const confident = readings.filter(r => r.confidence >= 96 && r.text);
       const valid = numeric ? (path.endsWith('.FG') || path.endsWith('.3PT') || path.endsWith('.FT') ? /^\d+-\d+$/.test(data.text.trim()) : /^(?:\d+(?::\d{2})?|DNP)$/.test(data.text.trim())) : !!data.text.trim();
-      if (valid && confident.length >= 2 && new Set(confident.map(r => numeric ? r.text : normalizeText(r.text))).size === 1) break;
+      if (valid && ((confident.length >= 2 && new Set(confident.map(r => numeric ? r.text : normalizeText(r.text))).size === 1) || (numeric && data.confidence >= 93 && !path.startsWith('scoreboard.')))) break;
     }
     if (Math.max(...readings.map(r=>r.confidence)) < 80) {
       const source=await sharp(image.bytes).extract(crop).greyscale().normalise().png().toBuffer();
@@ -186,7 +186,7 @@ function withOcrWorker(work, { timeoutMs = 300000 } = {}) {
     try {
       worker = await createWorker('eng', 1, { langPath: english.langPath, gzip: true, cacheMethod: 'none' });
       return await Promise.race([work(worker), new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('OCR processing timed out. Retry with a clear screenshot.')), timeoutMs); })]);
-    } finally { clearTimeout(timer); if (worker) await worker.terminate(); }
+    } finally { clearTimeout(timer); if (worker) { worker.aborted = true; await worker.terminate().catch(() => {}); } }
   });
   queue = job;
   return job.finally(() => { queued--; });
@@ -205,7 +205,7 @@ function createTesseractProvider() {
           return readScreenshot(second, image);
         }));
         for (const result of results) { raw.push(result.raw); screens.push(result.screen); }
-      } finally { await Promise.all(extra.map(w => w.terminate().catch(() => {}))); }
+      } finally { await Promise.all(extra.map(w => { w.aborted = true; return w.terminate().catch(() => {}); })); }
       return { raw: JSON.stringify({ engine: 'tesseract', durationMs: Date.now() - startedAt, screenshots: raw, parsed: { screenshots: screens } }) };
     }).catch(error => { if (error.ocrRaw) raw.push(error.ocrRaw); return { raw: JSON.stringify({ engine: 'tesseract', screenshots: raw, error: error.message }), error: error.message }; });
   }, parse(result) { if (result.error) throw new Error(result.error); return JSON.parse(result.raw).parsed; } };

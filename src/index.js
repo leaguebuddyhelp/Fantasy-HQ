@@ -53,6 +53,8 @@ const client = new Client({
 });
 const tradeRepository = require("./fantasyhq/repository").createFantasyHQRepository();
 const storageSafety = require('./fantasyhq/storage-safety');
+process.on('unhandledRejection', error => console.error('Unhandled rejection:', error?.message || error));
+process.on('uncaughtException', error => { console.error('Uncaught exception:', error?.stack || error); if (!/tesseract/.test(error?.stack || '')) process.exit(1); });
 const writerLease = storageSafety.acquireWriterLease(tradeRepository.dataRoot, { waitMs: 180000 });
 const startupBackup = storageSafety.createStorageBackup(tradeRepository.dataRoot, { label: 'startup' });
 console.log(`League backup: ${startupBackup.id}`);
