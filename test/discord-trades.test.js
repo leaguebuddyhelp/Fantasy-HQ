@@ -47,7 +47,8 @@ function fixture(t, testMode = false, logger = { error() { } }) {
             isButton: () => kind === "button", isStringSelectMenu: () => kind === "select",
             reply: async payload => { result.payload = payload; result.replied = true; },
             update: async payload => { result.payload = payload; result.replied = true; },
-            followUp: async payload => { result.followup = payload; },
+            followUp: async payload => { result.followup = payload; result.payload = payload; },
+            deferReply: async payload => { result.deferred = true; result.deferPayload = payload; },
         };
         return result;
     }
@@ -208,6 +209,9 @@ test('solo committee fallback handles an involved tester role while preserving i
         const { trade } = f.service.submitTrade({ leagueId: 'league', tradeId: draft.tradeId, actorUserId: 'coach-alpha' });
         const click = f.interaction(`trade:gm:APPROVE:${trade.tradeId}:1:bravo`, { manageGuild: true });
         await f.workflow.handleTradeInteraction(click);
+        assert.equal(click.deferred, true, 'slow GM responses must be acknowledged before Discord work');
+        assert.equal(click.replied, false);
+        assert.match(click.followup.content, /Committee/);
         const updated = f.service.getTrade('league', trade.tradeId);
         assert.equal(updated.status, 'PENDING_COMMITTEE', JSON.stringify(click.payload));
         assert.deepEqual(updated.currentVersion.committee.eligibleVoterIds, independent ? ['independent'] : Array.from({ length: 5 }, (_, i) => `test-committee:coach-alpha:${i + 1}`));

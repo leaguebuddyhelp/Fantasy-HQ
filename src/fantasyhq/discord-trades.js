@@ -59,7 +59,10 @@ function createDiscordTradeWorkflow(options = {}) {
         }
         throw new Error("This trade draft is no longer available.");
     }
-    function ephemeral(interaction, payload) { return interaction.reply({ ...payload, flags: MessageFlags.Ephemeral }); }
+    function ephemeral(interaction, payload) {
+        if (interaction.deferred || interaction.replied) return interaction.followUp({ ...payload, flags: MessageFlags.Ephemeral });
+        return interaction.reply({ ...payload, flags: MessageFlags.Ephemeral });
+    }
     function edit(interaction, payload) { return interaction.update(payload); }
     function backRow(tradeId) {
         return new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`trade:back:${tradeId}`).setLabel("Back to Trade").setStyle(ButtonStyle.Secondary));
@@ -620,7 +623,9 @@ function createDiscordTradeWorkflow(options = {}) {
             await ephemeral(interaction, builderPayload(counter));
             return;
         }
-        const voterIds = action === "APPROVE" ? await committeeVoters(guild, trade) : [];
+        const approvedTeams = new Set([...trade.currentVersion.gmDecisions.filter(entry => entry.decision === "APPROVE").map(entry => entry.teamId), actorTeamId]);
+        const finalApproval = action === "APPROVE" && trade.participatingTeams.filter(teamId => teamId !== trade.initiatingTeamId).every(teamId => approvedTeams.has(teamId));
+        const voterIds = finalApproval ? await committeeVoters(guild, trade) : [];
         const result = tradeService.decideGM({ leagueId: trade.leagueId, tradeId, version, actorUserId: interaction.user.id, actorTeamId, decision: action, eligibleVoterIds: voterIds });
         trade = tradeService.getTrade(trade.leagueId, tradeId);
         if (result.status === "DENIED_BY_GM") await announceDenied(interaction.client, guild, trade, `Denied by ${teamName(context, actorTeamId)}.`);
@@ -679,6 +684,8 @@ function createDiscordTradeWorkflow(options = {}) {
             const parts = interaction.customId.split(":");
             const [root, action] = parts;
             if (root !== "trade") return false;
+            // These steps fetch members, create threads and post announcements; Discord expires an unacknowledged interaction after 3 seconds.
+            if (interaction.isButton() && ['gm', 'vote', 'test-vote', 'proof'].includes(action) && !interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
             if (interaction.guildId && !['build', 'gm', 'vote', 'test-vote', 'proof', 'close', 'cancel'].includes(action)) {
                 const context = repository.loadLeagueContext({ guildId: interaction.guildId });
                 const settings = settingsFor(context.league.leagueId);
