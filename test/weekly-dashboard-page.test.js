@@ -23,7 +23,7 @@ test('weekly website dashboards preserve privacy, guard reloads, escape text and
  await page.evaluate(()=>loadStaffWeek());assert.equal(staffCalls,0);
  await page.evaluate(()=>{state.adminKey='weekly-key';state.adminAuthenticated=true;renderAdminMode();document.querySelector('#staff-weekly').hidden=false;});
  await page.evaluate(()=>Promise.all([loadStaffWeek(),loadStaffWeek()]));assert.equal(staffCalls,1);
- assert.match(await page.locator('#staff-week-output').textContent(),/CPU vs CPU/);assert.match(await page.locator('#staff-week-output').textContent(),/Private Player/);
+ assert.match(await page.locator('#staff-week-output').textContent(),/CPU vs CPU/);assert.doesNotMatch(await page.locator('#staff-week-output').textContent(),/Private Player/);
  assert.equal(await page.locator('#staff-week-output img').count(),0);assert.equal(await page.locator('#staff-week-output a[href="/games/game/submissions/submission/review"]').count(),1);
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
  rejectStaff=true;await page.evaluate(()=>loadStaffWeek());assert.equal(await page.locator('#staff-week-output').textContent(),'');assert.match(await page.locator('#staff-week-status').textContent(),/authorization required/);

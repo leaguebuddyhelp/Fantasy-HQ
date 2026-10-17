@@ -1,3 +1,5 @@
+> Updated October 17, 2026: the separate free agency offer/waiver workflow described in this historical document has been retired. See [Roster reconciliation](ROSTER-RECONCILIATION.md) for the current process.
+
 # Phase-lock repairs — October 10, 2026
 
 Implemented locally; not deployed. Live league phase, Discord channels/messages and production league data were not changed.

@@ -1,3 +1,5 @@
+> Updated October 17, 2026: the separate free agency offer/waiver workflow described in this historical document has been retired. See [Roster reconciliation](ROSTER-RECONCILIATION.md) for the current process.
+
 # Complete implementation audit — October 8, 2026
 
 Source of requirements: latest COMPLETE GITHUB COPILOT IMPLEMENTATION PROMPT (attachment 7cd91574), superseding ddebda92, plus subsequent user corrections. Existing local available-teams/channel changes are preserved. The status tables record the initial inspection; the implementation-progress section below records subsequent changes.

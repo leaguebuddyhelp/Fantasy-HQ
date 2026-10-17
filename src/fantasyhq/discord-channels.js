@@ -1,6 +1,6 @@
 const { ChannelType, PermissionFlagsBits: P } = require('discord.js');
 const { ensureLeagueRoles } = require('./discord-roles');
-const CHANNEL_LAYOUT_VERSION = 7;
+const CHANNEL_LAYOUT_VERSION = 8;
 const CHANNELS = [
     ['announcements', 'announcements', 'publicRead', 'League announcements, deadlines and important updates.'],
     ['news', 'news', 'publicRead', 'Staff-approved league journalism, verified reports and recorded corrections.'],
@@ -15,7 +15,6 @@ const CHANNELS = [
     ['playoffStats', 'playoff-stats', 'read', 'Playoff bracket progress and postseason statistics.'],
     ['seasonAwards', 'season-awards', 'read', 'Official season awards and winner announcements.'],
     ['playerOfWeek', 'player-of-the-week', 'read', 'East and West Player of the Week winners, automatically posted after each completed week.'],
-    ['freeAgency', 'free-agency', 'read', 'Browse free agents, submit signing proof, and track offers and waiver claims using the pinned panel.'],
     ['scouting', 'scouting-hub', 'chat', 'Draft classes, prospect scouting, mock drafts and live mock draft controls.'],
     ['tradeBlock', 'trade-block', 'block', 'Team trade block threads: advertise players, picks and roster needs.'],
     ['submitTrade', 'submit-trade', 'trade', 'Build and submit trades using the pinned trade panel.'],
@@ -101,11 +100,6 @@ function createChannelSetupService(repository = require('./repository').createFa
             const message = await require('./discord-mock-draft').createDiscordMockDraft({ repository }).ensurePin(guild, leagueId);
             result.liveMockMessageId = message.id; result.liveMockChannelId = ids.scouting;
         } catch (error) { result.failed++; result.errors.push(`live mock pin: ${error.message}`); }
-        const freeAgencyChannel = channels.get(ids.freeAgency);
-        if (freeAgencyChannel && typeof freeAgencyChannel.messages?.fetchPins === 'function') try {
-            const message = await require('./discord-free-agency').createDiscordFreeAgency({ repository }).ensurePin(guild, leagueId);
-            result.freeAgencyMessageId = message.id;
-        } catch (error) { result.failed++; result.errors.push(`free agency pin: ${error.message}`); }
         try { await require('./discord-league-feeds').createDiscordLeagueFeeds({ repository }).ensurePins(guild, leagueId); }
         catch (error) { result.failed++; result.errors.push(`season feed pins: ${error.message}`); }
         if(channels.get(ids.playoffStats)?.messages?.fetchPins)try {await require('./discord-postseason-stats').createDiscordPostseasonStats({repository}).ensurePin(guild,leagueId);}catch(error){result.failed++;result.errors.push('playoff stats pin: '+error.message);}

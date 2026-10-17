@@ -1,5 +1,3 @@
-// Player perspective: actual player-controlled money dominates bounded modifiers.
-const WEIGHTS = Object.freeze({ securityPerYear: 0.01, securityMax: 0.06, playerOption: 0.02, teamOption: -0.02, front: 0.005, back: -0.005 });
 function salaryAmount(value) {
   let text = String(value).trim().replace(/[$\s]/g, '').toUpperCase();
   if (/^\d+,\d{1,2}[MK]$/.test(text)) text = text.replace(',', '.');
@@ -10,7 +8,7 @@ function salaryAmount(value) {
   if (!Number.isSafeInteger(amount) || amount <= 0) throw Error('Salary must be a positive, readable amount.');
   return amount;
 }
-function normalizeOffer(details, { year, screenshotUrl = null, timestamp = new Date().toISOString(), player = null } = {}) {
+function normalizeContractDetails(details, { year, screenshotUrl = null, timestamp = new Date().toISOString(), player = null } = {}) {
   const minimumSalary = /^MINIMUM$/i.test(String(details.salary).trim()) && player ? require('./nba-minimum-salary').nbaMinimumSalary(year, player) : null;
   const salary = minimumSalary?.salary ?? salaryAmount(details.salary);
   const yearsText = String(details.years).replace(/\s/g, '');
@@ -36,26 +34,4 @@ function normalizeOffer(details, { year, screenshotUrl = null, timestamp = new D
   if (!Number.isSafeInteger(guaranteedTotal)) throw Error('Contract total cannot be represented safely.');
   return { details: { salary, years: yearsText, structure, option }, contract: { source: 'nba2k', sourceUrl: screenshotUrl, playerUrl: null, fetchedAt: timestamp, currency: 'USD', seasons, guaranteedTotal, ...(minimumSalary ? { minimumSalary } : {}) } };
 }
-function offerScore(contract, structure = 'FLAT') {
-  const controlled = contract.seasons.filter(row => row.option !== 'TEAM');
-  const money = controlled.reduce((sum, row) => sum + row.salary, 0);
-  const option = contract.seasons.at(-1)?.option;
-  const multiplier = 1 + Math.min(WEIGHTS.securityMax, controlled.length * WEIGHTS.securityPerYear) + (option === 'PLAYER' ? WEIGHTS.playerOption : option === 'TEAM' ? WEIGHTS.teamOption : 0) + (structure === 'FRONT' ? WEIGHTS.front : structure === 'BACK' ? WEIGHTS.back : 0);
-  return Math.round(money * multiplier * 100) / 100;
-}
-function rankOffers(offers) {
-  return [...offers].sort((a, b) => offerScore(b.contract, b.details.structure) - offerScore(a.contract, a.details.structure) || Date.parse(a.submittedAt) - Date.parse(b.submittedAt) || (a.submissionSequence || 0) - (b.submissionSequence || 0) || a.id.localeCompare(b.id));
-}
-function parseContractText(text) {
-  const clean = String(text).replace(/\r/g, '').replace(/[−–]/g, '-').split(/Offer\s+Details/i).at(-1);
-  // Anchor labels so Pending Salary and Salary Cap cannot become offer money.
-  const field = label => clean.match(new RegExp(`^\\s*${label}\\s*:?\\s*([^\\n]+)`, 'im'))?.[1]?.trim();
-  const salaryField = field('Salary(?!\\s+Cap)');
-  const salary = /\bMINIMUM\b/i.test(salaryField || '') ? 'MINIMUM' : salaryField?.match(/\$\s*\d[\d,]*(?:\.\d+)?\s*[MK]?|^\d[\d,]*(?:\.\d+)?\s*[MK]?/i)?.[0];
-  const years = field('Years')?.replace(/\+\s*[Il]/g, '+1').match(/\d+\s*(?:\+\s*1)?/)?.[0]?.replace(/\s/g, '');
-  const structure = field('(?:Contract\\s*(?:Type|Structure)|Type)')?.match(/Flat|Front(?:\s*\(-?5%\))?|Back(?:\s*\(\+?5%\))?/i)?.[0];
-  const option = field('Option')?.match(/None|No(?:\s*Option)?|Team(?:\s*Option)?|Player(?:\s*Option)?/i)?.[0];
-  // Promise is deliberately never parsed, normalized, stored or scored.
-  return { salary: salary || '', years: years || '', structure: structure || '', option: option || '' };
-}
-module.exports = { WEIGHTS, salaryAmount, normalizeOffer, offerScore, rankOffers, parseContractText };
+module.exports = { salaryAmount, normalizeContractDetails };

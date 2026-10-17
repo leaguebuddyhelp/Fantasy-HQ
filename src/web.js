@@ -406,25 +406,16 @@ function unsafeRequestHandler(request, response) {
     }catch(error){sendJson(response,400,{error:error.message});}})();return;
   }
 
-  if (url.pathname === '/api/league/admin/offseason-free-agency') {
-    if (!isAdminRequest(request)) { sendJson(response, 403, {error:'Staff website credentials required.'}); return; }
-    (async()=>{try{
-      const context=boundLeagueContext(),principal=require('./shared/website-auth').websitePrincipal(request),repository=gameRuntime?.repository||leagueService.repository;
-      const service=require('./fantasyhq/offseason-free-agency').createOffseasonFreeAgencyService({repository}),actor=require('./shared/website-auth').websiteActor(request,context),leagueId=context.league.leagueId;
-      if(request.method==='GET'){
-        if(url.searchParams.get('imageId')){const original=service.readOriginal(leagueId,actor,url.searchParams.get('imageId'));if(url.searchParams.get('preview')==='1'){original.bytes=await require('./fantasyhq/offseason-image').normalize(original.bytes);original.contentType='image/png';}response.writeHead(200,{'Content-Type':original.contentType,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});response.end(original.bytes);}
-        else sendJson(response,200,service.inspect(leagueId,actor,{staff:true}));return;
-      }
-      if(request.method!=='POST'){sendJson(response,405,{error:'Method not allowed.'});return;}const body=await parseJsonBody(request,34*1024*1024);websiteOperator(body);
-      if(['open','extend','pause','resume','close','complete'].includes(body.action))sendJson(response,200,service.stageAction(leagueId,actor,body));
-      else if(body.action==='prepare-approval')sendJson(response,200,service.prepareApproval(leagueId,actor,body.offerIds));
-      else if(body.action==='confirm-approval')sendJson(response,200,service.confirmApproval(leagueId,actor,body.token));
-      else if(body.action==='reject')sendJson(response,200,service.reject(leagueId,actor,body));
-      else if(body.action==='upload'){if(typeof body.base64!=='string'||!/^[A-Za-z0-9+/]+={0,2}$/.test(body.base64))throw Error('Invalid image upload.');sendJson(response,200,await service.upload(leagueId,actor,{filename:body.filename,bytes:Buffer.from(body.base64,'base64')}));}
-      else if(body.action==='retry')sendJson(response,200,{image:await service.retry(leagueId,actor,body.imageId)});
-      else if(body.action==='prepare-verification')sendJson(response,200,service.prepareVerification(leagueId,actor,body));
-      else if(body.action==='confirm-verification')sendJson(response,200,service.confirmVerification(leagueId,actor,body.token));
-      else throw Error('Unknown offseason free-agency action.');
+  if (url.pathname === '/api/league/admin/retire-free-agency') {
+    if (!isAdminRequest(request)) { sendJson(response,403,{error:'Commissioner credentials required.'}); return; }
+    (async()=>{try {
+      if(request.method!=='POST'){sendJson(response,405,{error:'Method not allowed.'});return;}
+      const context=boundLeagueContext(),actor=require('./shared/website-auth').websiteActor(request,context,{commissioner:true});
+      const repository=gameRuntime?.repository||leagueService.repository,body=await parseJsonBody(request);websiteOperator(body);
+      const guild=await gameThreadRuntime.client.guilds.fetch(process.env.GUILD_ID),service=require('./fantasyhq/retire-free-agency').createFreeAgencyRetirement({repository});
+      if(body.action==='prepare')sendJson(response,200,await service.prepare(context.league.leagueId,actor,guild));
+      else if(body.action==='confirm')sendJson(response,200,await service.confirm(context.league.leagueId,actor,guild,body.token));
+      else throw Error('Choose prepare or confirm.');
     }catch(error){sendJson(response,400,{error:error.message});}})();return;
   }
 
@@ -439,11 +430,8 @@ function unsafeRequestHandler(request, response) {
       if (request.method === 'GET') { sendJson(response, 200, service.inspect(leagueId)); return; }
       if (request.method !== 'POST') { sendJson(response, 405, { error: 'Method not allowed.' }); return; }
       const body = await parseJsonBody(request); websiteOperator(body);
-      if (['open','extend'].includes(body.action)) sendJson(response, 200, service.windowAction(leagueId, actor, body));
-      else if (body.action === 'prepare') sendJson(response, 200, service.prepareCompletion(leagueId, actor));
+      if (body.action === 'prepare') sendJson(response, 200, service.prepareCompletion(leagueId, actor));
       else if (body.action === 'confirm') sendJson(response, 200, service.confirmCompletion(leagueId, actor, body.token));
-      else if (body.action === 'prepare-waiver') sendJson(response, 200, service.prepareWaiver(leagueId, actor, body.playerId));
-      else if (body.action === 'confirm-waiver') sendJson(response, 200, service.confirmWaiver(leagueId, actor, body.token));
       else throw Error('Unknown roster action.');
     } catch(error) { sendJson(response, 400, { error: error.message }); } })(); return;
   }
@@ -909,6 +897,26 @@ function unsafeRequestHandler(request, response) {
       sendJson(response, 400, { error: error.message || "Unable to start regular season" });
     });
     return;
+  }
+
+  if (url.pathname === '/api/league/admin/rosters/photo-sync') {
+    if(!isAdminRequest(request)){sendJson(response,403,{error:'Commissioner authorization required.'});return;}
+    if(!['GET','POST'].includes(request.method)){sendJson(response,405,{error:'Method not allowed.'});return;}
+    (async()=>{try{
+      const context=boundLeagueContext(),actor={authorized:true,...require('./shared/website-auth').websiteActor(request,context,{commissioner:true})};
+      const service=require('./fantasyhq/roster-photo-sync').createRosterPhotoSync({repository:leagueService.repository,onRosterMovement});
+      const leagueId=context.league.leagueId;
+      if(request.method==='GET'){
+        if(url.searchParams.has('imageId')){const bytes=await service.original(leagueId,actor,url.searchParams.get('batchId'),url.searchParams.get('imageId'));response.writeHead(200,{'Content-Type':'image/png','Cache-Control':'no-store'});response.end(bytes);}
+        else sendJson(response,200,service.inspect(leagueId,actor,url.searchParams.get('batchId')));return;
+      }
+      const body=await parseJsonBody(request,34*1024*1024);
+      if(body.action==='start')sendJson(response,200,service.start(leagueId,actor));
+      else if(body.action==='upload'){if(typeof body.base64!=='string'||!/^[A-Za-z0-9+/]+={0,2}$/.test(body.base64))throw Error('Invalid photo upload.');sendJson(response,200,await service.upload(leagueId,actor,body.batchId,{filename:body.filename,bytes:Buffer.from(body.base64,'base64')}));}
+      else if(body.action==='prepare')sendJson(response,200,service.prepare(leagueId,actor,body.batchId,body));
+      else if(body.action==='confirm')sendJson(response,200,service.confirm(leagueId,actor,body.batchId,body.token));
+      else throw Error('Unknown roster photo action.');
+    }catch(error){sendJson(response,400,{error:error.message});}})();return;
   }
 
   if (url.pathname === '/api/league/admin/rosters/correction-preview' && request.method === 'POST') {

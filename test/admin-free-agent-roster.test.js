@@ -24,8 +24,8 @@ test('released players return to the pool and rejoin with the same identity and 
 test('pool includes every available player, excludes retired/rostered players, and displays reservations',t=>{
  const f=setup(t),players=f.repository.loadPlayers('league');players.find(p=>p.playerId==='fa-1').retiredAt=new Date().toISOString();f.repository.savePlayers('league',players);
  const state=f.repository.loadFreeAgencyState('league');state.windows.push({id:'reserved',seasonId:'1',playerId:'fa-2',status:'OPEN'});f.repository.saveFreeAgencyState('league',state);
- const pool=f.rosters.freeAgents('league','1');assert.equal(pool.length,9);assert.ok(pool.every(p=>p.playerId.startsWith('fa-')));assert.ok(!pool.some(p=>p.playerId==='fa-1'));assert.match(pool.find(p=>p.playerId==='fa-2').signingBlockedReason,/offer window/);
- for(const [playerId,pattern] of [['a-0',/already on a roster/],['fa-1',/current free agent/],['fa-2',/offer window/]])assert.throws(()=>f.rosters.assignFreeAgent({leagueId:'league',seasonId:'1',teamId:'b',playerId,contractDetails:details}),pattern);
+ const pool=f.rosters.freeAgents('league','1');assert.equal(pool.length,9);assert.ok(pool.every(p=>p.playerId.startsWith('fa-')));assert.ok(!pool.some(p=>p.playerId==='fa-1'));assert.equal(pool.find(p=>p.playerId==='fa-2').signingBlockedReason,null);
+ for(const [playerId,pattern] of [['a-0',/already on a roster/],['fa-1',/current free agent/]])assert.throws(()=>f.rosters.assignFreeAgent({leagueId:'league',seasonId:'1',teamId:'b',playerId,contractDetails:details}),pattern);
  const before=JSON.stringify(f.repository.loadPlayers('league'));
  assert.throws(()=>f.rosters.assignFreeAgent({leagueId:'league',seasonId:'1',teamId:'b',playerId:'fa-3',contractDetails:{...details,salary:'invalid'}}),/salary/);
  assert.equal(JSON.stringify(f.repository.loadPlayers('league')),before);

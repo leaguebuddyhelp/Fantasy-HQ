@@ -1,3 +1,5 @@
+> Updated October 17, 2026: the separate free agency offer/waiver workflow described in this historical document has been retired. See [Roster reconciliation](ROSTER-RECONCILIATION.md) for the current process.
+
 # General app usability audit — October 7, 2026
 
 Reviewed the exported Discord command menu, interaction router, persistent channel pins, setup/scheduling/week progression, team identity, rosters, trades, Free Agency/waivers, live mocks, game threads/submission/review, upgrades, website navigation/statistics and commissioner tools. Source review and isolated service/browser tests cover the findings below. No real offers, roster moves, week advancement, deletions or test-clock changes were performed during the audit.

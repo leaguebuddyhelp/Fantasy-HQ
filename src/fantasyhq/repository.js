@@ -4,7 +4,7 @@ const { randomUUID } = require("crypto");
 
 const TRANSACTION_FILES = new Set([
   'players.json', 'roster-memberships.json', 'draft-picks.json', 'trades.json',
-  'free-agency.json', 'audit-log.json', 'league.json', 'playoffs.json', 'thread-cleanup-confirmations.json',
+  'free-agency.json', 'roster-photo-events.json', 'audit-log.json', 'league.json', 'playoffs.json', 'thread-cleanup-confirmations.json',
   'coach-web-sessions.json', 'sportsbook.json', 'news.json', 'power-rankings.json', 'awards.json', 'championships.json', 'offseason.json',
 ]);
 function validateTransactionFiles(files) {
@@ -12,9 +12,9 @@ function validateTransactionFiles(files) {
   const names = new Set();
   for (const entry of files) {
     if (!entry || typeof entry.name !== 'string' || names.has(entry.name)
-      || (!TRANSACTION_FILES.has(entry.name) && !/^(schedules|postseason|season-archives)\/[a-zA-Z0-9_-]+\.json$/.test(entry.name) && entry.name !== 'current-schedule.json')
+      || (!TRANSACTION_FILES.has(entry.name) && !/^(schedules|postseason|season-archives)\/[a-zA-Z0-9_-]+\.json$/.test(entry.name) && !/^roster-photo-sync\/[a-f0-9-]{36}\/batch\.json$/.test(entry.name) && entry.name !== 'current-schedule.json')
       || !entry.value || typeof entry.value !== 'object') throw Error('Transaction contains an invalid file entry.');
-    if (['players.json', 'roster-memberships.json', 'draft-picks.json', 'trades.json', 'audit-log.json'].includes(entry.name) && !Array.isArray(entry.value)) throw Error('Transaction array schema is invalid.');
+    if (['players.json', 'roster-memberships.json', 'draft-picks.json', 'trades.json', 'audit-log.json', 'roster-photo-events.json'].includes(entry.name) && !Array.isArray(entry.value)) throw Error('Transaction array schema is invalid.');
     if (entry.name === 'coach-web-sessions.json') require('./coach-web-session').validateSessions(entry.value);
     if (entry.name === 'sportsbook.json') require('./sportsbook-service').validateSportsbook(entry.value);
     if (entry.name === 'news.json') require('./news-service').validateNews(entry.value);
@@ -252,7 +252,7 @@ function createFantasyHQRepository(options = {}) {
     recoverWeekTransaction(leagueId);
     recoverTradeTransaction(leagueId);
   }
-  function commitTradeTransaction({ leagueId, players, rosterMemberships, draftPicks, trades, auditEntry, auditEntries = [], freeAgencyState = null }) {
+  function commitTradeTransaction({ leagueId, players, rosterMemberships, draftPicks, trades, auditEntry, auditEntries = [] }) {
     recoverLeagueTransactions(leagueId);
     const paths = buildLeaguePaths(dataRoot, leagueId);
     const transaction = {
@@ -263,7 +263,6 @@ function createFantasyHQRepository(options = {}) {
         { name: "roster-memberships.json", value: rosterMemberships },
         { name: "draft-picks.json", value: draftPicks },
         { name: "trades.json", value: trades },
-        ...(freeAgencyState ? [{ name: "free-agency.json", value: freeAgencyState }] : []),
         { name: "audit-log.json", value: [...loadAuditLog(leagueId), ...auditEntries, auditEntry] },
       ],
     };
@@ -534,6 +533,7 @@ function createFantasyHQRepository(options = {}) {
     commitRosterTransaction({ leagueId, players, rosterMemberships, auditEntry }) {
       return commitTradeTransaction({ leagueId, players, rosterMemberships, draftPicks: loadListFile(buildLeaguePaths(dataRoot, leagueId).draftPicksFile), trades: loadListFile(buildLeaguePaths(dataRoot, leagueId).tradesFile), auditEntry });
     },
+    loadRosterPhotoEvents(leagueId) { recoverLeagueTransactions(leagueId); return readJson(path.join(buildLeaguePaths(dataRoot, leagueId).leagueRoot, 'roster-photo-events.json'), []); },
     loadFreeAgencyState(leagueId) { recoverLeagueTransactions(leagueId); return { drafts: [], deliveries: [], ...readJson(path.join(buildLeaguePaths(dataRoot, leagueId).leagueRoot, 'free-agency.json'), { version: 1, windows: [], offers: [], waivers: [], drafts: [], deliveries: [] }) }; },
     saveFreeAgencyState(leagueId, state) { recoverLeagueTransactions(leagueId); writeJson(path.join(buildLeaguePaths(dataRoot, leagueId).leagueRoot, 'free-agency.json'), state); return state; },
     commitSeasonTransition({ leagueId, league, playoffs, schedule, auditEntry }) {

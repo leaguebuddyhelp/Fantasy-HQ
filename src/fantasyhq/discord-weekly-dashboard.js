@@ -8,8 +8,8 @@ function websiteBase() {
   try { const url = new URL(value); return ['https:', 'http:'].includes(url.protocol) ? url.origin : null; } catch { return null; }
 }
 function transactionCounts(view) {
-  const { trades, offers, waivers } = view.transactions;
-  return { trades: trades.length, coachTrades: trades.filter(t => t.status === 'PENDING_GM_APPROVAL').length, committeeTrades: trades.filter(t => t.status === 'PENDING_COMMITTEE').length, tradeProof: trades.filter(t => t.status === 'PENDING_PROOF_REVIEW').length, awaitingTradeProof: trades.filter(t => t.status === 'AWAITING_PROOF').length, offers: offers.length, offerReviews: offers.filter(o => o.status === 'PENDING_REVIEW').length, waivers: waivers.length, activeWindows: view.transactions.activeWindows, waitingCuts: view.transactions.waitingCuts };
+  const { trades } = view.transactions;
+  return { trades: trades.length, coachTrades: trades.filter(t => t.status === 'PENDING_GM_APPROVAL').length, committeeTrades: trades.filter(t => t.status === 'PENDING_COMMITTEE').length, tradeProof: trades.filter(t => t.status === 'PENDING_PROOF_REVIEW').length, awaitingTradeProof: trades.filter(t => t.status === 'AWAITING_PROOF').length };
 }
 function staffPayload(view, counts = transactionCounts(view)) {
   const b = view.blockers;
@@ -21,7 +21,6 @@ function staffPayload(view, counts = transactionCounts(view)) {
       { name: '🏀 Matchup completion', value: view.groups.map(g => `**${g.label}** · ${g.final}/${g.total} approved · ${g.total - g.final} remaining`).join('\n') },
       { name: '🚦 Game closeout', value: `${b.unresolved} unfinished games${b.duplicateRecords ? ` · ⚠ ${b.duplicateRecords} duplicate game records` : ''}\n${b.missingThreads} missing threads · ${b.missingDates} dates not set\n${b.missingBoxScores} incomplete box-score pairs · ${b.pendingReviews} awaiting review\n${b.extractionFailures} OCR failures · ${b.processing} processing\n${b.noActivity} user matchups with no coach activity` },
       { name: '🔁 Pending trades', value: `${counts.trades} active · ${counts.coachTrades} awaiting coaches · ${counts.committeeTrades} awaiting committee\n${counts.awaitingTradeProof} awaiting proof · ${counts.tradeProof} proof reviews`, inline: true },
-      { name: '📝 Free agency / waivers', value: `${counts.offers} active offers · ${counts.offerReviews} proof reviews\n${counts.activeWindows} active windows · ${counts.waitingCuts} winner cuts needed\n${counts.waivers} waiver requests awaiting Staff`, inline: true },
       { name: '📅 Byes', value: view.byes.map(t => t.teamName).join(' · ') || 'None' },
       { name: 'Next step', value: view.closed ? 'Use the current week’s report for active work. Pending transaction totals above are from this report’s last active refresh.' : view.readyToAdvance ? 'All scheduled games are approved. Review week advancement below to confirm the next week.' : 'Resolve unfinished games in the website checklist. Transactions are reminders, not additional week-advance blockers.' })
     .setFooter({ text: `Weekly Staff report · ${view.guildId} · ${view.leagueId} · ${view.seasonId} · ${view.weekId}`.slice(0, 2048) });
@@ -40,11 +39,11 @@ function coachPayload(view) {
   if (!view.available) return { embeds: [embed.setDescription('Your weekly dashboard opens during the regular season.')], components: [], allowedMentions: { parse: [] } };
   embed.setDescription(`**Week ${view.week}** · ${view.leagueName}\n${view.bye ? 'Bye week' : `vs **${view.game.opponent}** · ${view.game.final ? '✅ Approved' : view.game.screenshots + '/2 box scores'}`}\n${view.deadlineAt ? `Deadline: <t:${Math.floor(Date.parse(view.deadlineAt) / 1000)}:F>\n` : ''}\n**Next step:** ${view.nextAction}`);
   const t = view.transactions;
-  if (t) embed.addFields({ name: 'Your pending work', value: `${t.trades.length} active trades${t.trades.some(x => x.status === 'PENDING_GM_APPROVAL' && x.waitingTeamIds.includes(view.teamId)) ? ' · ⚠ trade response needed' : ''}\n${t.offers.length} active FA offers${t.offers.length ? ': ' + t.offers.map(o => `${o.player} (${o.cutRequired ? 'choose roster cut' : o.status === 'PENDING_REVIEW' ? 'Staff review' : 'approved'})`).join(', ') : ''}\n${t.waivers.length} waiver requests awaiting Staff`.slice(0, 1024) });
+  if (t) embed.addFields({ name: 'Your pending work', value: `${t.trades.length} active trades` });
   embed.setFooter({ text: 'Private coach dashboard · Transactions stay in Discord · Refresh to see changes' });
-  const rows = [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('myweek:refresh').setLabel('Refresh my week').setStyle(ButtonStyle.Secondary), new ButtonBuilder().setCustomId('fa:active').setLabel('My FA offers').setStyle(ButtonStyle.Secondary))];
+  const rows = [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('myweek:refresh').setLabel('Refresh my week').setStyle(ButtonStyle.Secondary))];
   const links = [];
-  for (const [label, url] of [['Game thread', view.game?.threadUrl], ['Trade channel', view.channels.submitTrade], ['Free agency', view.channels.freeAgency]]) if (url) links.push(new ButtonBuilder().setURL(url).setLabel(label).setStyle(ButtonStyle.Link));
+  for (const [label, url] of [['Game thread', view.game?.threadUrl], ['Trade channel', view.channels.submitTrade]]) if (url) links.push(new ButtonBuilder().setURL(url).setLabel(label).setStyle(ButtonStyle.Link));
   const base = websiteBase(); if (base) links.push(new ButtonBuilder().setURL(`${base}/?team=${encodeURIComponent(view.teamId)}#my-week`).setLabel('Website dashboard').setStyle(ButtonStyle.Link));
   if (links.length) rows.push(new ActionRowBuilder().addComponents(...links));
   return { embeds: [embed], components: rows, allowedMentions: { parse: [] } };

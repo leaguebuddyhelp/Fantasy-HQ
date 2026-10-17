@@ -10,6 +10,7 @@
   <title>LEAGUEbuddy</title>
   <link rel="stylesheet" href="/styles.css">
   <script src="/navigation.js" defer></script>
+  <script src="/roster-photo-sync.js" defer></script>
   <script src="/app.js" defer></script>
 </head>
 
@@ -543,14 +544,9 @@
           <button id="simulation-preview-load" type="button">View practice progress</button>
           <pre id="launch-practice-output" class="admin-output" aria-live="polite"></pre>
         </div>
-        <div class="admin-panel" id="offseason-fa-panel">
-          <h3>Offseason free agency</h3><p>Coaches submit private offers from the existing Discord Free Agency panel. Staff reviews the ranked offers after each period closes.</p>
-          <button id="offseason-fa-load" type="button">Review offseason market</button>
-          <div id="offseason-fa-output" aria-live="polite"></div>
-        </div>
         <div class="admin-panel" id="offseason-roster-panel">
-          <h3>Offseason trades and roster cutdowns</h3>
-          <p>Resolve pending transactions, then confirm completion. Cutdowns require exactly 15 players per team; 85+ OVR players are protected.</p>
+          <h3>Offseason roster review</h3>
+          <p>Make signings and cuts in NBA 2K. Upload Transaction Reports above, review current rosters below, then confirm this step is complete. Cutdowns require 14–15 players per team.</p>
           <button id="offseason-rosters-load" type="button">Review rosters</button>
           <div id="offseason-rosters-output" aria-live="polite"></div>
         </div>
@@ -581,6 +577,10 @@
           <h3>Audit log</h3>
           <div id="audit-log-list" class="admin-list"></div>
         </div>
+      </div>
+      <div class="admin-panel">
+        <h3>Update rosters from 2K</h3>
+        <div id="roster-photo-sync"></div>
       </div>
       <div class="admin-panel">
         <h3>Roster manager</h3>

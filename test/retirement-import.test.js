@@ -31,7 +31,7 @@ test('retirement evidence retains originals, detects duplicates, suggests IDs an
   assert.ok(retired.retiredAt); assert.equal(retired.teamId, null); assert.equal(retired.retirementHistory[0].teamId, 'a');
   assert.equal(f.repository.loadRosterMemberships('league').find(m => m.playerId === 'a-0').endedReason, 'RETIREMENT');
   f.repository.saveLeague('league', { currentPhase: 'REGULAR_SEASON' });
-  assert.equal(f.service.browse('league', 'PG').some(p => p.playerId === 'fa-0'), false);
+  assert.equal(require('../src/fantasyhq/roster-service').createRosterService({repository:f.repository}).freeAgents('league','1').some(p => p.playerId === 'fa-0'), false);
 });
 test('failed OCR allows explicit manual review while stale data and damaged originals block commit', async t => {
   const f = setup(t, async () => { throw Error('Unclear photo'); });

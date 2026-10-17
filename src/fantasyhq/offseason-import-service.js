@@ -22,7 +22,7 @@ function createOffseasonImportService({ repository, step, now = Date.now, recogn
     return {classId,prospects:result.prospects.map(p=>({...p,playerId:`${classId}:${p.board_number}`}))};
   }
   const evidence=createOffseasonEvidenceService({repository,step,importKey:KEYS[step],now,...(recognize?{recognize}:{}),candidatePool:step==='DRAFT'?leagueId=>board(leagueId).prospects:null});
-  function source(leagueId,batch) { return hash([repository.loadLeague(leagueId),repository.loadPlayers(leagueId),repository.loadRosterMemberships(leagueId),repository.loadDraftPicks(leagueId),repository.loadTrades(leagueId),repository.loadFreeAgencyState(leagueId),batch.images,batch.revision,step==='DRAFT'?board(leagueId):null]); }
+  function source(leagueId,batch) { return hash([repository.loadLeague(leagueId),repository.loadPlayers(leagueId),repository.loadRosterMemberships(leagueId),repository.loadDraftPicks(leagueId),repository.loadTrades(leagueId),batch.images,batch.revision,step==='DRAFT'?board(leagueId):null]); }
   function save(leagueId,state,actor,action,metadata,extra=[]) {
     repository.commitLeagueFiles({leagueId,files:[...extra,{name:'offseason.json',value:state},{name:'audit-log.json',value:[...repository.loadAuditLog(leagueId),{action,seasonId:repository.loadLeague(leagueId).seasonId,userId:actor.id,timestamp:new Date(now()).toISOString(),metadata}]}]});
   }

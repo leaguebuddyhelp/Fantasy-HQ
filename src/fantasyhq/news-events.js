@@ -25,22 +25,19 @@ function verifiedEventSources(repository,leagueId) {
   add({key:'trade:'+trade.tradeId,category:'Trades',storyline:'Roster moves',playerIds:playerMoves.map(t=>t.assetId),teamIds:participating,
    headline:names.join(' and ')+' make their deal official',sentences,evidence:{tradeId:trade.tradeId,transfers,processingId:trade.processingId},at:trade.completedAt});
  }
- const fa=repository.loadFreeAgencyState(leagueId),regular=(fa.windows||[]).filter(w=>w.seasonId===seasonId&&w.status==='COMPLETED')
-  .map(w=>({...fa.offers.find(o=>o.id===w.winnerOfferId&&o.status==='WON'),at:w.resolvedAt,offseason:false})),offseason=(fa.offseason?.[seasonId]?.offers||[])
-  .filter(o=>o.status==='WON'&&o.approvedBy&&o.approvedAt).map(o=>({...o,at:o.approvedAt,offseason:true}));
- for(const offer of [...regular,...offseason]) {
-  const player=players.get(offer.playerId),teamName=teams.get(offer.teamId),years=offer.contract?.seasons;
-  if(!player||!teamName||!years?.length)continue;
-  const salary=years[0].salary;if(!Number.isFinite(salary))continue;
-  const total=years.reduce((sum,year)=>sum+year.salary,0);
-  add({key:'signing:'+offer.id,category:'Free agency',storyline:'Roster moves',playerIds:[player.playerId],teamIds:[offer.teamId],
-   headline:teamName+' brings '+player.name+' into the fold',sentences:[`${teamName} completed the signing of ${player.name}.`,
-    `The approved contract covers ${years.length} season${years.length===1?'':'s'}, including any recorded option year.`,
-    `Its first-season salary is $${(salary/1e6).toFixed(2)} million, with $${(total/1e6).toFixed(2)} million across the recorded salary schedule.`,
-    `${player.name} gives the franchise another player to build its rotation around.`,
-    `The completed league transaction records the player, team and agreed contract terms.`,
-    `Roster and contract history preserve the signing as the franchise moves forward.`],evidence:{offerId:offer.id,teamId:offer.teamId,playerId:offer.playerId,contract:offer.contract},at:offer.at,
-   phase:offer.offseason?'FREE_AGENCY':'REGULAR_SEASON'});
+ for(const event of (repository.loadRosterPhotoEvents?.(leagueId)||[]).filter(e=>e.seasonId===seasonId&&e.verifiedBy&&e.verifiedAt)) {
+  const player=players.get(event.playerId),teamName=teams.get(event.teamId);if(!player||!teamName)continue;
+  const signing=event.type==='SIGN';if(!signing&&event.type!=='WAIVE')continue;
+  const terms=signing?[event.reportedYears?`${event.reportedYears} years`:null,event.reportedTotal?`$${(event.reportedTotal/1e6).toFixed(2)} million total`:null].filter(Boolean).join(' and '):'';
+  add({key:'roster-report:'+event.key,category:'Free agency',storyline:'Roster moves',playerIds:[event.playerId],teamIds:[event.teamId],
+   headline:teamName+(signing?' signs ':' waives ')+player.name,
+   sentences:[`${teamName} ${signing?'signed':'waived'} ${player.name} according to its NBA 2K Transaction Report.`,
+    `The report records the transaction on ${event.date}.`,
+    terms?`The reported contract covers ${terms}.`:'The reviewed report verifies the roster move.',
+    'Staff reviewed the player and team matches before saving the report.',
+    'The league retains the original report photo and a record of the reviewed changes.',
+    'The app records completed transactions from NBA 2K; annual salary details are included only when separately verified.'],
+   evidence:{eventKey:event.key,batchId:event.batchId,playerId:event.playerId,teamId:event.teamId,type:event.type,date:event.date,reportedYears:event.reportedYears,reportedTotal:event.reportedTotal},at:event.verifiedAt});
  }
  const champions=repository.loadChampionships(leagueId).seasons?.[seasonId],champion=champions&&teams.get(champions.teamId);
  if(champion&&players.has(champions.finalsMvpPlayerId)) {

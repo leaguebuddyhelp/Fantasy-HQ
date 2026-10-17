@@ -43,17 +43,14 @@ function createRosterService(options = {}) {
   }
 
   function freeAgentLock(leagueId, seasonId, playerId, lockRepository = repository) {
-    const state = lockRepository.loadFreeAgencyState(leagueId);
-    const { ACTIVE_WINDOWS, playerTransactionLock } = require('./transaction-locks');
-    if (state.windows.some(window => String(window.seasonId) === String(seasonId) && window.playerId === playerId && ACTIVE_WINDOWS.has(window.status))) return 'Player has an active free-agent offer window.';
-    if ((state.offseason?.[String(seasonId)]?.offers || []).some(offer => offer.playerId === playerId && offer.status === 'ACTIVE')) return 'Player has active offseason offers.';
+    const { playerTransactionLock } = require('./transaction-locks');
     return playerTransactionLock(lockRepository, leagueId, String(seasonId), playerId) || null;
   }
 
   function freeAgents(leagueId, seasonId) {
     const assigned = new Set(activeMemberships(repository.loadRosterMemberships(leagueId), seasonId).map(m => m.playerId));
-    const state = repository.loadFreeAgencyState(leagueId), trades = repository.loadTrades(leagueId);
-    const lockRepository = { loadFreeAgencyState: () => state, loadTrades: () => trades };
+    const trades = repository.loadTrades(leagueId);
+    const lockRepository = { loadTrades: () => trades };
     return repository.loadPlayers(leagueId).filter(player => !player.retiredAt && !assigned.has(player.playerId))
       .map(player => ({ ...player, teamId: null, signingBlockedReason: freeAgentLock(leagueId, seasonId, player.playerId, lockRepository) }))
       .sort((a,b) => Number(b.overall || 0) - Number(a.overall || 0) || String(a.name || '').localeCompare(String(b.name || '')));
@@ -71,7 +68,7 @@ function createRosterService(options = {}) {
     if (lock) throw Error(lock);
     const timestamp = new Date().toISOString();
     const contractYear = require('./asset-valuation').leagueSeasonStartYear(context.seasonId) + (['OFFSEASON','DRAFT','FREE_AGENCY'].includes(context.league.currentPhase) ? 1 : 0);
-    const normalized = require('./offer-score').normalizeOffer(contractDetails || {}, { year: contractYear, timestamp });
+    const normalized = require('./contract-details').normalizeContractDetails(contractDetails || {}, { year: contractYear, timestamp });
     const previousContract = player.contract || null;
     player.teamId = teamId;
     player.contract = { ...normalized.contract, source: 'manual' };

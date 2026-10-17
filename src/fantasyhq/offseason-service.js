@@ -33,7 +33,7 @@ function createOffseasonService({ repository, submissions, now = Date.now, backu
       const awards = repository.loadAwards(leagueId).seasons?.[c.seasonId];
       for (const group of ['REGULAR_SEASON', 'CONFERENCE_FINALS', 'NBA_FINALS']) if (!awards?.[group]?.confirmedAt || !awards[group].confirmedBy) blockers.push(`Confirm ${group.replaceAll('_', ' ')} awards.`);
     } else {
-      // Completion receipts are written by verified import services, never by an unchecked UI checkbox.
+      // Completion receipts are written by reviewed import or roster reconciliation services.
       const receipt = season.receipts?.[step];
       if (!receipt?.confirmedAt || !receipt?.requestId) blockers.push(`Complete and confirm ${step.replaceAll('_', ' ').toLowerCase()} review.`);
       if (step === 'CUTDOWN' || step === 'PROGRESSION' || step === 'PREPARATION') {
@@ -47,7 +47,7 @@ function createOffseasonService({ repository, submissions, now = Date.now, backu
         }
         for (const team of c.teams) {
           const count = memberships.filter(m => m.teamId === team.teamId).length;
-          if (count !== 15) blockers.push(`${team.teamName}: ${count}/15 players.`);
+          if (count < 14 || count > 15) blockers.push(`${team.teamName}: ${count} players; require 14–15.`);
         }
       }
     }
@@ -120,20 +120,9 @@ function createOffseasonService({ repository, submissions, now = Date.now, backu
       if (!ids.has(m.playerId) || seen.has(m.playerId) || !c.teams.some(t => t.teamId === m.teamId)) blockers.push(`Resolve invalid membership ${m.playerId}.`);
       seen.add(m.playerId);
     }
-    for (const team of c.teams) if (memberships.filter(m => m.teamId === team.teamId).length !== 15) blockers.push(`${team.teamName} must have exactly 15 players.`);
-    const fa = repository.loadFreeAgencyState(leagueId), locks = require('./transaction-locks');
-    if (repository.loadTrades(leagueId).some(t => String(t.seasonId) === c.seasonId && locks.ACTIVE_TRADES.has(t.status))
-      || fa.windows.some(w => String(w.seasonId) === c.seasonId && locks.ACTIVE_WINDOWS.has(w.status))
-      || fa.offers.some(o => String(o.seasonId) === c.seasonId && locks.LIVE_OFFERS.has(o.status))
-      || fa.waivers.some(w => String(w.seasonId) === c.seasonId && w.status === 'PENDING')) blockers.push('Resolve pending transactions before rollover.');
+    for (const team of c.teams) if (![14, 15].includes(memberships.filter(m => m.teamId === team.teamId).length)) blockers.push(`${team.teamName} must have 14–15 players.`);
+    if (repository.loadTrades(leagueId).some(t => String(t.seasonId) === c.seasonId && require('./transaction-locks').ACTIVE_TRADES.has(t.status))) blockers.push('Resolve pending trades before rollover.');
     const nextSeasonNumber = Number(c.league.seasonNumber) + 1, nextSeasonId = String(nextSeasonNumber);
-    const contractYear = require('./asset-valuation').leagueSeasonStartYear(nextSeasonNumber);
-    const contractSeason = `${contractYear}-${String(contractYear + 1).slice(-2)}`;
-    for (const player of players.filter(p => seen.has(p.playerId))) {
-      const salary = player.contract?.seasons?.find(row => row.season === contractSeason);
-      if (!salary || !Number.isSafeInteger(salary.salary) || salary.salary <= 0) blockers.push(`${player.name}: verify the next season's contract.`);
-      else if (salary.option && salary.optionDecision !== 'ACCEPTED') blockers.push(`${player.name}: confirm the upcoming contract option decision.`);
-    }
     if (!Number.isSafeInteger(nextSeasonNumber) || repository.scheduleExists(leagueId, nextSeasonId) || state?.seasons[nextSeasonId]) blockers.push('The next season ID is invalid or already exists.');
     return { leagueId, seasonId: c.seasonId, nextSeasonId, nextSeasonNumber, blockers, ready: blockers.length === 0 };
   }

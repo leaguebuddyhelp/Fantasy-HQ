@@ -6,28 +6,18 @@ const { fixture } = require('./helpers/free-agency');
 const { createPlayerService } = require('../src/fantasyhq/player-service');
 const { createTradeService } = require('../src/fantasyhq/trade-service');
 
-test('corrupt canonical picks are preserved and block an unrelated FA transaction', t => {
+test('corrupt canonical picks are preserved and block unrelated roster operations', t => {
   const f = fixture(t, { count: 14 });
   const file = f.repository.loadLeague('league').paths.draftPicksFile;
   const bytes = '[{"pickId":"preserve-me"'; fs.writeFileSync(file, bytes);
-  assert.throws(() => f.submit(), /Cannot read league storage/);
+  assert.throws(() => f.repository.commitRosterTransaction({leagueId:'league',players:f.repository.loadPlayers('league'),rosterMemberships:f.repository.loadRosterMemberships('league'),auditEntry:{action:'test.roster',timestamp:new Date().toISOString()}}), /Cannot read league storage/);
   assert.equal(fs.readFileSync(file, 'utf8'), bytes);
   assert.equal(f.state().offers.length, 0);
   fs.writeFileSync(file, '{}');
-  assert.throws(() => f.submit(), /expected an array/);
+  assert.throws(() => f.repository.commitRosterTransaction({leagueId:'league',players:f.repository.loadPlayers('league'),rosterMemberships:f.repository.loadRosterMemberships('league'),auditEntry:{action:'test.roster',timestamp:new Date().toISOString()}}), /expected an array/);
   assert.equal(fs.readFileSync(file, 'utf8'), '{}');
 });
 
-test('departed coach FA and waiver consent cannot execute after replacement', t => {
-  const f = fixture(t, { count: 14 });
-  const offer = f.submit(); f.review(offer.id);
-  const waiver = f.service.requestWaiver('league', { teamId: 'a', playerId: 'a-0', actorUserId: 'coach-a' });
-  f.repository.saveOwners('league', [{ teamId: 'a', userId: 'replacement' }]);
-  f.advance(3600001); f.service.tick('league');
-  assert.equal(f.state().offers[0].status, 'INVALIDATED');
-  assert.equal(f.service.reviewWaiver('league', { waiverId: waiver.id, decision: 'APPROVE', actorUserId: 'staff', staffAuthorized: true }).status, 'INVALIDATED');
-  assert.equal(f.roster('a').length, 14);
-});
 
 test('trade final approval rejects departed-coach consent and leaves roster intact', t => {
   const f = fixture(t), service = createTradeService({ repository: f.repository, now: f.time });
@@ -45,12 +35,6 @@ test('trade final approval rejects departed-coach consent and leaves roster inta
   assert.equal(f.repository.loadPlayers('league').find(p => p.playerId === 'a-0').teamId, 'a');
 });
 
-test('completed regular season rejects new offers and waiver requests', t => {
-  const f = fixture(t, { count: 14 });
-  f.repository.saveLeague('league', { regularSeasonStatus: 'COMPLETED', currentWeek: 15 });
-  assert.throws(() => f.submit(), /REGULAR_SEASON/);
-  assert.throws(() => f.service.requestWaiver('league', { teamId: 'a', playerId: 'a-0', actorUserId: 'coach-a' }), /REGULAR_SEASON/);
-});
 
 test('admin player move recovers after interruption without losing rating, roster or audit', t => {
   const f = fixture(t), service = createPlayerService({ repository: f.repository });

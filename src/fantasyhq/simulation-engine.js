@@ -48,8 +48,6 @@ function createSimulationEngine({storage,rng=Math.random,onOutput=async()=>{}}){
         if(attempt(transfers,[a.teamId,b.teamId]))return;
       }
     }
-    const memberships=activeMemberships(repository.loadRosterMemberships(sim.leagueId),sim.seasonId),free=repository.loadPlayers(sim.leagueId).filter(p=>!memberships.some(m=>m.playerId===p.playerId));
-    for(const team of [...rebuilders,...middle]){const worst=rosters.get(team.teamId).slice().sort((a,b)=>a.overall-b.overall)[0],candidate=free.filter(p=>p.overall>worst.overall+2).sort((a,b)=>(b.overall+fit(team.teamId,b)*8)-(a.overall+fit(team.teamId,a)*8))[0];if(!candidate)continue;try{const move=require('./free-agency-service').createFreeAgencyService({repository}).simulateReplacement(sim.leagueId,{teamId:team.teamId,playerId:candidate.playerId,releasePlayerId:worst.playerId,actorUserId:'TEST MODE'});runtime.transactions.push({type:'FA_WAIVER',week,...move});return;}catch(error){/* Existing rules reject invalid proposals without changing rosters. */}}
   }
   function simulatedAwards(sim,submissions,runtime,group){
     const repository=sim.repository,leagueId=sim.leagueId,scope=group==='REGULAR_SEASON'?'REGULAR_SEASON':'PLAYOFFS',state=repository.loadPlayoffs(leagueId),players=repository.loadPlayers(leagueId),stats=require('./player-stats-service').createPlayerStatsService({repository,submissions,scope}).getSeasonPlayerStats(leagueId,sim.seasonId).filter(p=>p.GP>0).sort((a,b)=>(b.PPG+b.RPG+b.APG+b.SPG+b.BPG)-(a.PPG+a.RPG+a.APG+a.SPG+a.BPG));

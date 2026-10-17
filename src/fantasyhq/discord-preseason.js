@@ -73,17 +73,11 @@ async function handleMyTeamCommand(interaction) {
   const identity = require('./coach-identity').requireCoachIdentity(setupService.repository, context, interaction.member, interaction.user.id);
   const team = teams.find((entry) => entry.teamId === identity.teamId);
   if (!team) throw new Error("You don't have a team yet. Ask your commissioner to use /team assign.");
-  const fa = require('./free-agency-service').createFreeAgencyService({ repository: setupService.repository });
-  let faStatus = fa.getStatus(context.league.leagueId, team.teamId);
-  if (context.league.currentPhase === 'FREE_AGENCY') {
-    const market = require('./offseason-free-agency').createOffseasonFreeAgencyService({repository:setupService.repository}).inspect(context.league.leagueId,{id:interaction.user.id},{teamId:team.teamId});
-    faStatus = {offseason:true,completedSignings:market.limits.openSignings,activeTargets:market.limits.activeOffers,allowedActiveTargets:5,stageName:market.stage?.name||'Waiting for Staff'};
-  }
   context.offseasonStep = setupService.repository.loadOffseason(context.league.leagueId)?.seasons[context.seasonId]?.step;
-  await interaction.editReply(myTeamPayload(team, context, faStatus));
+  await interaction.editReply(myTeamPayload(team, context));
 }
 
-function myTeamPayload(team, context, faStatus = { completedSignings: 0, activeTargets: 0, allowedActiveTargets: 2 }) {
+function myTeamPayload(team, context) {
   const { compactDollars } = require("../shared/player-contract");
   const roster = team.roster || [];
   const week = context.league.currentWeek || 1;
@@ -94,7 +88,6 @@ function myTeamPayload(team, context, faStatus = { completedSignings: 0, activeT
     const payroll = team.payroll;
     embed.addFields({ name: "💵 Team salary", value: `${payroll.knownPlayers ? `${compactDollars(payroll.salary)} reported salary` : "Salary unavailable"} · ${payroll.season}\nSalary available for ${payroll.knownPlayers}/${payroll.totalPlayers} players`, inline: true });
   }
-  embed.addFields({ name: "📝 Free Agency", value: faStatus.offseason ? `${faStatus.stageName}\nOpen-stage signings: **${faStatus.completedSignings}/9**\nActive offers: **${faStatus.activeTargets}/5**` : `FA Signings: **${faStatus.completedSignings}/5**\nActive FA Targets: **${faStatus.activeTargets}/${faStatus.allowedActiveTargets}**`, inline: true });
   // Compact rows keep a normal NBA roster in one embed; unusual imports are capped.
   const visible = roster.slice(0, 25);
   const lines = visible.map(entry => {
@@ -117,7 +110,7 @@ function myTeamPayload(team, context, faStatus = { completedSignings: 0, activeT
   const upcoming = (team.schedule || []).filter(entry => entry.week >= week).slice(0, 3);
   embed.addFields({ name: "📅 Coming up", value: upcoming.map(entry => `**Week ${entry.week}** · ${entry.bye ? "Bye" : `vs ${entry.opponent}`}`).join("\n") || "Schedule not confirmed yet." });
   embed.setFooter({ text: "/player for stats, trade value & contract details · /team roster for full roster · /schedule mine" });
-  return brandTeamReply({ embeds: [embed], components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId("myweek:open").setLabel("MY WEEK").setStyle(ButtonStyle.Primary), new ButtonBuilder().setCustomId(context.offseasonStep === "CUTDOWN" ? "cutdown:open" : context.league.currentPhase === "FREE_AGENCY" ? "fa:sign" : "fa:waive").setLabel(context.offseasonStep === "CUTDOWN" ? "ROSTER CUTDOWN" : context.league.currentPhase === "FREE_AGENCY" ? "FREE AGENCY" : "WAIVE PLAYER").setStyle(ButtonStyle.Secondary), new ButtonBuilder().setCustomId("book:open").setLabel("SPORTSBOOK").setStyle(ButtonStyle.Secondary))] }, team.teamName);
+  return brandTeamReply({ embeds: [embed], components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId("myweek:open").setLabel("MY WEEK").setStyle(ButtonStyle.Primary), new ButtonBuilder().setCustomId("book:open").setLabel("SPORTSBOOK").setStyle(ButtonStyle.Secondary))] }, team.teamName);
 }
 
 function freeAgentsPayload(players, position = null, requestedPage = 1) {
@@ -130,10 +123,9 @@ function freeAgentsPayload(players, position = null, requestedPage = 1) {
   if (pages > 1) controls.push(
     new ButtonBuilder().setCustomId(`freeagents:page:${page - 1}:${position || 'ALL'}`).setLabel('Previous').setStyle(ButtonStyle.Secondary).setDisabled(page === 1),
     new ButtonBuilder().setCustomId(`freeagents:page:${page + 1}:${position || 'ALL'}`).setLabel('Next').setStyle(ButtonStyle.Secondary).setDisabled(page === pages));
-  controls.push(new ButtonBuilder().setCustomId('fa:sign').setLabel('SIGN FREE AGENT').setStyle(ButtonStyle.Primary));
   return { embeds: [new EmbedBuilder().setTitle('League Free Agents').setColor(0xffdc21)
     .setDescription(visible.map(player => `**${player.name}** · ${player.overall ?? '—'} OVR · ${positionLabel(player)} · Age ${player.age ?? '—'} · Trade Value ${Number(player.tradeValue || 1).toLocaleString('en-US')}`).join('\n\n') || 'No free agents match this position. Try /freeagents without a filter; Staff can use /roster freeagency to import missing players.')
-    .setFooter({ text: `Page ${page}/${pages} · ${available.length} players · Filters use primary position. /player shows full details. Signing opens privately.` })], components: [new ActionRowBuilder().addComponents(...controls)] };
+    .setFooter({ text: `Page ${page}/${pages} · ${available.length} players · Filters use primary position. /player shows full details. Complete signings in NBA 2K; Staff updates rosters from Transaction Reports.` })], components: [new ActionRowBuilder().addComponents(...controls)] };
 }
 async function handleFreeAgentsCommand(interaction) {
   const context = setupService.getLeagueContextByBinding({ guildId: interaction.guildId });

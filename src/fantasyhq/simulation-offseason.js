@@ -29,7 +29,7 @@ async function runSimulationOffseason({sim,actor,runtime,onStage=async()=>false,
  if(!runtime.offseasonFixtures?.[initial.seasonId]) {
   const players=repository.loadPlayers(leagueId),members=activeMemberships(repository.loadRosterMemberships(leagueId),initial.seasonId),changed=[];
   for(const player of players.filter(p=>members.some(m=>m.playerId===p.playerId)&&!p.contract?.seasons?.length)) {
-   player.contract=require('./offer-score').normalizeOffer({salary:1000000,years:'3',structure:'Flat',option:'None'},{year:year-1}).contract;
+   player.contract=require('./contract-details').normalizeContractDetails({salary:1000000,years:'3',structure:'Flat',option:'None'},{year:year-1}).contract;
    player.contract.source='TEST_MODE_ASSUMPTION';changed.push(player.playerId);
   }
   if(changed.length)repository.savePlayers(leagueId,players);
@@ -68,47 +68,26 @@ async function runSimulationOffseason({sim,actor,runtime,onStage=async()=>false,
       const rng=seededRandom(sim.id+':'+initial.seasonId+':progression');input.rows=members.map(m=>{const p=players.find(p=>p.playerId===m.playerId),change=p.age<25?(rng()<.5?1:0):p.age>32?(rng()<.5?-1:0):0,overall=Math.max(1,Math.min(99,p.overall+change));return {playerId:p.playerId,teamId:m.teamId,overall,change:overall-p.overall};});
      }
      const preview=service.prepare(leagueId,staff,input);service.confirm(leagueId,staff,preview.token);
-    } else if(step==='TRADES'||step==='CUTDOWN') {
-     const service=require('./offseason-roster-service').createOffseasonRosterService({repository,now,backup});
-     if(step==='CUTDOWN') {
-      service.windowAction(leagueId,staff,{action:'open'});
+    } else if(['TRADES','CUTDOWN','FREE_AGENCY'].includes(step)) {
+     if(step==='FREE_AGENCY'||step==='CUTDOWN') {
+      const players=repository.loadPlayers(leagueId),members=repository.loadRosterMemberships(leagueId),at=new Date(now()).toISOString();
       for(const team of initial.teams) {
-       let view=service.inspect(leagueId).teams.find(t=>t.teamId===team.teamId);
-       while(view.count>15) {
-        const player=view.players.filter(p=>!p.protected).sort((a,b)=>a.overall-b.overall||a.playerId.localeCompare(b.playerId))[0];
-        if(!player)throw Error(`${team.teamName}: simulated cutdown cannot waive protected 85+ players. Trade players manually or restore an earlier checkpoint.`);
-        const coach={id:owners.find(o=>o.teamId===team.teamId).userId},preview=service.prepareWaiver(leagueId,coach,player.playerId);service.confirmWaiver(leagueId,coach,preview.token);view=service.inspect(leagueId).teams.find(t=>t.teamId===team.teamId);
+       let roster=activeMemberships(members,initial.seasonId).filter(m=>m.teamId===team.teamId);
+       while(roster.length>15) {
+        const cut=roster.slice().sort((a,b)=>players.find(p=>p.playerId===a.playerId).overall-players.find(p=>p.playerId===b.playerId).overall)[0];
+        cut.active=false;cut.endedAt=at;cut.endedReason='TEST_MODE_RECONCILIATION';const p=players.find(p=>p.playerId===cut.playerId);p.lastTeamId=team.teamId;p.teamId=null;roster=roster.filter(m=>m!==cut);
+       }
+       while(roster.length<15) {
+        const p=players.filter(p=>!p.retiredAt&&!activeMemberships(members,initial.seasonId).some(m=>m.playerId===p.playerId)).sort((a,b)=>b.overall-a.overall)[0];
+        if(!p)throw Error('Test Mode needs enough available players to reconcile rosters.');
+        p.teamId=team.teamId;const m={playerId:p.playerId,teamId:team.teamId,seasonId:initial.seasonId,active:true,startedAt:at,source:'TEST_MODE_RECONCILIATION'};members.push(m);roster.push(m);
        }
       }
+      repository.savePlayers(leagueId,players);repository.saveRosterMemberships(leagueId,members);
+      runtime.history.push({type:'TEST_MODE_ROSTER_RECONCILIATION',seasonId:initial.seasonId,step});
      }
+     const service=require('./offseason-roster-service').createOffseasonRosterService({repository,now,backup});
      const preview=service.prepareCompletion(leagueId,staff);if(!preview.token)throw Error(preview.blockers.join(' '));service.confirmCompletion(leagueId,staff,preview.token);
-    } else if(step==='FREE_AGENCY') {
-     const service=require('./offseason-free-agency').createOffseasonFreeAgencyService({repository,now,recognize,backup});
-     for(let index=0;index<4;index++) {
-      let market=service.inspect(leagueId,staff,{staff:true});if(market.stages[index]?.status==='COMPLETED')continue;
-      if(!market.stages[index])market=service.stageAction(leagueId,staff,{action:'open'});
-      if(market.stage.status==='OPEN') {
-       for(const team of initial.teams) {
-        const coach={id:owners.find(o=>o.teamId===team.teamId).userId},eligible=service.inspect(leagueId,coach,{teamId:team.teamId}).players;
-        const rosterCount=activeMemberships(repository.loadRosterMemberships(leagueId),initial.seasonId).filter(m=>m.teamId===team.teamId).length;
-        const target=index===0?5:Math.min(3,Math.max(0,15-rosterCount)+(index===3&&team.teamId===initial.teams[0].teamId&&rosterCount<20?1:0));
-        for(const [priority,p] of eligible.sort((a,b)=>b.overall-a.overall||a.playerId.localeCompare(b.playerId)).slice(0,target).entries()) {
-         // Avoid multi-team fixture bids so approval exercises actual eligibility and
-         // limits without forcing a predetermined winner against a competing offer.
-         const current=service.inspect(leagueId,staff,{staff:true});if(current.offers.some(o=>o.stageId===current.stage.id&&o.playerId===p.playerId&&o.status==='ACTIVE'))continue;
-         service.offer(leagueId,coach,{teamId:team.teamId,playerId:p.playerId,priority:priority+1,details:{salary:Math.max(1000000,(p.overall-60)*500000),years:'3',structure:'Flat',option:'None'},requestId:`TEST_MODE:${sim.id}:${initial.seasonId}:${index}:${p.playerId}`});
-        }
-       }
-       clock=Date.parse(market.stage.deadlineAt)+1;runtime.offseasonClock=clock;service.stageAction(leagueId,staff,{action:'close'});
-      }
-      market=service.inspect(leagueId,staff,{staff:true});const active=market.offers.filter(o=>o.stageId===market.stage.id&&o.status==='ACTIVE');
-      if(active.length){const preview=service.prepareApproval(leagueId,staff,active.map(o=>o.id));service.confirmApproval(leagueId,staff,preview.token);}
-      service.stageAction(leagueId,staff,{action:'complete'});
-     }
-     const won=service.inspect(leagueId,staff,{staff:true}).offers.filter(o=>o.status==='WON');
-     if(!service.inspect(leagueId,staff,{staff:true}).evidence.images.length)await service.upload(leagueId,staff,{filename:'TEST-MODE-TRANSACTION-REPORT.png',bytes:await require('sharp')({create:{width:80,height:80,channels:3,background:'white'}}).png().toBuffer()});
-     const rows=won.map(o=>({offerId:o.id,playerId:o.playerId,teamId:o.teamId,details:{salary:o.contract.seasons[0].salary,years:'3',structure:'Flat',option:'None'}}));
-     const preview=service.prepareVerification(leagueId,staff,{rows,reviewedAllImages:true});service.confirmVerification(leagueId,staff,preview.token);
     }
    }
    if(step==='PREPARATION') {

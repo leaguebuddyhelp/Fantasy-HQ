@@ -11,7 +11,7 @@ function payload(action, args) {
   return Object.fromEntries(FIELDS[action].map(k => [k, args[k]]));
 }
 function source(repository, args) {
-  return createHash('sha256').update(JSON.stringify([repository.loadLeague(args.leagueId).league, repository.loadPlayers(args.leagueId), repository.loadRosterMemberships(args.leagueId), repository.loadTrades(args.leagueId), repository.loadFreeAgencyState(args.leagueId)])).digest('hex');
+  return createHash('sha256').update(JSON.stringify([repository.loadLeague(args.leagueId).league, repository.loadPlayers(args.leagueId), repository.loadRosterMemberships(args.leagueId), repository.loadTrades(args.leagueId)])).digest('hex');
 }
 function prepareRosterCorrection(repository, action, args, reason) {
   const context = repository.loadLeague(args.leagueId);

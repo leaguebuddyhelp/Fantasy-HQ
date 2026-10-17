@@ -1,3 +1,5 @@
+> Updated October 17, 2026: the separate free agency offer/waiver workflow described in this historical document has been retired. See [Roster reconciliation](ROSTER-RECONCILIATION.md) for the current process.
+
 # LEAGUEbuddy feature audit — October 9, 2026
 
 The feature set is broadly implemented and covered by automated tests. Production is healthy and usable for setup, but **the official league cannot yet start its regular season: 29 of 30 teams exceed the required 15-player roster**. Five teams currently have coaches; vacancies do not block activation or season start.

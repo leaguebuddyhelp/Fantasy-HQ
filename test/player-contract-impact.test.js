@@ -60,11 +60,3 @@ test('contract summaries total known years and dollars, include options, and omi
  const zero=contractView({contract:{seasons:[{season:'2026-27',salary:0}]}},2026);
  assert.equal(zero.totalYears,1);assert.equal(zero.totalSalary,0);
 });
-
-test('free-agency offer text includes total years and the full variable salary schedule', () => {
- const details={salary:'$10M',years:'2+1',structure:'Back (+5%)',option:'Player'};
- const {normalizeOffer}=require('../src/fantasyhq/offer-score');
- const {contractText}=require('../src/fantasyhq/discord-free-agency');
- const {contract}=normalizeOffer(details,{year:2026});
- assert.match(contractText(details,contract),/3 years · \$31.5M total/);
-});

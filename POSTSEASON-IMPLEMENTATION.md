@@ -1,3 +1,5 @@
+> Updated October 17, 2026: the separate free agency offer/waiver workflow described in this historical document has been retired. See [Roster reconciliation](ROSTER-RECONCILIATION.md) for the current process.
+
 # Playoffs, awards, Test Mode and mock draft implementation
 
 Implemented against the October 8, 2026 request. All ten stages are connected to the existing bot and website. The final verification result is recorded below.

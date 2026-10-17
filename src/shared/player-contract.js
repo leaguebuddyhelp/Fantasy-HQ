@@ -5,6 +5,12 @@ const dollars = amount => amount == null ? 'Unknown' : `$${Number(amount).toLoca
 function contractView(player, year) {
     const contract = player.contract;
     const rows = (contract?.seasons || []).filter(row => /^\d{4}-\d{2}$/.test(row.season) && Number.isFinite(row.salary) && row.salary >= 0).sort((a,b) => a.season.localeCompare(b.season));
+    if (!rows.length && contract?.source === 'nba2k-transaction-report') {
+        const years=Number.isInteger(contract.reportedYears)&&contract.reportedYears>0?contract.reportedYears:null;
+        const total=Number.isSafeInteger(contract.reportedTotal)&&contract.reportedTotal>0?contract.reportedTotal:null;
+        const short='Reported contract: '+[years?`${years} ${years===1?'year':'years'}`:null,total?`${compactDollars(total)} total`:null,'Annual salaries unverified'].filter(Boolean).join(' · ');
+        return {known:false,currentSeason:null,salary:null,totalYears:years,totalSalary:total,yearsRemaining:0,controlledYears:0,expiring:false,nextPlayerOption:false,option:null,sourceUrl:null,fetchedAt:contract.fetchedAt||null,guaranteedTotal:null,seasons:[],short,compact:short};
+    }
     const referenceYear = year ?? (rows.length ? Number(rows[0].season.slice(0, 4)) : 2026);
     const current = rows.find(row => row.season === seasonLabel(referenceYear));
     const future = rows.filter(row => Number(row.season.slice(0,4)) >= referenceYear && Number.isFinite(row.salary) && row.salary >= 0);

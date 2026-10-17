@@ -60,7 +60,7 @@ setInterval(() => { try { storageSafety.createStorageBackup(tradeRepository.data
 const discordLeagueFeeds = require("./fantasyhq/discord-league-feeds").createDiscordLeagueFeeds({ repository: tradeRepository });
 const gameRecordStore = require("./fantasyhq/game-submissions").createGameSubmissionService({ repository: tradeRepository });
 roleOwnership.setOwnerChangeHandler(async change => {
-  freeAgencyService.tick(change.leagueId); tradeService.reconcileOwnership(change.leagueId);
+  tradeService.reconcileOwnership(change.leagueId);
   const guild = await client.guilds.fetch(tradeRepository.loadLeague(change.leagueId).league.guildId);
   try { await discordLeagueFeeds.ensureAvailableTeams(guild, change.leagueId); }
   catch (error) { console.error('Available teams ownership refresh:', error.message); }
@@ -87,8 +87,6 @@ function rosterMovementFollowUp(event) {
 }
 websiteRuntime.setGameRuntime({ submissions: gameRecordStore, onRosterMovement: rosterMovementFollowUp });
 const tradeService = require("./fantasyhq/trade-service").createTradeService({ repository: tradeRepository, onPlayersMoved: rosterMovementFollowUp });
-const freeAgencyService = require('./fantasyhq/free-agency-service').createFreeAgencyService({ repository: tradeRepository, onPlayersMoved: rosterMovementFollowUp });
-const discordFreeAgency = require('./fantasyhq/discord-free-agency').createDiscordFreeAgency({ repository: tradeRepository, service: freeAgencyService, client });
 const discordTrades = require("./fantasyhq/discord-trades").createDiscordTradeWorkflow({ repository: tradeRepository, tradeService });
 const gameSubmissions = require("./fantasyhq/discord-game-submissions").createDiscordGameSubmissions(gameRecordStore);
 const gameActivity = require("./fantasyhq/game-activity").createGameActivityService();
@@ -847,8 +845,6 @@ client.once(Events.ClientReady, async (readyClient) => {
   discordMocks.restore(readyClient).catch(error => console.error('Mock recovery:', error.message));
   let mockTickRunning = false;
   setInterval(async () => { if (mockTickRunning) return; mockTickRunning = true; try { await discordMocks.tick(readyClient); } catch (error) { console.error('Mock tick:', error.message); } finally { mockTickRunning = false; } }, 1000).unref();
-  discordFreeAgency.tick().catch(error => console.error('Free Agency recovery:', error.message));
-  setInterval(() => discordFreeAgency.tick().catch(error => console.error('Free Agency tick:', error.message)), 15000).unref();
   discordTrades.restore(readyClient).catch(error => console.error("Trade recovery:", error.message));
   try { require("./fantasyhq/box-score/learning").learnApprovedHistory(require("./fantasyhq/game-submissions").createGameSubmissionService()); }
   catch (error) { console.error("OCR learning recovery:", error.message); }
@@ -897,8 +893,6 @@ client.once(Events.ClientReady, async (readyClient) => {
           ['Sportsbook announcement', () => require('./fantasyhq/discord-sportsbook').createDiscordSportsbook({repository:tradeRepository,submissions:gameRecordStore}).reconcile(guild,binding.leagueId)],
           ['Sportsbook', () => { const sportsbook = require('./fantasyhq/sportsbook-service').createSportsbookService({repository:tradeRepository,submissions:gameRecordStore}); sportsbook.refresh(binding.leagueId); sportsbook.settle(binding.leagueId); }],
           ['News', () => require('./fantasyhq/discord-news').createDiscordNews({ repository: tradeRepository, submissions: gameRecordStore }).reconcile(guild, binding.leagueId)],
-          ['Offseason Free Agency', () => require('./fantasyhq/discord-offseason-market').createDiscordOffseasonMarket({ repository: tradeRepository }).reconcile(guild, binding.leagueId)],
-          ['Cutdown reminders', () => require('./fantasyhq/discord-offseason-reminders').createDiscordOffseasonReminders({ repository: tradeRepository }).reconcile(guild, binding.leagueId)],
           ['Progression', () => require('./fantasyhq/discord-progression').createDiscordProgression({ repository: tradeRepository }).reconcile(guild, binding.leagueId)],
           ['Power Rankings', () => require('./fantasyhq/discord-power-rankings').createDiscordPowerRankings({ repository: tradeRepository, submissions: gameRecordStore }).reconcile(guild, binding.leagueId)],
         ]) try { await operation(); } catch(error) { console.error(name + ' recovery:', error.message); }
@@ -924,19 +918,19 @@ async function handleInteraction(interaction) {
     catch (error) { await interaction.followUp({ content: error.message, flags: MessageFlags.Ephemeral }).catch(() => {}); }
     return;
   }
-  if ((interaction.isButton() || interaction.isStringSelectMenu()) && interaction.customId.startsWith('cutdown:')) { await require('./fantasyhq/discord-offseason-roster').createDiscordOffseasonRoster({ repository: tradeRepository }).handle(interaction); return; }
   if (interaction.isButton() && interaction.customId.startsWith('mockround:')) { await discordMocks.handleRound(interaction); return; }
   if (interaction.isButton() && interaction.customId.startsWith('offseason:')) { await require('./fantasyhq/discord-offseason').createDiscordOffseason({ repository: tradeRepository }).handle(interaction); return; }
   if((interaction.isButton()||interaction.isStringSelectMenu()||interaction.isModalSubmit())&&interaction.customId.startsWith('reset:')){await require('./fantasyhq/discord-league-resets').createDiscordLeagueResets({repository:tradeRepository}).handle(interaction);return;}
   if((interaction.isButton()||interaction.isStringSelectMenu()||interaction.isModalSubmit())&&interaction.customId.startsWith('sim:')){await require('./fantasyhq/discord-simulation').createDiscordSimulation({repository:tradeRepository}).handle(interaction);return;}
   if((interaction.isButton()||interaction.isStringSelectMenu()||interaction.isModalSubmit())&&interaction.customId.startsWith('awards:')){await require('./fantasyhq/discord-awards').createDiscordAwards({repository:tradeRepository,submissions:gameRecordStore}).handle(interaction);return;}
   if(interaction.isButton()&&interaction.customId.startsWith('poststats:')){await require('./fantasyhq/discord-postseason-stats').createDiscordPostseasonStats({repository:tradeRepository}).handle(interaction);return;}
+  if ((interaction.isButton() || interaction.isStringSelectMenu() || interaction.isModalSubmit()) && /^(fa:|offfa:|cutdown:)/.test(interaction.customId)) {
+    await interaction.reply({ content: 'Complete signings and waivers in NBA 2K. Staff updates rosters from Signing/Waive Transaction Reports in the website admin workspace.', flags: 64 }); return;
+  }
   if ((interaction.isButton() || interaction.isStringSelectMenu() || interaction.isModalSubmit()) && interaction.customId.startsWith('post:')) {await discordPostseason.handle(interaction);return;}
   if ((interaction.isButton() || interaction.isStringSelectMenu() || interaction.isModalSubmit()) && (interaction.customId.startsWith('book:') || interaction.customId === 'coachweb:open')) {
     await require('./fantasyhq/discord-sportsbook').createDiscordSportsbook({repository:tradeRepository,submissions:gameRecordStore}).handle(interaction);return;
   }
-  if ((interaction.isButton() || interaction.isStringSelectMenu() || interaction.isModalSubmit()) && interaction.customId.startsWith('offfa:')) { await require('./fantasyhq/discord-offseason-free-agency').createDiscordOffseasonFreeAgency({ repository: tradeRepository }).handle(interaction); return; }
-  if ((interaction.isButton() || interaction.isStringSelectMenu() || interaction.isModalSubmit()) && interaction.customId.startsWith('fa:')) { await discordFreeAgency.handle(interaction); return; }
   if ((interaction.isButton() || interaction.isStringSelectMenu() || interaction.isModalSubmit()) && interaction.customId.startsWith('mock:')) { await discordMocks.handle(interaction); return; }
   if (interaction.isButton() && interaction.customId === "tradeblock:tradefor") { await discordTradeBlock.handleTradeForButton(interaction); return; }
   if ((interaction.isButton() || interaction.isStringSelectMenu()) && interaction.customId.startsWith("trade:")) { await discordTrades.handleTradeInteraction(interaction); return; }

@@ -80,13 +80,13 @@ test('ordered steps cannot be skipped or reordered', () => {
 });
 function rolloverFixture(t) {
   const f = setup(t);
-  const { normalizeOffer } = require('../src/fantasyhq/offer-score');
+  const { normalizeContractDetails } = require('../src/fantasyhq/contract-details');
   const teams = Array.from({ length: 30 }, (_, i) => ({ teamId: `t${i}`, teamName: `Team ${i}`, abbreviation: `T${i}`, conference: i < 15 ? 'East' : 'West' }));
   f.repository.saveTeams('league', teams);
   const players = [], memberships = [];
   for (const team of teams) for (let i = 0; i < 15; i++) {
     const playerId = `${team.teamId}-${i}`;
-    players.push({ playerId, name: playerId, teamId: team.teamId, age: 36, birthdate: '1990-01-01', yearsInNBA: 10, overall: 80, contract: normalizeOffer({ salary: 1000000, years: '3', option: 'None', structure: 'Flat' }, { year: 2026 }).contract });
+    players.push({ playerId, name: playerId, teamId: team.teamId, age: 36, birthdate: '1990-01-01', yearsInNBA: 10, overall: 80, contract: normalizeContractDetails({ salary: 1000000, years: '3', option: 'None', structure: 'Flat' }, { year: 2026 }).contract });
     memberships.push({ membershipId: `m-${playerId}`, playerId, teamId: team.teamId, seasonId: '1', active: true });
   }
   players[0].draftYear = 2027; players[0].yearsInNBA = 0;
@@ -124,7 +124,7 @@ test('verified rollover ages once, preserves rookie experience, archives and IDs
   assert.deepEqual(f.repository.loadPlayers('league'), updated);
   assert.equal(f.backups(), 1);
 });
-test('rollover blocks unfinished stages, unconfirmed schedule policy, wrong rosters, expired contracts and unresolved options', t => {
+test('rollover blocks unfinished stages, unconfirmed schedule policy, wrong rosters, unverified contracts do not replace roster review', t => {
   const f = rolloverFixture(t), state = f.repository.loadOffseason('league');
   delete state.seasons['1'].schedulePolicy;
   f.repository.commitLeagueFiles({ leagueId: 'league', files: [{ name: 'offseason.json', value: state }] });
@@ -132,7 +132,7 @@ test('rollover blocks unfinished stages, unconfirmed schedule policy, wrong rost
   const players = f.repository.loadPlayers('league'); players[0].contract.seasons = []; players[1].contract.seasons[1].option = 'PLAYER';
   f.repository.savePlayers('league', players);
   const blockers = f.service.inspectRollover('league').blockers.join(' ');
-  assert.match(blockers, /contract/); assert.match(blockers, /option decision/);
+  assert.doesNotMatch(blockers, /contract|option decision/);
   assert.equal(f.service.prepareRollover('league', f.actor).token, undefined);
   assert.equal(f.repository.loadLeague('league').seasonId, '1');
 });

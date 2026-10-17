@@ -86,7 +86,7 @@ function createRetirementImportService({ repository, step = 'RETIREMENTS', impor
     processing.set(key, task); return task;
   }
   function source(leagueId, batch) {
-    return digest([repository.loadPlayers(leagueId), repository.loadRosterMemberships(leagueId), repository.loadTrades(leagueId), repository.loadFreeAgencyState(leagueId), batch.images, batch.revision]);
+    return digest([repository.loadPlayers(leagueId), repository.loadRosterMemberships(leagueId), repository.loadTrades(leagueId), batch.images, batch.revision]);
   }
   function prepare(leagueId, actor, { playerIds, noRetirements = false, reviewedAllImages = false }) {
     const { c, state, season } = context(leagueId, actor), batch = collection(season);
@@ -99,8 +99,6 @@ function createRetirementImportService({ repository, step = 'RETIREMENTS', impor
       if (!p) throw Error('Select an active permanent player ID.');
       const lock = require('./transaction-locks').playerTransactionLock(repository, leagueId, c.seasonId, id);
       if (lock) throw Error(`${p.name}: ${lock}`);
-      const fa = repository.loadFreeAgencyState(leagueId);
-      if (fa.windows.some(w => w.playerId === id && require('./transaction-locks').ACTIVE_WINDOWS.has(w.status))) throw Error(`${p.name}: resolve the active FA window first.`);
       return { playerId: id, name: p.name, teamId: p.teamId };
     });
     const pending = { token: randomUUID(), actorId: actor.id, sourceDigest: source(leagueId, batch), playerIds, noRetirements, expiresAt: now() + 300000 };

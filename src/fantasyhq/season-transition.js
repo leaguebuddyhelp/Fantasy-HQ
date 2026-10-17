@@ -1,7 +1,7 @@
 const { randomUUID, createHash } = require('crypto');
 const { createStandingsService } = require('./standings-service');
 const { officialRegularGames } = require('./official-game');
-const { ACTIVE_TRADES, ACTIVE_WINDOWS, LIVE_OFFERS } = require('./transaction-locks');
+const { ACTIVE_TRADES } = require('./transaction-locks');
 const confirmations = new Map();
 function createSeasonTransitionService({ submissions, now = Date.now } = {}) {
   const repository = submissions.repository;
@@ -18,8 +18,7 @@ function createSeasonTransitionService({ submissions, now = Date.now } = {}) {
     const final = new Set(official.games.map(r => JSON.stringify([r.game.weekId, [r.game.team1Id,r.game.team2Id].sort()])));
     const unresolved = schedule.weeks.flatMap(w => w.games.filter(g => !final.has(JSON.stringify([w.weekId,[g.team1Id,g.team2Id].sort()]))).map(g => ({ week: w.week, ...g })));
     const standings = createStandingsService({ repository, submissions }).getStandings(leagueId, context.seasonId, records);
-    const fa = repository.loadFreeAgencyState(leagueId);
-    const pending = { trades: repository.loadTrades(leagueId).filter(t => t.seasonId === context.seasonId && ACTIVE_TRADES.has(t.status)).map(t => ({ id: t.tradeId, status: t.status })), offers: fa.offers.filter(o => o.seasonId === context.seasonId && LIVE_OFFERS.has(o.status)).map(o => ({ id: o.id, status: o.status })), waivers: fa.waivers.filter(w => w.seasonId === context.seasonId && w.status === 'PENDING').map(w => w.id), windows: fa.windows.filter(w => w.seasonId === context.seasonId && ACTIVE_WINDOWS.has(w.status)).map(w => ({ id: w.id, status: w.status, deadlineAt: w.deadlineAt })) };
+    const pending = { trades: repository.loadTrades(leagueId).filter(t => t.seasonId === context.seasonId && ACTIVE_TRADES.has(t.status)).map(t => ({ id: t.tradeId, status: t.status })), offers: [], waivers: [], windows: [] };
     const eligible = Object.fromEntries(['East','West'].map(c => [c,standings.conferences[c].slice(0,10)]));
     if(legacyMigration)for(const c of ['East','West']){const prior=priorPlayoffs.seeds?.[c]||[];eligible[c]=[...prior,...standings.conferences[c].filter(t=>!prior.some(p=>p.teamId===t.teamId))].slice(0,10);}
     require('./postseason-state').validateSeeds(eligible,context.teams);
@@ -49,7 +48,7 @@ function createSeasonTransitionService({ submissions, now = Date.now } = {}) {
     const schedule = repository.loadSchedule(view.leagueId, view.seasonId);
     const publicationGames = officialRegularGames(submissions.records(), { leagueId: view.leagueId, seasonId: view.seasonId, schedule }).games;
     schedule.statsPublication = { throughWeek: 15, publishedAt: timestamp, gameIds: publicationGames.map(r => r.game.gameId), snapshots: require('./official-game').publicationSnapshot(publicationGames) };
-    const playoffs = require('./postseason-state').initializePostseason({ teams: context.teams, now: now(), leagueId: view.leagueId, seasonId: view.seasonId, seasonNumber:context.league.seasonNumber, startedAt: timestamp, standings: view.standings, seeds: confirmation.seeds, tiebreakers: ['PCT','NBA_TWO_TEAM_AND_MULTI_TEAM_TIEBREAKERS','RECORDED_RANDOM_DRAW'], ...(view.legacyMigration?{legacySeeding:structuredClone(priorLegacy(repository,view.leagueId))}:{}), pendingAtTransition: view.pending, pendingPolicy: 'Existing regular-season trade proofs, FA windows and waiver requests may finish under their saved rules. New workflows are closed.', seedChanges: confirmation.seedChanges });
+    const playoffs = require('./postseason-state').initializePostseason({ teams: context.teams, now: now(), leagueId: view.leagueId, seasonId: view.seasonId, seasonNumber:context.league.seasonNumber, startedAt: timestamp, standings: view.standings, seeds: confirmation.seeds, tiebreakers: ['PCT','NBA_TWO_TEAM_AND_MULTI_TEAM_TIEBREAKERS','RECORDED_RANDOM_DRAW'], ...(view.legacyMigration?{legacySeeding:structuredClone(priorLegacy(repository,view.leagueId))}:{}), pendingAtTransition: view.pending, pendingPolicy: 'Existing trade proofs retain their saved rules. Signings and waivers are recorded from completed NBA 2K Transaction Reports.', seedChanges: confirmation.seedChanges });
     require('./storage-safety').createStorageBackup(repository.dataRoot, { label: 'before-playoffs' });
     repository.commitSeasonTransition({ leagueId: view.leagueId, league: { ...context.league, currentPhase: 'PLAYOFFS' }, playoffs, schedule, auditEntry: { action: 'season.playoffs.started', userId: actor.id, requestId: token, timestamp, leagueId: view.leagueId, seasonId: view.seasonId, metadata: { seeds: confirmation.seeds, seedChanges: confirmation.seedChanges, pending: view.pending } } });
     confirmations.delete(token); return playoffs;

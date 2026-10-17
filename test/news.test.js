@@ -35,6 +35,6 @@ test('News drafts completed verified transactions while keeping pending trades a
  const article=f.service.staffList('league',f.actor)[0];assert.equal(article.category,'Trades');assert.match(article.article,/a-0 moves from Team a to Team b/);assert.equal(f.service.list('league').length,0);
  f.service.review('league',f.actor,{id:article.id,action:'approve'});f.service.publishDue('league');assert.equal(f.service.list('league')[0].category,'Trades');assert.equal(f.service.detect('league').articles.length,1);
  const fa=f.repository.loadFreeAgencyState('league');fa.windows=[{id:'window',seasonId:'1',status:'PENDING',winnerOfferId:'offer',resolvedAt:at}];fa.offers=[{id:'offer',playerId:'fa-0',teamId:'a',status:'APPROVED',contract:f.repository.loadPlayers('league')[0].contract}];f.repository.saveFreeAgencyState('league',fa);
- assert.equal(f.service.detect('league').articles.length,1);fa.windows[0].status='COMPLETED';fa.offers[0].status='WON';f.repository.saveFreeAgencyState('league',fa);
- const signing=f.service.staffList('league',f.actor).find(a=>a.category==='Free agency');assert.ok(signing);assert.match(signing.article,/\$10.00 million/);assert.equal(signing.status,'DRAFT');
+ assert.equal(f.service.detect('league').articles.length,1);f.repository.commitLeagueFiles({leagueId:'league',files:[{name:'roster-photo-events.json',value:[{key:'verified-signing',seasonId:'1',type:'SIGN',playerId:'fa-0',teamId:'a',date:'2026-10-17',reportedYears:3,reportedTotal:30000000,batchId:'report',verifiedBy:'c',verifiedAt:at}]}]});
+ const signing=f.service.staffList('league',f.actor).find(a=>a.category==='Free agency');assert.ok(signing);assert.match(signing.article,/\$30.00 million total/);assert.equal(signing.status,'DRAFT');
 });

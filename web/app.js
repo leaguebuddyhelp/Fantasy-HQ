@@ -1579,6 +1579,7 @@ document.querySelector('#admin-mode-lock').addEventListener('click', () => {
 });
 
 elements.adminKeySave.addEventListener("click", async () => {
+  rosterPhotoUi?.reset();
   state.adminKey = elements.adminKey.value.trim();
   state.adminAuthenticated = false;
   renderAdminMode();
@@ -1897,7 +1898,7 @@ async function loadCoachWeek() {
     output.innerHTML = `<div class="admin-summary"><strong>${view.bye ? 'Bye week' : `vs ${escapeHtml(view.game.opponent)}`}</strong>
       <p>${escapeHtml(view.nextAction)}</p><p>${view.bye || view.closed ? '' : `Deadline: ${escapeHtml(weeklyDeadline(view.deadlineAt))}`}</p>
       ${view.game ? `<p>${view.game.final ? '✅ Approved' : `${view.game.screenshots}/2 box scores received`}${view.game.inGameDate ? ` · Game date: ${escapeHtml(view.game.inGameDate)}` : ''}</p>` : ''}
-      <div class="weekly-links">${weeklyLink(view.game?.threadUrl, 'Open game thread')}${weeklyLink(view.channels.freeAgency, 'Free agency')}${weeklyLink(view.channels.submitTrade, 'Trade channel')}</div></div>`;
+      <div class="weekly-links">${weeklyLink(view.game?.threadUrl, 'Open game thread')}${weeklyLink(view.channels.submitTrade, 'Trade channel')}</div></div>`;
   } catch (error) { status.textContent = `Could not load this week: ${error.message}`; }
   finally { state.coachWeekLoading = false; button.disabled = false; picker.disabled = false; }
 }
@@ -1908,8 +1909,6 @@ function staffWeekMarkup(view) {
   const gameRows = queue.map(g => `<tr><td>${escapeHtml(g.team1Name)} vs ${escapeHtml(g.team2Name)}</td><td>${escapeHtml(g.status.replaceAll('_', ' '))}${!g.inGameDate ? ' · Date not set' : ''}</td><td>${g.screenshots}/2</td><td>${weeklyLink(g.threadUrl, 'Thread')}${g.reviewUrl ? weeklyLink(g.reviewUrl, 'Review box scores') : ''}${g.recordCount > 1 ? 'Duplicate records need repair' : !g.threadUrl ? 'Create / repair game threads in Discord' : ''}</td></tr>`).join('');
   const transactionRows = [
     ...t.trades.map(x => ({ name: x.teams.join(' ↔ '), status: x.status.replaceAll('_', ' '), url: x.url, type: 'Trade' })),
-    ...t.offers.map(x => ({ name: `${x.player} · ${state.leagueSite?.teams?.find(team => team.teamId === x.teamId)?.teamName || x.teamId}`, status: x.cutRequired ? `Coach roster cut needed by ${weeklyDeadline(x.cutDeadlineAt)}` : x.status === 'PENDING_REVIEW' ? 'Staff proof review' : 'Approved; window pending', url: x.url || view.channels.freeAgencyProof || view.channels.staff, type: 'FA offer' })),
-    ...t.waivers.map(x => ({ name: `${x.player} · ${state.leagueSite?.teams?.find(team => team.teamId === x.teamId)?.teamName || x.teamId}`, status: 'Staff review', url: x.url || view.channels.freeAgencyProof || view.channels.staff, type: 'Waiver request' })),
   ];
   return `<div class="summary-grid weekly-summary">${view.groups.map(g => `<article class="summary-card"><span>${escapeHtml(g.label)}</span><strong>${g.final}/${g.total}</strong><small>Approved · ${g.total - g.final} remaining</small></article>`).join('')}</div>
     <div class="admin-summary"><strong>${view.closed ? 'Week closed' : view.readyToAdvance ? 'Ready for week-advance review' : `${b.unresolved} games still need a final result`}</strong>
@@ -1923,8 +1922,8 @@ function staffWeekMarkup(view) {
     ${view.storageIssues?.length || view.notificationFailures ? `<p>⚠ Recovery needed: ${view.storageIssues?.length || 0} unreadable game records · ${view.notificationFailures || 0} failed notification attempts. Create a backup before repairing stored records.</p>` : ''}
     <details><summary>Approved games — review or correct</summary>${view.games.filter(g => g.final).map(g => `<p>${escapeHtml(g.team1Name)} vs ${escapeHtml(g.team2Name)} ${weeklyLink(g.reviewUrl, 'Review result')}</p>`).join('') || '<p>No approved games yet.</p>'}</details>
     <h4>Game closeout queue</h4>${queue.length ? `<div class="standings-scroll"><table class="standings-table"><thead><tr><th>Matchup</th><th>Status</th><th>Box scores</th><th>Action</th></tr></thead><tbody>${gameRows}</tbody></table></div>` : '<p>All scheduled games are approved.</p>'}
-    <h4>Pending transactions</h4><p>${t.trades.length} trades · ${t.offers.length} active offers · ${t.offers.filter(o => o.status === 'PENDING_REVIEW').length} FA proof reviews · ${t.waivers.length} waiver requests · ${t.waitingCuts} winner roster cuts needed</p>
-    ${transactionRows.length ? `<div class="standings-scroll"><table class="standings-table"><thead><tr><th>Type</th><th>Teams / player</th><th>Status</th><th>Action</th></tr></thead><tbody>${transactionRows.map(x => `<tr><td>${x.type}</td><td>${escapeHtml(x.name)}</td><td>${escapeHtml(x.status)}</td><td>${weeklyLink(x.url, 'Open in Discord')}</td></tr>`).join('')}</tbody></table></div>` : '<p>No pending trades, offers or waiver requests.</p>'}`;
+    <h4>Pending transactions</h4><p>${t.trades.length} trades</p>
+    ${transactionRows.length ? `<div class="standings-scroll"><table class="standings-table"><thead><tr><th>Type</th><th>Teams / player</th><th>Status</th><th>Action</th></tr></thead><tbody>${transactionRows.map(x => `<tr><td>${x.type}</td><td>${escapeHtml(x.name)}</td><td>${escapeHtml(x.status)}</td><td>${weeklyLink(x.url, 'Open in Discord')}</td></tr>`).join('')}</tbody></table></div>` : '<p>No pending trades.</p>'}`;
 }
 async function loadStaffWeek() {
   if (state.staffWeekLoading || !hasAdminAccess()) return;
@@ -1956,7 +1955,7 @@ document.querySelector('#playoffs-review')?.addEventListener('click', async () =
     if (view.alreadyStarted) { output.textContent = 'Playoffs have already started.'; return; }
     if (view.blocked) { output.textContent = `${view.unresolved.length} unresolved games must be finalized first.`; return; }
     const summary = document.createElement('p'); summary.textContent = Object.entries(view.seeds).map(([c, teams]) => `${c}: ${teams.map((t,i) => `${i+1}. ${t.teamName}`).join(', ')}`).join(' | '); output.append(summary);
-    const policy = document.createElement('p'); policy.textContent = 'Confirming freezes these seeds. Existing trades, FA windows and waivers retain their saved rules.'; output.append(policy);
+    const policy = document.createElement('p'); policy.textContent = 'Confirming freezes these seeds. Existing trades retain their saved rules.'; output.append(policy);
     const confirm = document.createElement('button'); confirm.textContent = 'Confirm playoff handoff';
     const operator = commissionerName.value.trim();
     confirm.addEventListener('click', async () => { if (playoffRequestRunning) return; playoffRequestRunning = true; confirm.disabled = true;
@@ -2271,20 +2270,20 @@ for (const kind of ['player','team']) for(const control of ['scope','season'])do
   const post = body => adminRequestJson(endpoint, {method:'POST',body:JSON.stringify(body)});
   async function load() {
     const data = await adminRequestJson(endpoint);
-    output.innerHTML = `<p><strong>${escapeHtml(data.step)}</strong> · ${data.window?.deadlineAt?'Deadline '+escapeHtml(new Date(data.window.deadlineAt).toLocaleString()):'Cutdown period has not opened.'}</p>${data.blockers.map(b=>'<p>'+escapeHtml(b)+'</p>').join('')}<div class="admin-inline">${data.step==='CUTDOWN'&&!data.receipt?'<button data-roster-action="'+(data.window?'extend':'open')+'">'+(data.window?'Extend by 24 hours':'Open 24-hour cutdowns')+'</button>':''}${!data.receipt?'<button data-roster-action="prepare">Review completion</button>':'<p>Completion confirmed.</p>'}</div><div id="roster-confirmation"></div><div>${data.teams.map(team=>'<details><summary>'+escapeHtml(team.teamName)+' · '+team.count+'/15</summary>'+team.players.map(p=>'<p>'+escapeHtml(p.name)+' · '+escapeHtml(String(p.overall))+' OVR'+(p.protected?' · Protected':data.step==='CUTDOWN'&&team.count>15&&data.window?.status==='OPEN'&&!data.receipt?' <button data-waive-player="'+escapeHtml(p.playerId)+'">Review waiver</button>':'')+'</p>').join('')+'</details>').join('')}</div>`;
+    output.innerHTML = `<p><strong>${escapeHtml(data.step)}</strong> · Verify these rosters against NBA 2K. Upload Signing/Waive reports above to correct changes first.</p>${data.blockers.map(b=>'<p>'+escapeHtml(b)+'</p>').join('')}${!data.receipt?'<button data-roster-action="prepare">Review completion</button>':'<p>Completion confirmed.</p>'}<div id="roster-confirmation"></div>${data.teams.map(team=>'<details><summary>'+escapeHtml(team.teamName)+' · '+team.count+' players</summary>'+team.players.map(p=>'<p>'+escapeHtml(p.name)+' · '+escapeHtml(String(p.overall??'—'))+' OVR</p>').join('')+'</details>').join('')}`;
   }
   output.addEventListener('click', async event => {
     const button = event.target.closest('button'); if(!button)return;
     button.disabled=true;
     try {
-      const playerId=button.dataset.waivePlayer,action=button.dataset.rosterAction;
-      if(playerId||action==='prepare'){
-        const preview=await post(playerId?{action:'prepare-waiver',playerId}:{action:'prepare'});
+      const action=button.dataset.rosterAction;
+      if(action==='prepare'){
+        const preview=await post({action:'prepare'});
         if(!preview.token){showToast('Resolve the listed blockers first.');await load();return;}
         const target=output.querySelector('#roster-confirmation');
-        target.innerHTML='<p>'+escapeHtml(playerId?'Waive '+preview.playerName+' and release their contract?':'Confirm this offseason step is complete?')+'</p>';
-        const confirm=document.createElement('button');confirm.textContent=playerId?'Confirm waiver':'Confirm completion';
-        confirm.addEventListener('click',async()=>{confirm.disabled=true;try{await post({action:playerId?'confirm-waiver':'confirm',token:preview.token});await load();}catch(e){showToast(e.message);confirm.disabled=false;}});target.append(confirm);
+        target.innerHTML='<p>'+escapeHtml('Confirm the current rosters match NBA 2K and this offseason step is complete?')+'</p>';
+        const confirm=document.createElement('button');confirm.textContent='Confirm roster review';
+        confirm.addEventListener('click',async()=>{confirm.disabled=true;try{await post({action:'confirm',token:preview.token});await load();}catch(e){showToast(e.message);confirm.disabled=false;}});target.append(confirm);
       } else if(action){await post({action,hours:24});await load();}
     }catch(e){showToast(e.message);}finally{button.disabled=false;}
   });
@@ -2321,25 +2320,6 @@ for (const kind of ['player','team']) for(const control of ['scope','season'])do
 })();
 
 (() => {
- const output=document.querySelector('#offseason-fa-output'),endpoint='/api/league/admin/offseason-free-agency';let data,urls=[];
- const post=body=>adminRequestJson(endpoint,{method:'POST',body:JSON.stringify(body)});
- const field=(key,row,value)=>`<input data-fa-contract="${key}" data-fa-row="${row}" value="${escapeHtml(String(value??''))}" aria-label="${escapeHtml(key)}">`;
- async function load(){data=await adminRequestJson(endpoint);if(data.receipt){output.innerHTML='<p>Offseason free agency verified. Return to the offseason checklist to advance.</p>';return;}urls.forEach(URL.revokeObjectURL);urls=[];const stage=data.stage,won=data.offers.filter(o=>o.status==='WON');output.innerHTML=`<p><strong>${escapeHtml(stage?.name||'Exclusive re-signing not opened')}</strong> · ${escapeHtml(stage?.status||'Waiting')} ${stage?.deadlineAt?' · Deadline '+escapeHtml(new Date(stage.deadlineAt).toLocaleString()):''}</p><div class="admin-inline">${['open','extend','pause','resume','close','complete'].map(a=>'<button data-fa-action="'+a+'">'+({open:'Open next period',extend:'Extend 24 hours',pause:'Pause clock',resume:'Resume clock',close:'Close period',complete:'Complete period'}[a])+'</button>').join('')}</div><p>Score: 35% annual salary · 25% total value · 25% length · 15% age fit. Rankings use verified offer amounts; missing ages receive a neutral age factor.</p><div>${data.rankings.map(group=>'<details open><summary>'+escapeHtml(group.playerName)+'</summary>'+group.offers.map(o=>'<p><label><input type="checkbox" data-fa-approve="'+escapeHtml(o.id)+'"> '+escapeHtml(data.teams.find(t=>t.teamId===o.teamId)?.teamName||o.teamId)+' · '+o.score.toFixed(2)+' score · Priority '+o.priority+' · '+o.contract.seasons.length+' years · $'+o.contract.seasons.reduce((sum,row)=>sum+row.salary,0).toLocaleString()+' total · $'+o.contract.seasons[0].salary.toLocaleString()+' starting salary</label> <button data-fa-reject="'+escapeHtml(o.id)+'">Reject with reason</button></p>').join('')+'</details>').join('')}</div><button id="offseason-fa-prepare">Review selected approvals</button><div id="offseason-fa-confirmation"></div><h4>NBA 2K Transaction Report</h4><p>After all four periods, upload every report page and match the exact displayed contract for every approved signing. Resolve unexpected signings before final verification.</p><input id="offseason-fa-images" type="file" accept="image/jpeg,image/png,image/heic,image/heif,.heic,.heif" multiple><button id="offseason-fa-upload">Upload report photos</button><div>${(data.evidence?.images||[]).map(i=>'<details><summary>'+escapeHtml(i.filename)+' · '+escapeHtml(i.status)+'</summary><button data-fa-original="'+escapeHtml(i.imageId)+'">View photo</button><button data-fa-retry="'+escapeHtml(i.imageId)+'">Retry OCR</button><pre>'+escapeHtml(i.text||i.error||'')+'</pre>'+((i.proposals?.warnings||[]).map(w=>'<p>'+escapeHtml(w)+'</p>').join(''))+(i.proposals?.rows||[]).map(row=>'<p><strong>'+escapeHtml(row.name)+'</strong> → '+escapeHtml(row.playerCandidates.map(p=>p.name).join(' / ')||'Match player manually')+(row.teamId?' · '+escapeHtml(data.teams.find(t=>t.teamId===row.teamId)?.teamName||row.teamId):' · Match team manually')+' · '+row.contractYears+' years · $'+row.reportedTotal.toLocaleString()+' total'+row.flags.map(flag=>'<br>'+escapeHtml(flag)).join('')+'</p>').join('')+'</details>').join('')}</div><table><thead><tr><th>Signing</th><th>Team</th><th>Salary</th><th>Years</th><th>Type</th><th>Option</th></tr></thead><tbody>${won.map((o,i)=>'<tr><td>'+escapeHtml(o.playerId)+'</td><td>'+escapeHtml(data.teams.find(t=>t.teamId===o.teamId)?.teamName||o.teamId)+'</td>'+['salary','years','structure','option'].map(k=>'<td>'+field(k,i,'')+'</td>').join('')+'</tr>').join('')}</tbody></table><label><input id="offseason-fa-reviewed" type="checkbox"> I reviewed every report page, verified all approved signings, and resolved every unexpected signing.</label><button id="offseason-fa-verify">Review final reconciliation</button>`;}
- output.addEventListener('change',()=>output.querySelector('#offseason-fa-confirmation')?.replaceChildren());
- function confirm(preview,action,label){const target=output.querySelector('#offseason-fa-confirmation');target.textContent=label+'? ';const button=document.createElement('button');button.textContent='Confirm';button.addEventListener('click',async()=>{button.disabled=true;try{await post({action,token:preview.token});await load();showToast('Confirmed.');}catch(e){showToast(e.message);button.disabled=false;}});target.append(button);}
- output.addEventListener('click',async e=>{const b=e.target.closest('button');if(!b)return;try{
-  if(b.dataset.faAction){await post({action:b.dataset.faAction,hours:24});await load();}
-  else if(b.id==='offseason-fa-prepare'){const offerIds=[...output.querySelectorAll('[data-fa-approve]:checked')].map(i=>i.dataset.faApprove),p=await post({action:'prepare-approval',offerIds});confirm(p,'confirm-approval','Approve '+offerIds.length+' verified signings');}
-  else if(b.dataset.faReject){const target=output.querySelector('#offseason-fa-confirmation');target.innerHTML='<label>Rejection reason<input id="offseason-fa-reason"></label>';const send=document.createElement('button');send.textContent='Confirm rejection';send.addEventListener('click',async()=>{try{await post({action:'reject',offerId:b.dataset.faReject,reason:target.querySelector('input').value});await load();}catch(e){showToast(e.message);}});target.append(send);}
-  else if(b.id==='offseason-fa-upload'){for(const file of output.querySelector('#offseason-fa-images').files){const base64=await new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(String(r.result).split(',')[1]);r.onerror=reject;r.readAsDataURL(file);});await post({action:'upload',filename:file.name,base64});}await load();}
-  else if(b.dataset.faOriginal){const r=await fetch(endpoint+'?preview=1&imageId='+encodeURIComponent(b.dataset.faOriginal),{headers:{'x-leaguebuddy-admin-key':state.adminKey}});if(!r.ok)throw Error((await r.json()).error);const url=URL.createObjectURL(await r.blob());urls.push(url);const image=document.createElement('img');image.src=url;image.alt='Transaction Report photo preview';image.style.maxWidth='100%';b.closest('details').append(image);}
-  else if(b.dataset.faRetry){await post({action:'retry',imageId:b.dataset.faRetry});await load();}
-  else if(b.id==='offseason-fa-verify'){const won=data.offers.filter(o=>o.status==='WON'),rows=won.map((o,i)=>({offerId:o.id,playerId:o.playerId,teamId:o.teamId,details:Object.fromEntries(['salary','years','structure','option'].map(k=>[k,output.querySelector('[data-fa-contract="'+k+'"][data-fa-row="'+i+'"]').value]))}));const p=await post({action:'prepare-verification',rows,reviewedAllImages:output.querySelector('#offseason-fa-reviewed').checked});confirm(p,'confirm-verification','Verify '+p.rowCount+' NBA 2K signings');}
- }catch(e){showToast(e.message);}});
- document.querySelector('#offseason-fa-load').addEventListener('click',()=>load().catch(e=>showToast(e.message)));
-})();
-
-(() => {
  const output=document.querySelector('#news-review-output');let articles=[];
  const render=()=>{const status=document.querySelector('#news-review-status').value;output.innerHTML=articles.filter(a=>a.status===status).map(a=>`<details data-news-review="${escapeHtml(a.id)}"><summary>${escapeHtml(a.headline)}${a.revalidationRequired?' · SOURCE REVIEW REQUIRED':''}${a.deliveryIssue?' · DISCORD DELIVERY NEEDS ATTENTION':''}</summary>${a.deliveryIssue?'<p>'+escapeHtml(a.deliveryIssue.message)+'</p>':''}<p>${escapeHtml(a.category)} · Season ${escapeHtml(a.seasonId)} · Week ${a.week}</p><pre>${escapeHtml(JSON.stringify(a.pendingSource?.facts||a.facts,null,2))}</pre><label>Headline<input data-news-edit="headline" value="${escapeHtml(a.headline)}"></label><label>Article<textarea data-news-edit="article" rows="8">${escapeHtml(a.article)}</textarea></label><label>Reason / correction notice<input data-news-edit="reason"></label><label><input data-news-edit="breaking" type="checkbox"${a.breaking?' checked':''}> Breaking news</label><label><input data-news-edit="featured" type="checkbox"${a.featured?' checked':''}> Feature / pin this story</label><div class="admin-inline">${(a.status==='PUBLISHED'?['correct']:['edit','regenerate','approve','reject']).map(action=>'<button data-news-review-action="'+action+'">'+({correct:'Save correction',edit:'Save draft',regenerate:'Regenerate from verified facts',approve:'Approve publication',reject:'Reject story'}[action])+'</button>').join('')}</div><p>${a.correctionNotice?escapeHtml(a.correctionNotice):''}</p><p>${a.revisions.length} retained revisions</p></details>`).join('')||'<p>No stories in this status.</p>';};
  async function load(){articles=(await adminRequestJson('/api/league/admin/news')).articles;render();}
@@ -2370,3 +2350,9 @@ for (const kind of ['player','team']) for(const control of ['scope','season'])do
   button.addEventListener('click',async()=>{button.disabled=true;try{output.textContent=JSON.stringify(await adminRequestJson('/api/league/admin/'+endpoint),null,2);}catch(error){output.textContent=error.message;}finally{button.disabled=false;}});
  }
 })();
+
+const rosterPhotoUi = window.createRosterPhotoSyncUi?.({
+  root:document.querySelector('#roster-photo-sync'),request:adminRequestJson,escapeHtml,
+  readPhoto:async(batchId,imageId)=>{const response=await fetch(`/api/league/admin/rosters/photo-sync?batchId=${encodeURIComponent(batchId)}&imageId=${encodeURIComponent(imageId)}`,{headers:{'x-leaguebuddy-admin-key':state.adminKey}});if(!response.ok)throw Error('Could not load the saved photo.');return response.blob();},
+  onSaved:async()=>{state.teamDetailCache.clear();state.playerDetailCache.clear();await refreshLeagueSite();await loadAdminPanels();if(state.currentRosterTeamId)await loadRosterManager(state.currentRosterTeamId);},
+});

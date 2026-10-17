@@ -54,7 +54,7 @@ test('public dashboards omit transactions; private dashboards include only the c
  f.repository.saveTrades('l',[{tradeId:'own',seasonId:'1',status:'PENDING_GM_APPROVAL',participatingTeams:[team,f.a.team2Id],currentVersion:{gmDecisions:[]}}, {tradeId:'other',seasonId:'1',status:'PENDING_COMMITTEE',participatingTeams:[f.b.team1Id,f.b.team2Id]}, {tradeId:'old',seasonId:'0',status:'PENDING_COMMITTEE',participatingTeams:[team]}]);
  f.repository.saveFreeAgencyState('l',{windows:[{id:'w',seasonId:'1',status:'OPEN'}],offers:[{id:'o',seasonId:'1',windowId:'w',teamId:team,playerId:'p',status:'PENDING_REVIEW',salary:999999},{id:'other',seasonId:'1',windowId:'w',teamId:f.b.team1Id,playerId:'secret',status:'APPROVED'}],waivers:[{id:'v',seasonId:'1',teamId:team,playerId:'cut',status:'PENDING'}]});
  const publicView=f.service.teamDashboard('g',team);assert.equal(publicView.transactions,undefined);assert.doesNotMatch(JSON.stringify(publicView),/secret|999999/);
- const privateView=f.service.teamDashboard('g',team,true);assert.deepEqual(privateView.transactions.trades.map(t=>t.id),['own']);assert.deepEqual(privateView.transactions.offers.map(o=>o.id),['o']);assert.equal(privateView.transactions.waivers.length,1);assert.doesNotMatch(JSON.stringify(privateView),/secret|999999/);
+ const privateView=f.service.teamDashboard('g',team,true);assert.deepEqual(privateView.transactions.trades.map(t=>t.id),['own']);assert.equal(privateView.transactions.offers,undefined);assert.equal(privateView.transactions.waivers,undefined);assert.doesNotMatch(JSON.stringify(privateView),/secret|999999/);
  assert.equal(f.service.report('g').transactions.trades.length,2);
 });
 test('weekly Staff report edits the same message, coalesces concurrent sends and survives restarts',async t=>{
@@ -95,7 +95,7 @@ test('weekly embeds stay within Discord limits and provide only existing navigat
  assert.equal(report.components[0].components[0].data.custom_id,'weeklystaff:advance:1');
  assert.equal(report.components[0].components[0].data.label,'Review & Advance Week');
  assert.equal(report.components[0].components[1].data.custom_id,'weeklystaff:delete:1');
- const coach=coachPayload(f.service.teamDashboard('g',f.a.team1Id,true));assert.equal(coach.components[0].components[1].data.custom_id,'fa:active');assert.equal(coach.embeds.length,1);
+ const coach=coachPayload(f.service.teamDashboard('g',f.a.team1Id,true));assert.equal(coach.components[0].components.length,1);assert.equal(coach.embeds.length,1);
 });
 module.exports={fixture};
 

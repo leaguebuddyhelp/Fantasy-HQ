@@ -1,6 +1,6 @@
 const { officialRegularGame } = require('./official-game');
 const { activityView } = require('./game-activity');
-const { ACTIVE_TRADES, ACTIVE_WINDOWS, LIVE_OFFERS } = require('./transaction-locks');
+const { ACTIVE_TRADES } = require('./transaction-locks');
 const MATCHUP_LABELS = { CPU_VS_CPU: 'CPU vs CPU', HUMAN_VS_CPU: 'User vs CPU', HUMAN_VS_HUMAN: 'User vs user' };
 function discordLink(guildId, channelId, messageId) {
   return channelId ? `https://discord.com/channels/${guildId}/${channelId}${messageId ? '/' + messageId : ''}` : null;
@@ -60,19 +60,12 @@ function createWeeklyDashboardService({ repository = require('./repository').cre
       url: discordLink(guildId, t.currentVersion?.proof?.threadId || settings.discordChannels?.[t.status === 'PENDING_COMMITTEE' ? 'tradeCommittee' : 'submitTrade']),
       waitingTeamIds: (t.participatingTeams || []).filter(id => !(t.currentVersion?.gmDecisions || []).some(d => d.teamId === id && d.decision === 'APPROVE')),
     }));
-    const fa = repository.loadFreeAgencyState(league.leagueId), players = repository.loadPlayers(league.leagueId);
-    const windows = fa.windows.filter(w => String(w.seasonId) === String(seasonId) && ACTIVE_WINDOWS.has(w.status));
-    const windowIds = new Set(windows.map(w => w.id));
-    const offers = fa.offers.filter(o => String(o.seasonId) === String(seasonId) && windowIds.has(o.windowId) && LIVE_OFFERS.has(o.status)).map(o => ({ id: o.id, teamId: o.teamId, player: players.find(p => p.playerId === o.playerId)?.name || o.playerId, status: o.status, deadlineAt: windows.find(w => w.id === o.windowId)?.deadlineAt || null, cutRequired: windows.some(w => w.id === o.windowId && w.status === 'AWAITING_WINNER_ROSTER_CUT' && w.winnerOfferId === o.id), cutDeadlineAt: windows.find(w => w.id === o.windowId)?.winnerOfferId === o.id ? windows.find(w => w.id === o.windowId)?.cutDeadlineAt || null : null, url: discordLink(guildId, o.proofChannelId, o.proofMessageId) }));
-    const deliveredKeys = new Set(fa.deliveries.filter(d => !d.failed).map(d => d.key));
-    const failedKeys = new Set(fa.deliveries.filter(d => d.failed && !deliveredKeys.has(d.key)).map(d => d.key));
-    const waivers = fa.waivers.filter(w => String(w.seasonId) === String(seasonId) && w.status === 'PENDING').map(w => ({ id: w.id, teamId: w.teamId, player: players.find(p => p.playerId === w.playerId)?.name || w.playerId, status: w.status, url: discordLink(guildId, w.proofChannelId, w.proofMessageId) }));
     const channels = Object.fromEntries(Object.entries(settings.discordChannels || {}).map(([key, id]) => [key, discordLink(guildId, id)]));
     return { available: true, guildId, leagueId: league.leagueId, leagueName: league.leagueName, seasonId, week: week.week, weekId: week.weekId, closed: week.status === 'COMPLETED', startedAt: week.startedAt || null, deadlineAt: week.deadlineAt || null, testMode: settings.testMode === true,
       total: games.length, final: games.filter(g => g.final).length, groups, blockers, games, byes: (week.byes || []).map(b => ({ teamId: b.teamId, teamName: context.teams.find(t => t.teamId === b.teamId)?.teamName || b.teamId })),
       storageIssues: submissions.storageIssues?.() || [],
-      notificationFailures: failedKeys.size,
-      transactions: { trades, offers, waivers, cuts: offers.filter(o => o.cutRequired), activeWindows: windows.length, waitingCuts: windows.filter(w => w.status === 'AWAITING_WINNER_ROSTER_CUT').length }, channels,
+      notificationFailures: 0,
+      transactions: { trades }, channels,
       staffReportUrl: discordLink(guildId, settings.discordChannels?.staff, settings.weeklyStaffReports?.[`${guildId}:${seasonId}:${week.weekId}`]?.messageId),
       readyToAdvance: pendingGames.length === 0 && !week.status?.includes('COMPLETED'),
     };
@@ -87,9 +80,9 @@ function createWeeklyDashboardService({ repository = require('./repository').cre
     const nextAction = view.closed ? 'Regular season complete.' : !game ? 'Bye week — no game submission needed.' : game.final ? 'Game approved. Stats publish when the week advances.' : !game.threadUrl ? 'Staff needs to create or repair this game thread.' : !game.inGameDate ? 'Set the NBA 2K game date in your game thread.' : game.extractionFailed ? 'Ask Staff to retry or review the stored box scores.' : game.reviewPending ? 'Waiting for Staff to review the box scores.' : game.status === 'PROCESSING' ? 'Box scores are processing.' : ownUploaded ? 'Your box score is received. Waiting for the other side.' : 'Schedule your game and submit your team’s box score.';
     const result = { available: true, teamId, teamName: team.teamName, leagueName: view.leagueName, seasonId: view.seasonId, week: view.week, closed: view.closed, deadlineAt: view.deadlineAt, bye: !game, nextAction,
       game: game ? { opponent: game.team1Id === teamId ? game.team2Name : game.team1Name, final: game.final, status: game.status, screenshots: game.screenshots, ownUploaded: !!ownUploaded, threadUrl: game.threadUrl, inGameDate: game.inGameDate } : null,
-      channels: Object.fromEntries(['freeAgency', 'submitTrade', 'scouting'].map(key => [key, view.channels[key] || null])),
+      channels: Object.fromEntries(['submitTrade', 'scouting'].map(key => [key, view.channels[key] || null])),
     };
-    if (privateDetails) result.transactions = { trades: view.transactions.trades.filter(t => t.teamIds.includes(teamId)), offers: view.transactions.offers.filter(o => o.teamId === teamId).map(({url, ...o}) => o), waivers: view.transactions.waivers.filter(w => w.teamId === teamId).map(({url, ...w}) => w) };
+    if (privateDetails) result.transactions = { trades: view.transactions.trades.filter(t => t.teamIds.includes(teamId)) };
     return result;
   }
   return { report, teamDashboard };

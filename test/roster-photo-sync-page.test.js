@@ -1,0 +1,14 @@
+const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs');
+const {chromium}=require('playwright');
+test('photo update UI uploads, reviews player matches and requires a separate save; editing invalidates the preview',async t=>{
+ const browser=await chromium.launch({headless:true});t.after(()=>browser.close());const page=await browser.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.setContent('<div id="sync"></div>');await page.addScriptTag({content:fs.readFileSync('web/roster-photo-sync.js','utf8')});
+ await page.evaluate(()=>{window.calls=[];const batch={id:'batch',teams:[{teamId:'bulls',teamName:'Chicago Bulls'}],players:[{playerId:'pope',name:'Randall Pope'}],images:[]};window.createRosterPhotoSyncUi({root:document.querySelector('#sync'),escapeHtml:v=>String(v??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('"','&quot;'),readPhoto:async()=>new Blob(),onSaved:async()=>{window.saved=true;},request:async(url,options)=>{const body=JSON.parse(options.body);window.calls.push(body);if(body.action==='start')return structuredClone(batch);if(body.action==='upload'){batch.images=[{imageId:'image',filename:'report.png',status:'READ',rows:[{date:'2026-10-16',type:'SIGN',name:'Randall Pope',playerId:'pope',teamId:'bulls',reportedTotal:1360000,reportedYears:1}]}];return structuredClone(batch);}if(body.action==='prepare')return {token:'preview',changes:[{playerId:'pope',name:'Randall Pope',fromTeamId:null,toTeamId:'bulls'}],duplicates:0,older:[]};if(body.action==='confirm')return {token:body.token,changes:[]};}});});
+ await page.getByLabel('Transaction Report photos').setInputFiles({name:'report.png',mimeType:'image/png',buffer:Buffer.from('photo')});await page.getByRole('button',{name:'Upload and read photos'}).click();await page.getByLabel('Transaction player').waitFor();
+ assert.equal(await page.evaluate(()=>window.calls.some(c=>c.action==='confirm')),false);
+ await page.getByRole('button',{name:'Review roster changes'}).click();await page.getByRole('status').getByText('Review the photos and check the confirmation box.').waitFor();
+ await page.getByLabel('I reviewed the dates',{exact:false}).check();await page.getByRole('button',{name:'Review roster changes'}).click();await page.getByRole('button',{name:'Save roster updates'}).waitFor();
+ await page.getByLabel('Reported contract total').fill('1500000');assert.equal(await page.getByRole('button',{name:'Save roster updates'}).count(),0);
+ await page.getByRole('button',{name:'Review roster changes'}).click();await page.getByRole('button',{name:'Save roster updates'}).click();await page.getByText('Roster updates saved.',{exact:false}).waitFor();
+ assert.equal(await page.evaluate(()=>window.saved),true);assert.equal(await page.evaluate(()=>window.calls.filter(c=>c.action==='confirm').length),1);assert.deepEqual(errors,[]);
+});

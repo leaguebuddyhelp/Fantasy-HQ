@@ -1,30 +1,22 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { freeAgentsPayload } = require('../src/fantasyhq/discord-preseason');
-const { permanentPayload } = require('../src/fantasyhq/discord-free-agency');
-const { offerWindowDuration } = require('../src/fantasyhq/free-agency-service');
 const { gamePayload } = require('../src/fantasyhq/discord-game-submissions');
 const { handleWeekPreview } = require('../src/fantasyhq/discord-week');
 
-test('free-agent pages retain primary-position filters and link into private signing', () => {
+test('free-agent pages retain primary-position filters and provide browsing only', () => {
   const players = Array.from({ length: 31 }, (_, i) => ({ name: `Player ${i}`, overall: 90-i, position1: 'PG', position2: 'SG', teamId: null }));
   players.push({ name: 'Owned', overall: 99, position1: 'PG', teamId: 'owned' });
   const first = freeAgentsPayload(players, 'PG');
   const controls = first.components[0].toJSON().components;
   assert.equal(controls[0].disabled, true);
   assert.equal(controls[1].custom_id, 'freeagents:page:2:PG');
-  assert.equal(controls[2].custom_id, 'fa:sign');
+  assert.equal(controls.length, 2);
   assert.ok(!first.embeds[0].data.description.includes('Owned'));
   const last = freeAgentsPayload(players, 'PG', 999);
   assert.match(last.embeds[0].data.description, /Player 30/);
   assert.equal(last.components[0].toJSON().components[1].disabled, true);
   assert.match(freeAgentsPayload(players, 'SG').embeds[0].data.description, /No free agents match/);
-});
-
-test('Free Agency pin displays the effective test clock and ignores test settings outside Test Mode', () => {
-  assert.match(permanentPayload({testMode:true,freeAgencyTestWindowSeconds:60}).embeds[0].data.description, /60 seconds \(Test Mode\)/);
-  assert.match(permanentPayload({testMode:false,freeAgencyTestWindowSeconds:60}).embeds[0].data.description, /1 hour/);
-  assert.equal(offerWindowDuration({testMode:true,freeAgencyTestWindowSeconds:0}), 3600000);
 });
 
 test('finalized game cards remove submission, CPU, forfeit and date controls', () => {

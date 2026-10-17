@@ -1,3 +1,5 @@
+> Updated October 17, 2026: the separate free agency offer/waiver workflow described in this historical document has been retired. See [Roster reconciliation](ROSTER-RECONCILIATION.md) for the current process.
+
 # Season phase audit — October 10, 2026
 
 Scope: repository review of Discord commands/components, website controls/API routes, and underlying services. No deployment, live phase change, or live league-data mutation was performed. This is a phase-lock audit, not a new complete launch/security certification.

@@ -1,3 +1,5 @@
+> Updated October 17, 2026: the separate free agency offer/waiver workflow described in this historical document has been retired. See [Roster reconciliation](ROSTER-RECONCILIATION.md) for the current process.
+
 # Additional application gaps — October 11, 2026
 
 Subsequent repair status: all five findings now have local fixes; see [repair details and verification](APP-GAPS-REPAIRS-2026-10-11.md). The findings and reproduction results below describe the original audited behavior.
