@@ -18,3 +18,14 @@ test('lottery owner labels never silently become original franchises or override
  const report=tableProposals({step:'LOTTERY',text:'Draft Lottery',lines,width:1000,players,teams});assert.equal(report.rows.length,1);assert.equal(report.rows[0].teamId,'phi');assert.equal(report.rows[0].originalTeamId,null);assert.match(report.rows[0].flags.join(' '),/owner label alone/);
  const explicit=tableProposals({step:'LOTTERY',text:'Draft Lottery',lines:[...lines,line('ORIGINAL',550,200),line('Cavaliers',550,250)],width:1000,players,teams});assert.equal(explicit.rows[0].originalTeamId,'cle');assert.equal(explicit.rows[0].teamId,'phi');
 });
+
+test('cropped offseason tables use visible columns and keep missing round/team metadata unresolved',()=>{
+ const original=[line('NAME',400,300),line('POS',600,300),line('AGE',700,300),line('OVR',800,300),line('STATUS',900,300),line('T. Maxey',400,350),line('PG',600,350),line('26',700,350),line('91',800,350),line('Accepted',900,350)];
+ const cropped=original.map(l=>({...l,bbox:{x0:l.bbox.x0-380,x1:l.bbox.x1-380,y0:l.bbox.y0-280,y1:l.bbox.y1-280}}));
+ const options=tableProposals({step:'OPTIONS',text:'',lines:cropped,width:650,players,teams});
+ assert.equal(options.rows.length,1);assert.equal(options.rows[0].playerId,'maxey');assert.equal(options.rows[0].decision,'ACCEPTED');
+ const progression=tableProposals({step:'PROGRESSION',text:'',lines:cropped,width:650,players,teams});
+ assert.equal(progression.rows[0].overall,91);assert.equal(progression.tableTeamId,null);assert.match(progression.warnings.join(' '),/Confirm the selected table team/);
+ const draft=tableProposals({step:'DRAFT',text:'',lines:cropped,width:650,players,teams});
+ assert.equal(draft.rows[0].pickNumber,null);assert.match(draft.rows[0].flags.join(' '),/Confirm the draft round/);
+});

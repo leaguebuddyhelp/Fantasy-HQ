@@ -13,7 +13,8 @@ const schema = object({ screenshots: array(object({
   uncertainFields: array(object({ path: { type: 'string' }, reason: { type: 'string' }, confidence })),
 })) });
 const prompt = `Transcribe two NBA 2K MyNBA Association Box Score screenshots from ONE game.
-Return one screenshot entry per supplied mediaId, independently transcribing BOTH scoreboard teams in each.
+Cropped photos are accepted. Return one screenshot entry per supplied mediaId, independently transcribing visible scoreboard teams in each.
+If a scoreboard is cropped out, retain two entries with null teamName and finalScore and Q1-Q4 null scores, and flag scoreboard in uncertainFields. Keep the readable player table and totals; never infer missing scores or identities.
 Identify the table's selected team from its table/tab and contents, NOT the persistent team header in the upper-right corner.
 Keep Total separate from players. Include ALL visible player rows including DNP; set all DNP stats to null.
 Transcribe numbers as displayed strings, including shooting splits (e.g. 8-16). Unknown or unreadable fields are null, never guessed or computed.

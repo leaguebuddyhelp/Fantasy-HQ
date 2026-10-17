@@ -166,18 +166,25 @@ async function render() {
   }
   updateIssueProgress(); summary.append(warningBox);
   for (const [i, screen] of draft.screenshots.entries()) {
-    const base = `screenshots.${i}`, card = el('section', null, 'review-card'); card.append(el('h3', screen.tableTeamName));
+    const base = `screenshots.${i}`, card = el('section', null, 'review-card'); card.append(el('h3', screen.tableTeamName || 'Cropped player table'));
+    function teamChoice(value, path, change) {
+      const select=el('select'); select.setAttribute('aria-label', path); select.dataset.path=path;
+      select.append(new Option('Select team from supporting evidence…',''));
+      for (const name of [data.game.team1Name,data.game.team2Name]) select.append(new Option(name,name));
+      select.value=value || ''; select.onchange=()=>{change(select.value);markDirty();}; return select;
+    }
     const comparison = el('div', null, 'review-comparison'), original = el('div', null, 'review-original');
     attachOriginal(original, screen.mediaId, `Original ${screen.tableTeamName} box score`);
     const editor = el('fieldset'); editor.disabled = locked; editor.append(el('legend', 'Extracted box score'));
+    if (!latest.normalized.screenshots[i].displayedTeamName) editor.append(teamChoice(screen.tableTeamName, `${base}.tableTeamName`, value=>{screen.tableTeamName=value; render();}));
     for (const [j, board] of screen.scoreboard.entries()) {
-      const row = el('div', null, 'review-toolbar'); row.append(el('strong', board.teamName));
+      const row = el('div', null, 'review-toolbar'); row.append(latest.normalized.screenshots[i].scoreboard[j].displayedTeamName ? el('strong', board.teamName) : teamChoice(board.teamName, `${base}.scoreboard.${j}.teamName`, value=>board.teamName=value));
       for (const [k, period] of board.periods.entries()) { const label = el('label', period.label); label.append(input(period.score, `${base}.scoreboard.${j}.periods.${k}`, v => period.score = v)); row.append(label); }
       const label = el('label', 'Final score'); label.append(input(board.finalScore, `${base}.scoreboard.${j}.finalScore`, v => board.finalScore = v)); row.append(label); editor.append(row);
     }
     const scroll = el('div', null, 'review-table-wrap'), table = el('table'), head = el('tr');
     for (const title of ['Player / roster match', 'DNP', ...fields]) head.append(el('th', title)); table.append(head);
-    const teamId = latest.normalized.screenshots[i].teamId, roster = latest.rosterSnapshot?.[teamId] || [];
+    const teamId = latest.normalized.screenshots[i].teamId || (screen.tableTeamName === data.game.team1Name ? data.game.team1Id : screen.tableTeamName === data.game.team2Name ? data.game.team2Id : null), roster = latest.rosterSnapshot?.[teamId] || [];
     for (const [j, p] of screen.players.entries()) {
       const row = el('tr'), cell = el('td'); cell.append(el('span', p.displayedName));
       const select = el('select'); select.setAttribute('aria-label', `${p.displayedName} roster match`); select.dataset.path = `${base}.players.${j}.playerId`; select.append(new Option('Select roster player…', ''));

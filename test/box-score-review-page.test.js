@@ -31,3 +31,19 @@ test('review form works before slow images arrive, caches originals after save, 
  await page.locator('.review-history > summary').click();await page.locator('.review-history details > summary').click();
  await page.getByText('large audit evidence',{exact:false}).waitFor();assert.equal(historyRequests,1);assert.deepEqual(errors,[]);
 });
+
+test('cropped review lets staff select missing teams and match players to the selected roster',async t=>{
+ const browser=await chromium.launch({headless:true});t.after(()=>browser.close());
+ const page=await browser.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
+ const stats=Object.fromEntries(['MIN','PTS','REB','AST','STL','BLK','TO','FG','3PT','FT','OR','FLS'].map(k=>[k,null]));
+ const screen={mediaId:'image',tableTeamName:null,confidence:'HIGH',scoreboard:[{teamName:null,finalScore:null,periods:[{label:'Q1',score:null}]}],players:[{displayedName:'N. Hyland',playerId:null,dnp:false,confidence:'HIGH',stats}],totals:stats};
+ const extraction={extractionId:'e',status:'REVIEW_REQUIRED',issues:[],normalized:{screenshots:[{displayedTeamName:null,teamId:null,scoreboard:[{displayedTeamName:null,teamId:null}],players:[{candidates:[]}]}]},rosterSnapshot:{wolves:[{playerId:'p',name:'Bones Hyland'}]}};
+ const payload={game:{weekNumber:1,team1Id:'wolves',team2Id:'rockets',team1Name:'Wolves',team2Name:'Rockets',status:'SCHEDULED'},editable:{screenshots:[screen]},extractions:[extraction],teamRecords:[]};
+ await page.route('http://review.test/**',route=>{const u=new URL(route.request().url());return route.fulfill(u.pathname==='/box-score-review.js'?{contentType:'text/javascript',body:fs.readFileSync('web/box-score-review.js','utf8')}:u.pathname.startsWith('/api/')?{json:payload}:{contentType:'text/html',body:fs.readFileSync('web/box-score-review.html','utf8')});});
+ await page.goto('http://review.test/games/g/submissions/s/review');await page.locator('#key').fill('test');await page.locator('#access button').click();
+ await page.getByLabel('screenshots.0.tableTeamName',{exact:true}).selectOption('Wolves');
+ await page.getByLabel('N. Hyland roster match').selectOption('p');
+ await page.getByLabel('screenshots.0.scoreboard.0.teamName',{exact:true}).selectOption('Rockets');
+ assert.equal(await page.getByLabel('N. Hyland roster match').inputValue(),'p');
+ assert.deepEqual(errors,[]);
+});

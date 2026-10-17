@@ -13,19 +13,20 @@ function createReviewService(submissions) {
     if (!input || input.screenshots?.length!==2) throw new Error('Two box scores are required.');
     input.screenshots.forEach((s,i)=>{
       const old=original.screenshots[i];
-      if(s.mediaId!==old.mediaId || s.tableTeamName!==old.tableTeamName || s.players?.length!==old.players.length || s.scoreboard?.length!==old.scoreboard.length) throw new Error('Source images, teams and player rows cannot be replaced.');
-      if(s.scoreboard.some((b,j)=>b.teamName!==old.scoreboard[j].teamName)) throw new Error('Scoreboard teams cannot be replaced.');
+      if(s.mediaId!==old.mediaId || (old.tableTeamName && s.tableTeamName!==old.tableTeamName) || s.players?.length!==old.players.length || s.scoreboard?.length!==old.scoreboard.length) throw new Error('Source images, teams and player rows cannot be replaced.');
+      if(s.scoreboard.some((b,j)=>old.scoreboard[j].teamName && b.teamName!==old.scoreboard[j].teamName)) throw new Error('Scoreboard teams cannot be replaced.');
       s.confidence=old.confidence; s.uncertainFields=[];
       s.players.forEach((p,j)=>{p.confidence=old.players[j].confidence;});
     });
     const rosters=source.rosterSnapshot;
     if(!rosters) throw new Error('Roster snapshot unavailable. Run extraction again.');
     const teams=submissions.repository.loadLeague(record.game.leagueId,record.game.seasonId).teams;
+    const resolved=normalizeExtraction(input,{game:record.game,media:record.media.filter(m=>m.submissionId===source.submissionId),teams,rosters});
     const all=new Set([...(source.reviewedPaths || []),...(reviewedPaths || [])]);
     const matches={};
     input.screenshots.forEach((s,i)=>{
       if(all.has(`screenshots.${i}`))s.confidence='HIGH';
-      const teamId=source.normalized.screenshots[i].teamId;
+      const teamId=source.normalized.screenshots[i].teamId || resolved.normalized.screenshots[i].teamId;
       s.players.forEach((p,j)=>{
         const key=`screenshots.${i}.players.${j}`;
         if(all.has(key))p.confidence='HIGH';

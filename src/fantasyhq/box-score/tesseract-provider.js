@@ -30,7 +30,7 @@ function detectLayout(located, meta) {
     const scaleX = (end.x - anchor.x) / (endReference[1] - anchorX);
     const scaleY = scaleX * meta.width / (meta.height * (16 / 9));
     const offsetX = anchor.x - anchorX * scaleX, offsetY = name.y - .206019 * scaleY;
-    if (scaleX < .2 || scaleX > 1.5 || scaleY < .15 || scaleY > 1.5) continue;
+    if (scaleX < .2 || scaleX > 6 || scaleY < .15 || scaleY > 6) continue;
     // Preserve the established screenshot crops when anchors already match the template.
     if (Math.abs(scaleX - 1) < .025 && Math.abs(scaleY - 1) < .025 && Math.abs(offsetX) < .012 && Math.abs(offsetY) < .012) return { scaleX: 1, scaleY: 1, offsetX: 0, offsetY: 0 };
     return { scaleX, scaleY, offsetX, offsetY };
@@ -49,12 +49,12 @@ async function readScreenshot(worker, suppliedImage) {
   let full = (await recognize(image.bytes,{}, {text:true,tsv:true})).data;
   let originalWords = words(full.tsv).map(w => ({...w,x:w.x/meta.width,y:w.y/meta.height}));
   // Deskew modest camera tilt using independently recognized table headings.
-  const minHeader = originalWords.find(w => /^MIN$/i.test(w.text));
-  const flsHeader = minHeader && originalWords.find(w => /^FLS$/i.test(w.text) && w.x > minHeader.x + .15 && Math.abs(w.y-minHeader.y)<.1);
+  const minHeader = originalWords.find(w => /^MIN$/i.test(w.text)) || originalWords.find(w => /^NAME$/i.test(w.text));
+  const flsHeader = minHeader && [...originalWords].sort((a,b)=>b.x-a.x).find(w => /^(FLS|OR|FT|3PT|FG)$/i.test(w.text) && w.x > minHeader.x + .15 && Math.abs(w.y-minHeader.y)<.1);
   if (flsHeader) {
     const slope=(flsHeader.y-minHeader.y)*meta.height/((flsHeader.x-minHeader.x)*meta.width);
     const angle=Math.atan(slope)*180/Math.PI;
-    const sameLine=originalWords.some(w=>/^NAME$/i.test(w.text) && w.x<minHeader.x && Math.abs(w.y-(minHeader.y+slope*(w.x-minHeader.x)*meta.width/meta.height))<.015);
+    const sameLine=originalWords.some(w=>/^NAME$/i.test(w.text) && w.x<=minHeader.x && Math.abs(w.y-(minHeader.y+slope*(w.x-minHeader.x)*meta.width/meta.height))<.015);
     if (sameLine && Math.abs(angle)>.4 && Math.abs(angle)<=8) {
       image.bytes=await sharp(image.bytes).rotate(-angle,{background:'#202329'}).png().toBuffer();
       meta=await sharp(image.bytes).metadata();
@@ -63,12 +63,12 @@ async function readScreenshot(worker, suppliedImage) {
     }
   }
   const layout = detectLayout(originalWords, meta);
-  if (!layout) throw Object.assign(new Error('Could not locate a complete Association box-score table in this image. Include the entire screen with readable player names and stats; photos and screenshots are supported.'),{ocrRaw:full});
+  if (!layout) throw Object.assign(new Error('Could not locate a complete Association box-score table in this image. Cropped photos are supported; include readable column headings, player names and the Total row.'),{ocrRaw:full});
   const {scaleX,scaleY,offsetX,offsetY} = layout;
   const located = originalWords.map(w => ({...w,x:(w.x-offsetX)/scaleX,y:(w.y-offsetY)/scaleY}));
   function cropAt(x,y,width,height) {
     const crop = {left:Math.round((offsetX+x*scaleX)*meta.width),top:Math.round((offsetY+(y-height/2)*scaleY)*meta.height),width:Math.round(width*scaleX*meta.width),height:Math.round(height*scaleY*meta.height)};
-    if (crop.left<0 || crop.top<0 || crop.width<1 || crop.height<1 || crop.left+crop.width>meta.width || crop.top+crop.height>meta.height) throw new Error('Part of the box score is outside the image. Include the entire screen in your photo.');
+    if (crop.left<0 || crop.top<0 || crop.width<1 || crop.height<1 || crop.left+crop.width>meta.width || crop.top+crop.height>meta.height) return null;
     return crop;
   }
   const nameHeader = located.find(w => /^NAME$/i.test(w.text) && w.x > .33 && w.x < .46 && w.y > .18 && w.y < .24);
@@ -76,19 +76,25 @@ async function readScreenshot(worker, suppliedImage) {
   let headerWords = located.filter(w=>w.y>.18&&w.y<.24&&w.x>.46);
   let scoreLabels=located.filter(w=>w.x<.33&&w.y>.49&&w.y<.54&&/^(1ST|2ND|3RD|4TH|TOTAL)$/i.test(w.text));
   // Whole-image OCR can lose yellow quarter labels amid logos. Read the labels separately.
-  if (scoreLabels.length < 3) {
-    const strip = await sharp(image.bytes).extract(cropAt(.04,.512,.25,.042)).resize({width:1200}).greyscale().normalise().png().toBuffer();
+  const scoreLabelCrop = cropAt(.04,.512,.25,.042);
+  if (scoreLabels.length < 3 && scoreLabelCrop) {
+    const strip = await sharp(image.bytes).extract(scoreLabelCrop).resize({width:1200}).greyscale().normalise().png().toBuffer();
     await worker.setParameters({tessedit_pageseg_mode:'7',tessedit_char_whitelist:''});
     const focused = (await recognize(strip,{}, {text:true,tsv:true})).data;
     scoreLabels = words(focused.tsv).filter(w=>/^(1ST|2ND|3RD|4TH|TOTAL)$/i.test(w.text));
   }
   const statHeaders=new Set(headerWords.map(w=>w.text.toUpperCase().replace(/[^A-Z0-9]/g,'')));
   const recognizedHeaders=COLUMNS.filter(([key])=>statHeaders.has(key)).length;
-  if (!nameHeader || !total || recognizedHeaders < 8 || scoreLabels.length < 3) throw Object.assign(new Error('Could not reliably locate the box-score table. The original images are saved; review them or retry extraction with a clear photo or screenshot.'),{ocrRaw:full});
+  if (!nameHeader || !total || recognizedHeaders < 8) throw Object.assign(new Error('Could not reliably locate the box-score table. The original images are saved; review them or retry extraction with a clear photo or screenshot.'),{ocrRaw:full});
   const raw = {mediaId:image.mediaId,layout,fullText:full.text,tsv:full.tsv,cells:[]};
   const uncertainFields=[];
   async function cell(x,y,width,height,path,numeric=false,alternative=null) {
     const crop=cropAt(x,y,width,height);
+    if (!crop) {
+      raw.cells.push({path,crop:null,text:null,confidence:0,readings:[]});
+      uncertainFields.push({path,reason:'This field is outside the crop. Enter it from supporting evidence before approval.',confidence:'LOW'});
+      return null;
+    }
     await worker.setParameters({tessedit_pageseg_mode:'7',tessedit_char_whitelist:numeric ? (path.endsWith('.MIN') ? '0123456789-:DNP' : '0123456789-:') : ''});
     const readings=alternative ? [{...alternative,height:null}] : [];
     for (const height of numeric ? [40,60,100,160] : [60,100]) {
@@ -123,12 +129,14 @@ async function readScreenshot(worker, suppliedImage) {
     return value || null;
   }
   const scoreboard=[];
+  const scoreboardVisible = scoreLabels.length >= 3 && Boolean(scoreLabelCrop);
   for (let side=0;side<2;side++) {
-    const teamName=await cell(.045, side===0 ? .122:.621,.28,.035,`scoreboard.${side}.teamName`);
+    const teamName=scoreboardVisible ? await cell(.045, side===0 ? .122:.621,.28,.035,`scoreboard.${side}.teamName`) : null;
     const scores=[];
-    for (let i=0;i<5;i++) scores.push(await cell(.043+i*.0493,side===0 ? .473:.549,.043,.035,`scoreboard.${side}.scores.${i}`,true));
+    for (let i=0;i<5;i++) scores.push(scoreboardVisible ? await cell(.043+i*.0493,side===0 ? .473:.549,.043,.035,`scoreboard.${side}.scores.${i}`,true) : null);
     scoreboard.push({teamName,finalScore:scores[4],periods:scores.slice(0,4).map((score,i)=>({label:`Q${i+1}`,score}))});
   }
+  if (!scoreboardVisible) uncertainFields.push({path:'scoreboard',reason:'The scoreboard is cropped out or unreadable. Supply team identities, period scores and final scores before approval.',confidence:'LOW'});
   const tableTeamName=await cell(.385,.124,.18,.028,'tableTeamName');
   const rowWords=located.filter(w => w.x>.333 && w.x<.46 && w.y>nameHeader.y+.022 && w.y<total.y-.02 && /[a-z]/i.test(w.text));
   const rows=[];

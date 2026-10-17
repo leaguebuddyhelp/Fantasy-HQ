@@ -343,3 +343,21 @@ test('explicit final corrections preserve official results until approval; rever
   assert.equal(require('../src/fantasyhq/official-game').officialRegularGames([reversed],scope).games.length,0);
   assert.equal(require('../src/fantasyhq/official-game').publishedRegularGames([reversed],scope).games.length,1);
 });
+
+test('cropped scoreboard requires explicit staff evidence and missing identities can be completed before approval',async t=>{
+ const provider=fakeProvider();
+ provider.parse=r=>{const d=JSON.parse(r.raw);for(const s of d.screenshots){s.tableTeamName=null;for(const b of s.scoreboard){b.teamName=null;b.finalScore=null;for(const p of b.periods)p.score=null;}s.uncertainFields=[{path:'scoreboard',reason:'Cropped scoreboard',confidence:'LOW'}];}return d;};
+ const f=await fixture(t,provider);
+ await f.submissions.mutate(f.game.gameId,r=>{r.submissions[0].mode='TEAM_SIDES';r.media.forEach((m,i)=>{m.teamId=i?'cle':'mil';m.uploadedBy=i?'opponent':'owner';});});
+ const source=await f.extractor.extract(f.game.gameId,f.submission.submissionId),review=createReviewService(f.submissions);
+ assert.equal(source.status,'REVIEW_REQUIRED');
+ const input=editable(source);
+ const incomplete=await review.correct(f.game.gameId,f.submission.submissionId,{extractionId:source.extractionId,operator:'Staff',input,reviewedPaths:['screenshots.0.scoreboard','screenshots.1.scoreboard']});
+ await assert.rejects(review.approve(f.game.gameId,f.submission.submissionId,{extractionId:incomplete.extractionId,operator:'Staff'}),/warnings/);
+ const gold=sample();
+ for(const [i,s] of input.screenshots.entries()){s.tableTeamName=gold.screenshots[i].tableTeamName;s.scoreboard=gold.screenshots[i].scoreboard;}
+ const completed=await review.correct(f.game.gameId,f.submission.submissionId,{extractionId:incomplete.extractionId,operator:'Staff',input,reviewedPaths:[]});
+ assert.deepEqual(completed.issues,[]);
+ await review.approve(f.game.gameId,f.submission.submissionId,{extractionId:completed.extractionId,operator:'Staff'});
+ assert.equal(f.submissions.load(f.game.gameId).game.status,'FINAL');
+});

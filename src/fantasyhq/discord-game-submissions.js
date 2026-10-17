@@ -16,7 +16,7 @@ function submissionPayload({ game, submission, media, teamId }) {
     return {
       embeds: [new EmbedBuilder().setColor(0xffdc21).setTitle(media.length === 2 ? "BOX SCORES RECEIVED" : "SUBMIT SCORE")
         .setDescription(media.length === 2 ? "**2 / 2 team box scores received.** Checking scores and stats…" :
-          `${own ? "Your box score is stored. Waiting for the other coach." : `Upload **${teamLabel(name)}’s** Association Box Score here. Include the full scoreboard and every player row.`}\n\n**${media.length} / 2 team box scores received.** ${submission.soloTestAuthorizedBy ? '🧪 Solo test: use Test as the other vacant team to submit its side next.' : 'Each coach submits their own team.'}`)],
+          `${own ? "Your box score is stored. Waiting for the other coach." : `Upload **${teamLabel(name)}’s** Association Box Score here. Cropped photos accepted. Keep column headings, every player row and the Total row readable; missing scoreboard details require Staff review.`}\n\n**${media.length} / 2 team box scores received.** ${submission.soloTestAuthorizedBy ? '🧪 Solo test: use Test as the other vacant team to submit its side next.' : 'Each coach submits their own team.'}`)],
       allowedMentions: { parse: [] }, components: []
     };
   }
@@ -29,7 +29,7 @@ function submissionPayload({ game, submission, media, teamId }) {
     embed.setTitle("GAME SUBMISSION").setDescription("**1 / 2 screenshots received.**\n\nUpload the other team's box score.");
   } else {
     embed.setTitle("SUBMIT GAME").setDescription(
-      `Upload both team box-score screenshots in this thread.\n\nRequired:\n• Box score for ${teamLabel(game.team1Name)}\n• Box score for ${teamLabel(game.team2Name)}\n\nMake sure the entire player table and scoreboard are visible.\n\n**0 / 2 screenshots received.**`);
+      `Upload both team box-score screenshots in this thread.\n\nRequired:\n• Box score for ${teamLabel(game.team1Name)}\n• Box score for ${teamLabel(game.team2Name)}\n\nCropped photos accepted. Keep column headings, every player row and the Total row readable. Include the scoreboard when possible; missing details require Staff review.\n\n**0 / 2 screenshots received.**`);
   }
   return {
     embeds: [embed], allowedMentions: { parse: [] }, components: count < 2 ? [
