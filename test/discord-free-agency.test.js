@@ -184,3 +184,30 @@ test('Free Agency tick refreshes a stale phase pin even without offers and leave
  f.repository.saveLeague('league',{currentPhase:'PLAYOFFS'});await f.workflow.tick();assert.equal(message.components[0].components[0].disabled,true);
  assert.equal(f.sends.filter(s=>s.channelId==='freeAgency').length,1);
 });
+
+test('private modal contract uploads accept signed Discord ephemeral URLs and still reject other hosts',async t=>{
+ const f=discordFixture(t);
+ fsRoleFile();
+ function fsRoleFile(){require('node:fs').writeFileSync(require('node:path').join(f.repository.buildLeaguePaths(f.root,'league').leagueRoot,'role-ownership.json'),JSON.stringify({roleIds:{a:'team-a'}}));}
+ const bytes=await require('sharp')({create:{width:20,height:20,channels:3,background:'#ffffff'}}).png().toBuffer();
+ const downloaded=[];
+ const workflow=createDiscordFreeAgency({repository:f.repository,service:f.service,client:f.client,
+  ocr:async()=> 'Offer Details\nSalary: $4.32M\nYears: 1\nType: Back (+5%)\nOption: None\nPromise 1: None',
+  fetcher:async(url,options)=>{downloaded.push(url);assert.equal(options.redirect,'error');return {ok:true,body:require('node:stream').Readable.from([bytes])};}});
+ function act(customId,extra={}){const i={customId,guildId:'guild',guild:f.guild,user:{id:'coach-a'},member:{roles:{cache:new Collection([['team-a',{name:'Atlanta Hawks'}]])}},deferReply:async()=>{},reply:async p=>i.payload=p,editReply:async p=>i.payload=p,update:async p=>i.payload=p,showModal:async m=>i.modal=m,...extra};return i;}
+ async function upload(url){
+  await workflow.handle(act('fa:sign'));const d=f.state().drafts.at(-1);
+  await workflow.handle(act(`fa:position:${d.id}`,{values:['PG']}));const pick=act(`fa:player:${d.id}`,{values:['fa-0']});await workflow.handle(pick);
+  const i=act(pick.modal.toJSON().custom_id,{fields:{getUploadedFiles:()=>new Collection([['image',{size:bytes.length,url,name:'cole-anthony.png',contentType:'image/png'}]])}});
+  await workflow.handle(i);return i.payload;
+ }
+ for(const host of ['cdn.discordapp.com','media.discordapp.net']){
+  const url=`https://${host}/ephemeral-attachments/123/456/cole-anthony.png?ex=abc&is=def&hm=signed`;
+  const payload=await upload(url);assert.match(payload.embeds[0].data.description,/4\.32M/);assert.equal(payload.components[0].toJSON().components[0].disabled,false);
+  assert.equal(downloaded.at(-1),url);assert.equal(f.state().drafts.at(-1).ocrError,null);
+ }
+ for(const url of ['https://evil.example/ephemeral-attachments/1/2/photo.png','http://cdn.discordapp.com/ephemeral-attachments/1/2/photo.png','https://cdn.discordapp.com/not-attachments/photo.png']){
+  const before=downloaded.length,payload=await upload(url);assert.equal(payload.content,'Invalid Discord attachment URL.');assert.equal(downloaded.length,before);
+ }
+ assert.equal(f.state().offers.length,0,'Uploading proof still requires explicit confirmation and Staff review.');
+});

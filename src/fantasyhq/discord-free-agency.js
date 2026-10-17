@@ -184,7 +184,7 @@ function createDiscordFreeAgency({ repository, service = createFreeAgencyService
         const upload = interaction.fields.getUploadedFiles('screenshot', true).first();
         if (!upload || upload.size > 20 * 1024 * 1024 || !['image/png','image/jpeg','image/webp','image/heic','image/heif'].includes(upload.contentType)) throw Error('Upload a PNG, JPEG, WebP or HEIC photo or screenshot under 20 MB.');
         const attachmentUrl = new URL(upload.url);
-        if (attachmentUrl.protocol !== 'https:' || !['cdn.discordapp.com','media.discordapp.net'].includes(attachmentUrl.hostname) || !attachmentUrl.pathname.startsWith('/attachments/')) throw Error('Invalid Discord attachment URL.');
+        if (attachmentUrl.protocol !== 'https:' || !['cdn.discordapp.com','media.discordapp.net'].includes(attachmentUrl.hostname) || !/^\/(?:ephemeral-)?attachments\//.test(attachmentUrl.pathname)) throw Error('Invalid Discord attachment URL.');
         const response = await fetcher(upload.url, { redirect: 'error', signal: AbortSignal.timeout(20000) }); if (!response.ok) throw Error('Screenshot download failed.');
         const chunks=[];let length=0;for await(const chunk of response.body){length+=chunk.length;if(length>20*1024*1024)throw Error('Screenshot exceeds 20 MB.');chunks.push(chunk);}
         const bytes = Buffer.concat(chunks); if (bytes.length > 20 * 1024 * 1024) throw Error('Screenshot exceeds 20 MB.');
