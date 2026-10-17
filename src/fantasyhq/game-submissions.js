@@ -162,7 +162,14 @@ function createGameSubmissionService(options = {}) {
       const record = load(gameId);
       check(record, actor);
       const teamId = perTeam ? ownerTeam(record, actor) : null;
-      if (actor.staff && !perTeam && record.submissions.some(s => s.status === "COLLECTING" && s.mode !== "STAFF_BOTH")) throw new Error("A coach upload is in progress. Finish or cancel it before Staff Submit.");
+      if (actor.staff && !perTeam) {
+        // Staff Submit overrides unfinished coach uploads; their screenshots are retired but kept as evidence.
+        for (const coach of record.submissions.filter(s => s.status === "COLLECTING" && s.mode !== "STAFF_BOTH")) {
+          retireMedia(record, m => m.submissionId === coach.submissionId);
+          coach.status = "CANCELLED"; coach.supersededByStaff = actor.userId;
+        }
+        save(record);
+      }
       if (perTeam && record.submissions.some(s => s.status === "COLLECTING" && s.mode === "STAFF_BOTH")) throw new Error("Staff are collecting both screenshots. Wait for that submission.");
       // A restart or deploy can leave a submission marked PROCESSING with no job behind it; that must not block new attempts.
       const { isExtractionRunning } = require('./box-score/service');
