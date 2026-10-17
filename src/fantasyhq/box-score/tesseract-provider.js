@@ -39,7 +39,18 @@ function detectLayout(located, meta) {
 }
 async function readScreenshot(worker, suppliedImage) {
   let recognitionCalls = 0;
-  const recognize = (...args) => { if (worker.aborted) return Promise.reject(new Error('OCR processing was stopped.')); recognitionCalls++; return worker.recognize(...args); };
+  const startedAt = Date.now(); let slowest = 0;
+  const recognize = async (...args) => {
+    if (worker.aborted) throw new Error('OCR processing was stopped.');
+    recognitionCalls++;
+    const began = Date.now();
+    try { return await worker.recognize(...args); }
+    finally {
+      const took = Date.now() - began;
+      // Full-page reads are the expensive ones; log them so slow hosts can be diagnosed from Railway logs.
+      if (took > 3000 || took > slowest) { slowest = Math.max(slowest, took); if (took > 3000) console.log(`OCR read #${recognitionCalls} took ${took}ms (${Math.round((Date.now() - startedAt) / 1000)}s into screenshot)`); }
+    }
+  };
   // Apply EXIF orientation and decode camera formats before inspecting coordinates.
   const sourceMeta = await sharp(suppliedImage.bytes,{limitInputPixels:60000000}).metadata();
   if (sourceMeta.format === 'heif') suppliedImage = {...suppliedImage,bytes:await require('../offseason-image').normalize(suppliedImage.bytes)};
@@ -174,6 +185,7 @@ async function readScreenshot(worker, suppliedImage) {
   const totals=await stats(total.y,'totals');
   // This template is deliberately four-period only: overtime layout changes must be reviewed.
   if (located.some(w => /^(OT|OT1|OT2)$/i.test(w.text))) uncertainFields.push({path:'scoreboard',reason:'Overtime layout needs review; this OCR template supports regulation screens.',confidence:'LOW'});
+  console.log(`OCR screenshot done: ${recognitionCalls} reads in ${Math.round((Date.now() - startedAt) / 1000)}s, slowest ${slowest}ms`);
   raw.recognitionCalls = recognitionCalls;
   return {raw,screen:{mediaId:image.mediaId,confidence:'HIGH',scoreboard,tableTeamName,players,totals,uncertainFields}};
 }
