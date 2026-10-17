@@ -877,6 +877,7 @@ client.once(Events.ClientReady, async (readyClient) => {
   const tradeBlockTick = () => discordTradeBlock.tick(client).catch(error => console.error("Trade block:", error.message));
   tradeBlockTick(); setInterval(tradeBlockTick, 60000).unref();
   const activityCheckTick = () => discordActivityCheck.tick(client).catch(error => console.error("Activity check:", error.message));
+  gameSubmissions.resumeInterrupted(client).then(n => n && console.log(`Resumed ${n} interrupted box-score submission(s).`)).catch(error => console.error('Resume box scores:', error.message));
   activityCheckTick(); setInterval(activityCheckTick, 60000).unref();
   const weeklyTick = () => discordWeeklyDashboard.tick(client).catch(error => console.error('Weekly dashboard:', error.message));
   weeklyTick(); setInterval(weeklyTick, 60000).unref();

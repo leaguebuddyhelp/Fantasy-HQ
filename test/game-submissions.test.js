@@ -381,3 +381,19 @@ test('a coach can replace a stored box score; retired media no longer counts', a
   const result = await service.receiveSide(game.gameId, actor, [attachment('three')], 'm3');
   assert.equal(result.media.length, 1);
 });
+
+test('resumeInterrupted reprocesses stored two-image submissions left PROCESSING by a restart', async t => {
+  const { createDiscordGameSubmissions } = require('../src/fantasyhq/discord-game-submissions');
+  const { service, actor, game, attachment } = fixture(t);
+  await service.beginSide(game.gameId, actor);
+  await service.receiveSide(game.gameId, actor, [attachment('one')], 'm');
+  const other = { ...actor, userId: 'opponent' };
+  const { submission } = await service.beginSide(game.gameId, other);
+  await service.receiveSide(game.gameId, other, [attachment('two')], 'm2');
+  await service.mutate(game.gameId, r => { r.submissions.find(s => s.submissionId === submission.submissionId).status = 'PROCESSING'; });
+  const calls = [], posts = [];
+  const discord = createDiscordGameSubmissions(service, { extractor: { extract: async (g, s) => { calls.push([g, s]); return { status: 'REVIEW_REQUIRED', issues: [] }; } } });
+  const channel = { send: async p => { posts.push(p); return { edit: async () => {} }; } };
+  const n = await discord.resumeInterrupted({ channels: { fetch: async () => channel } });
+  assert.equal(n, 1); assert.deepEqual(calls, [[game.gameId, submission.submissionId]]); assert.equal(posts.length, 1);
+});

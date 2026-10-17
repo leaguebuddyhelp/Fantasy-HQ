@@ -168,6 +168,23 @@ function createDiscordGameSubmissions(service = createGameSubmissionService(), o
       await message.reply({ content: error.message, allowedMentions: { parse: [], repliedUser: false } });
     }
   }
-  return { setup, button, message };
+  // A restart or deploy kills in-flight OCR. Resume those submissions from the stored originals.
+  async function resumeInterrupted(client) {
+    if (!extractor) return 0;
+    const open = service.records().filter(r => !r.game.locked && !r.game.finalizedAt && r.game.status !== "FINAL" && r.game.discordThreadId)
+      .flatMap(r => r.submissions.filter(sub => (sub.status === "PROCESSING" || sub.status === "RECEIVED")
+        && r.media.filter(m => m.submissionId === sub.submissionId).length === 2).map(sub => ({ game: r.game, sub })));
+    for (const { game, sub } of open) {
+      try {
+        const channel = await client.channels.fetch(game.discordThreadId);
+        const progress = await channel.send({ content: "The bot restarted while processing these box scores. Resuming from the stored screenshots…", allowedMentions: { parse: [] } });
+        const extraction = await extractor.extract(game.gameId, sub.submissionId);
+        await progress.edit({ content: null, ...extractionPayload(service.load(game.gameId).game, extraction) });
+        await refreshFinalMessage(channel, service.load(game.gameId).game);
+      } catch (error) { console.error("Resume box-score processing:", error.message); }
+    }
+    return open.length;
+  }
+  return { setup, button, message, resumeInterrupted };
 }
 module.exports = { createDiscordGameSubmissions, submissionPayload, gamePayload };
