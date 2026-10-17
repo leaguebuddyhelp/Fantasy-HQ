@@ -102,6 +102,7 @@ client.on(Events.MessageCreate, async message => {
   } catch (error) { console.error("League message:", error.message); }
 });
 
+const discordTransactionPhotos = require("./fantasyhq/discord-transaction-photos").createDiscordTransactionPhotos({ repository: tradeRepository, onRosterMovement: rosterMovementFollowUp });
 const discordActivityCheck = require("./fantasyhq/discord-activity-check").createDiscordActivityCheck({ repository: tradeRepository });
 const gameThreads = require("./fantasyhq/game-threads").createGameThreadService({
   onCreated: async ({ guild, leagueId }) => {
@@ -783,6 +784,7 @@ const handlers = {
   bigboard: interaction => scoutingCommands.handleBigBoardCommand(interaction, scoutingService),
   tradeblock: interaction => discordTradeBlock.handleTradeBlockCommand(interaction),
   activitycheck: interaction => discordActivityCheck.start(interaction),
+  transactions: interaction => discordTransactionPhotos.handle(interaction),
   week: interaction => require("./fantasyhq/discord-week").handleWeekCommand(interaction, weekAdvancement),
   availableteams: interaction => require("./fantasyhq/discord-available-teams").handleAvailableTeams(interaction, { repository: tradeRepository, ownership: roleOwnership, feeds: discordLeagueFeeds }),
   standings: interaction => require("./fantasyhq/discord-standings").handleStandings(interaction),
@@ -934,6 +936,7 @@ async function handleInteraction(interaction) {
   if ((interaction.isButton() || interaction.isStringSelectMenu() || interaction.isModalSubmit()) && interaction.customId.startsWith('mock:')) { await discordMocks.handle(interaction); return; }
   if (interaction.isButton() && interaction.customId === "tradeblock:tradefor") { await discordTradeBlock.handleTradeForButton(interaction); return; }
   if ((interaction.isButton() || interaction.isStringSelectMenu()) && interaction.customId.startsWith("trade:")) { await discordTrades.handleTradeInteraction(interaction); return; }
+  if (interaction.isButton() && interaction.customId.startsWith("txn:")) { await discordTransactionPhotos.button(interaction); return; }
   if (interaction.isButton() && /^(cleanupconfirm|cleanupcancel):/.test(interaction.customId)) { await require("./fantasyhq/discord-game-cleanup").handleCleanupButton(interaction, gameCleanup); return; }
   if (interaction.isButton() && interaction.customId.startsWith("gamerecreate:")) { await require("./fantasyhq/discord-game-threads").handleGameThreadsButton(interaction, gameThreads, gameCleanup); return; }
   if (interaction.isButton() && interaction.customId.startsWith("bigboard:")) { await scoutingCommands.handleBigBoardButton(interaction, scoutingService); return; }
