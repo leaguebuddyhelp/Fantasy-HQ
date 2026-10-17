@@ -178,14 +178,14 @@ async function readScreenshot(worker, suppliedImage) {
   return {raw,screen:{mediaId:image.mediaId,confidence:'HIGH',scoreboard,tableTeamName,players,totals,uncertainFields}};
 }
 // Both box scores and contracts share this bounded worker queue and offline language data.
-function withOcrWorker(work) {
+function withOcrWorker(work, { timeoutMs = 300000 } = {}) {
   if (queued >= 8) return Promise.reject(new Error('The screenshot processor is busy. Retry shortly.'));
   queued++;
   const job = queue.catch(() => {}).then(async () => {
     let worker, timer;
     try {
       worker = await createWorker('eng', 1, { langPath: english.langPath, gzip: true, cacheMethod: 'none' });
-      return await Promise.race([work(worker), new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('OCR processing timed out. Retry with a clear screenshot.')), 180000); })]);
+      return await Promise.race([work(worker), new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('OCR processing timed out. Retry with a clear screenshot.')), timeoutMs); })]);
     } finally { clearTimeout(timer); if (worker) await worker.terminate(); }
   });
   queue = job;
@@ -195,7 +195,17 @@ function createTesseractProvider() {
   return { name: 'tesseract', model: 'tesseract.js-eng-association-v2', extract(images) {
     const raw = [], screens = [], startedAt = Date.now();
     return withOcrWorker(async worker => {
-      for (const image of images) { const result = await readScreenshot(worker, image); raw.push(result.raw); screens.push(result.screen); }
+      // Each screenshot gets its own worker so the two reads run in parallel on separate cores.
+      const extra = [];
+      try {
+        const results = await Promise.all(images.map(async (image, index) => {
+          if (index === 0) return readScreenshot(worker, image);
+          const second = await createWorker('eng', 1, { langPath: english.langPath, gzip: true, cacheMethod: 'none' });
+          extra.push(second);
+          return readScreenshot(second, image);
+        }));
+        for (const result of results) { raw.push(result.raw); screens.push(result.screen); }
+      } finally { await Promise.all(extra.map(w => w.terminate().catch(() => {}))); }
       return { raw: JSON.stringify({ engine: 'tesseract', durationMs: Date.now() - startedAt, screenshots: raw, parsed: { screenshots: screens } }) };
     }).catch(error => { if (error.ocrRaw) raw.push(error.ocrRaw); return { raw: JSON.stringify({ engine: 'tesseract', screenshots: raw, error: error.message }), error: error.message }; });
   }, parse(result) { if (result.error) throw new Error(result.error); return JSON.parse(result.raw).parsed; } };
