@@ -916,9 +916,13 @@ client.once(Events.ClientReady, async (readyClient) => {
 
 const { runDiscordInteraction, logDiscordClientError } = require('./shared/discord-interaction-error');
 client.on(Events.Error, logDiscordClientError);
-client.on(Events.InteractionCreate, interaction => runDiscordInteraction(interaction, handleInteraction, {
+client.on(Events.InteractionCreate, interaction => {
+  const age = Date.now() - interaction.createdTimestamp;
+  if (age > 1500) console.warn(`Interaction ${interaction.customId || interaction.commandName} reached the handler ${age}ms after Discord created it`);
+  return runDiscordInteraction(interaction, handleInteraction, {
   refreshActor: (guild, member) => roleOwnership.refreshActor(guild, member),
-}));
+  });
+});
 async function handleInteraction(interaction) {
   if (interaction.isButton() && interaction.customId.startsWith('freeagents:page:')) {
     try { await require('./fantasyhq/discord-preseason').handleFreeAgentsButton(interaction); }
