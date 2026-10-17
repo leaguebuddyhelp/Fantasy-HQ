@@ -55,6 +55,8 @@ const tradeRepository = require("./fantasyhq/repository").createFantasyHQReposit
 const storageSafety = require('./fantasyhq/storage-safety');
 process.on('unhandledRejection', error => console.error('Unhandled rejection:', error?.message || error));
 process.on('uncaughtException', error => { console.error('Uncaught exception:', error?.stack || error); if (!/tesseract/.test(error?.stack || '')) process.exit(1); });
+// Discord drops clicks the bot acknowledges after 3 seconds, so report any stall of the main thread.
+{ let last = Date.now(); setInterval(() => { const now = Date.now(), lag = now - last - 500; last = now; if (lag > 1000) console.warn(`Event loop stalled ${lag}ms`); }, 500).unref(); }
 const writerLease = storageSafety.acquireWriterLease(tradeRepository.dataRoot, { waitMs: 180000 });
 const startupBackup = storageSafety.createStorageBackup(tradeRepository.dataRoot, { label: 'startup' });
 console.log(`League backup: ${startupBackup.id}`);

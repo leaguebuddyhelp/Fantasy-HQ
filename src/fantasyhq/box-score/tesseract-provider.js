@@ -3,6 +3,14 @@ const {normalizeText}=require('../service-helpers');
 const { createWorker } = require('tesseract.js');
 const english = require('@tesseract.js-data/eng');
 // Bound concurrency across every league so bursts don't start a worker per game.
+// Containers report the host's core count; the cgroup quota is the CPU the bot can really use.
+function cpuBudget() {
+  try {
+    const [quota, period] = require('fs').readFileSync('/sys/fs/cgroup/cpu.max', 'utf8').trim().split(/\s+/);
+    if (quota !== 'max') return Number(quota) / Number(period);
+  } catch { /* not in a cgroup v2 container */ }
+  return require('os').availableParallelism ? require('os').availableParallelism() : require('os').cpus().length;
+}
 let queue = Promise.resolve();
 let queued = 0;
 const COLUMNS = [
@@ -208,14 +216,14 @@ function createTesseractProvider() {
     const raw = [], screens = [], startedAt = Date.now();
     return withOcrWorker(async worker => {
       // Each screenshot gets its own worker so the two reads run in parallel on separate cores.
-      const extra = [];
+      const extra = [], parallel = cpuBudget() >= 2.5;
       try {
-        const results = await Promise.all(images.map(async (image, index) => {
+        const results = parallel ? await Promise.all(images.map(async (image, index) => {
           if (index === 0) return readScreenshot(worker, image);
           const second = await createWorker('eng', 1, { langPath: english.langPath, gzip: true, cacheMethod: 'none' });
           extra.push(second);
           return readScreenshot(second, image);
-        }));
+        })) : await images.reduce(async (done, image) => [...await done, await readScreenshot(worker, image)], Promise.resolve([]));
         for (const result of results) { raw.push(result.raw); screens.push(result.screen); }
       } finally { await Promise.all(extra.map(w => { w.aborted = true; return w.terminate().catch(() => {}); })); }
       return { raw: JSON.stringify({ engine: 'tesseract', durationMs: Date.now() - startedAt, screenshots: raw, parsed: { screenshots: screens } }) };
