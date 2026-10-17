@@ -918,6 +918,7 @@ const { runDiscordInteraction, logDiscordClientError } = require('./shared/disco
 client.on(Events.Error, logDiscordClientError);
 client.on(Events.InteractionCreate, interaction => {
   const age = Date.now() - interaction.createdTimestamp;
+  console.log(`Interaction ${interaction.customId || interaction.commandName} received ${age}ms after creation, loop ${process.uptime().toFixed(0)}s uptime, pid ${process.pid}`);
   if (age > 1500) console.warn(`Interaction ${interaction.customId || interaction.commandName} reached the handler ${age}ms after Discord created it`);
   return runDiscordInteraction(interaction, handleInteraction, {
   refreshActor: (guild, member) => roleOwnership.refreshActor(guild, member),
