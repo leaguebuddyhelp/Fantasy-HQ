@@ -278,6 +278,14 @@ function createDiscordTradeWorkflow(options = {}) {
         return { content: `Choose one ${typeName} from ${teamName(repository.loadLeague(trade.leagueId, trade.seasonId), teamId)}${pages > 1 ? ` · Page ${page + 1}/${pages}` : ""}.`, components: rows };
     }
 
+    // Discord caps custom IDs at 100 characters; pick IDs plus team slugs overflow it, so the asset travels as a short hash.
+    function assetKey(assetId) { return require("crypto").createHash("sha1").update(String(assetId)).digest("hex").slice(0, 12); }
+    function resolveAssetKey(trade, kind, key) {
+        const snapshot = tradeService.getLiveSnapshot(trade.leagueId, trade.seasonId);
+        const match = (kind === "PLAYER" ? snapshot.players.map(item => item.playerId) : snapshot.picks.map(item => item.pickId)).find(id => assetKey(id) === key);
+        if (!match) throw new Error("That asset is no longer available. Go back and choose again.");
+        return match;
+    }
     function destinationPayload(trade, kind, fromTeamId, assetId) {
         const context = repository.loadLeague(trade.leagueId, trade.seasonId);
         const pick = kind === "PICK" ? tradeService.getLiveSnapshot(trade.leagueId, trade.seasonId).picks.find(item => item.pickId === assetId) : null;
@@ -289,7 +297,7 @@ function createDiscordTradeWorkflow(options = {}) {
         })));
         return {
             content: kind === "PICK" && editable ? "Choose where the pick goes and set its protection. Protection attaches to the pick when traded." : `Choose who receives this ${kind === "PLAYER" ? "player" : "pick"}.`, components: [
-                new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId(`trade:destination:${trade.tradeId}:${kind}:${fromTeamId}:${encodeURIComponent(assetId)}`).setPlaceholder("Choose recipient").addOptions(choices.slice(0, 25))),
+                new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId(`trade:destination:${trade.tradeId}:${kind}:${fromTeamId}:${assetKey(assetId)}`).setPlaceholder("Choose recipient").addOptions(choices.slice(0, 25))),
                 backRow(trade.tradeId),
             ]
         };
@@ -757,7 +765,7 @@ function createDiscordTradeWorkflow(options = {}) {
             if (interaction.isStringSelectMenu() && action === "destination") {
                 const { trade } = currentTradeContext(interaction, parts[2]);
                 const [toTeamId, protection] = interaction.values[0].split("|");
-                const transfer = { assetType: parts[3], assetId: decodeURIComponent(parts[5]), fromTeamId: parts[4], toTeamId, ...(parts[3] === "PICK" ? { protection } : {}) };
+                const transfer = { assetType: parts[3], assetId: resolveAssetKey(trade, parts[3], parts[5]), fromTeamId: parts[4], toTeamId, ...(parts[3] === "PICK" ? { protection } : {}) };
                 await tradeService.updateDraft({ leagueId: trade.leagueId, tradeId: trade.tradeId, actorUserId: interaction.user.id, transfers: [...trade.transfers, transfer] });
                 await refreshBuilder(interaction, trade.tradeId); return true;
             }

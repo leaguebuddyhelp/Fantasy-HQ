@@ -7,6 +7,7 @@ const { createFantasyHQRepository } = require("../src/fantasyhq/repository");
 const { createTradeService } = require("../src/fantasyhq/trade-service");
 const { createDiscordTradeWorkflow } = require("../src/fantasyhq/discord-trades");
 
+const key = id => require('crypto').createHash('sha1').update(id).digest('hex').slice(0, 12);
 function fixture(t, testMode = false, logger = { error() { } }) {
     const base = fs.mkdtempSync(path.join(os.tmpdir(), "lb-discord-trades-")), root = testMode ? path.join(base,"simulations","fixture","workspace") : base;
     t.after(() => fs.rmSync(base, { recursive: true, force: true }));
@@ -78,14 +79,14 @@ test("pinned builder supports third teams, routed assets, value/roster feedback,
     await f.workflow.handleTradeInteraction(sourceAlpha);
     const choosePlayer = f.interaction(`trade:asset:PLAYER:${tradeId}:alpha`, { kind: "select", selected: [encodeURIComponent("alpha-player-0")] });
     await f.workflow.handleTradeInteraction(choosePlayer);
-    const routePlayer = f.interaction(`trade:destination:${tradeId}:PLAYER:alpha:${encodeURIComponent("alpha-player-0")}`, { kind: "select", selected: ["bravo|UNPROTECTED"] });
+    const routePlayer = f.interaction(`trade:destination:${tradeId}:PLAYER:alpha:${key("alpha-player-0")}`, { kind: "select", selected: ["bravo|UNPROTECTED"] });
     await f.workflow.handleTradeInteraction(routePlayer);
     assert.ok(routePlayer.payload.embeds[0].data.fields.some(field => field.value.includes("would have 14 players") || field.value.includes("would have 16 players")));
     const sourceBravo = f.interaction(`trade:source:PLAYER:${tradeId}:bravo`);
     await f.workflow.handleTradeInteraction(sourceBravo);
     const chooseBravo = f.interaction(`trade:asset:PLAYER:${tradeId}:bravo`, { kind: "select", selected: [encodeURIComponent("bravo-player-0")] });
     await f.workflow.handleTradeInteraction(chooseBravo);
-    const routeBravo = f.interaction(`trade:destination:${tradeId}:PLAYER:bravo:${encodeURIComponent("bravo-player-0")}`, { kind: "select", selected: ["alpha|UNPROTECTED"] });
+    const routeBravo = f.interaction(`trade:destination:${tradeId}:PLAYER:bravo:${key("bravo-player-0")}`, { kind: "select", selected: ["alpha|UNPROTECTED"] });
     await f.workflow.handleTradeInteraction(routeBravo);
     const submit = routeBravo.payload.components[1].components.find(component => component.data.label === "Submit Proposal");
     assert.equal(submit.data.disabled, false);
@@ -295,4 +296,26 @@ test('Trade for rejects own players, moved players, and unassigned coaches witho
  await assert.rejects(()=>f.workflow.startForPlayer(make(),{playerId:'charlie-player-0',teamId:'bravo'}),/no longer on/);
  await assert.rejects(()=>f.workflow.startForPlayer(make({roles:['coach']}),{playerId:'bravo-player-0',teamId:'bravo'}),/team role/);
  assert.equal(f.repository.loadTrades('league').length,0);
+});
+
+test('pick trades keep every component ID within Discord\'s 100-character limit', async t => {
+    const f = fixture(t);
+    const longId = 'pick_2027_2_los-angeles-clippers-with-a-very-long-slug';
+    const real = f.service.getLiveSnapshot.bind(f.service);
+    f.service.getLiveSnapshot = (...args) => {
+        const snap = real(...args);
+        return { ...snap, picks: [...snap.picks, { pickId: longId, draftYear: 2027, round: 2, originalTeamId: 'alpha', currentOwnerTeamId: 'alpha', protection: 'UNPROTECTED', ownershipHistory: [] }] };
+    };
+    const opened = f.interaction('trade:build');
+    await f.workflow.handleTradeInteraction(opened);
+    const selected = f.interaction('trade:select-other:alpha:0', { kind: 'select', selected: ['bravo'] });
+    await f.workflow.handleTradeInteraction(selected);
+    const tradeId = selected.payload.components[0].components[4].data.custom_id.split(':')[2];
+    const choose = f.interaction(`trade:asset:PICK:${tradeId}:alpha`, { kind: 'select', selected: [encodeURIComponent(longId)] });
+    await f.workflow.handleTradeInteraction(choose);
+    const ids = choose.payload.components.flatMap(row => row.components.map(c => c.data.custom_id));
+    assert.ok(ids.length && ids.every(id => id.length <= 100), ids.join('\n'));
+    const route = f.interaction(ids.find(id => id.startsWith('trade:destination')), { kind: 'select', selected: ['bravo|UNPROTECTED'] });
+    await f.workflow.handleTradeInteraction(route);
+    assert.ok(f.service.getTrade('league', tradeId).transfers.some(x => x.assetId === longId && x.toTeamId === 'bravo'));
 });
