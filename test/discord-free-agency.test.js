@@ -141,8 +141,9 @@ test('solo Test Mode clock and playoff controls require Staff and protect assign
  f.repository.saveSettings('league',{...f.repository.loadSettings('league'),testMode:false});await f.workflow.handle({...base,customId:`fa:testphase:${draft.id}:PLAYOFFS`});assert.match(last.content,/Test Mode/);assert.equal(f.repository.loadLeague('league').league.currentPhase,'REGULAR_SEASON');
 });
 
-test('MINIMUM confirmation requires an exact dollar correction before enabling submit', async t => {
+test('MINIMUM confirmation fills the published salary using the selected player service time', async t => {
  const f=discordFixture(t), fs=require('node:fs'), path=require('node:path');
+ f.repository.savePlayers('league',f.repository.loadPlayers('league').map(p=>p.playerId==='fa-0'?{...p,yearsInNBA:6}:p));
  fs.writeFileSync(path.join(f.repository.buildLeaguePaths(f.root,'league').leagueRoot,'role-ownership.json'),JSON.stringify({roleIds:{a:'team-a'}}));
  const bytes=await require('sharp')({create:{width:20,height:20,channels:3,background:'#ffffff'}}).png().toBuffer();
  const workflow=createDiscordFreeAgency({repository:f.repository,service:f.service,client:f.client,ocr:async()=> 'Salary: MINIMUM\nYears: 1\nType: Back (+5%)\nOption: None',fetcher:async()=>({ok:true,body:require('node:stream').Readable.from([bytes])})});
@@ -155,8 +156,9 @@ test('MINIMUM confirmation requires an exact dollar correction before enabling s
  const pick=act(`fa:player:${d.id}`,{values:['fa-0']});await workflow.handle(pick);
  const upload=act(pick.modal.toJSON().custom_id,{fields:{getUploadedFiles:()=>new Collection([['image',{size:bytes.length,url:'https://cdn.discordapp.com/attachments/thread/file/image.png',name:'image.png',contentType:'image/png'}]])}});
  await workflow.handle(upload);
- assert.match(upload.payload.embeds[0].data.description,/MINIMUM without a dollar amount/);
- assert.equal(upload.payload.components[0].toJSON().components[0].disabled,true);
+ assert.match(upload.payload.embeds[0].data.description,/3,066,143/);
+ assert.match(upload.payload.embeds[0].data.description,/6 NBA service years/);
+ assert.equal(upload.payload.components[0].toJSON().components[0].disabled,false);
  assert.equal(f.state().offers.length,0);
  const corrected=act(`fa:editdetails:${d.id}`,{fields:{getTextInputValue:k=>({salary:'$3M',years:'1',structure:'Back (+5%)',option:'None'})[k]}});
  await workflow.handle(corrected);
@@ -210,4 +212,25 @@ test('private modal contract uploads accept signed Discord ephemeral URLs and st
   const before=downloaded.length,payload=await upload(url);assert.equal(payload.content,'Invalid Discord attachment URL.');assert.equal(downloaded.length,before);
  }
  assert.equal(f.state().offers.length,0,'Uploading proof still requires explicit confirmation and Staff review.');
+});
+
+test('each new submitted offer pings Staff once while corrections, reviews and restarts stay silent',async t=>{
+ const f=discordFixture(t),logs=[];
+ const workflow=createDiscordFreeAgency({repository:f.repository,service:f.service,client:f.client,logger:{info:(...args)=>logs.push(args),error(){}}});
+ const a=f.submit();await workflow.tick();let proof=f.sends.filter(s=>s.channelId==='staff');
+ assert.equal(proof.length,1);assert.match(proof[0].payload.content,/<@&staff>/);assert.deepEqual(proof[0].payload.allowedMentions,{roles:['staff'],parse:[]});assert.ok(!proof[0].payload.content.includes('<@&coach>'));
+ await workflow.tick();assert.equal(f.sends.filter(s=>s.channelId==='staff').length,1);
+ f.submit('b');await workflow.tick();assert.equal(f.sends.filter(s=>s.channelId==='staff').length,2);
+ f.review(a.id);await workflow.tick();const edited=f.edits.filter(e=>e.channelId==='staff').at(-1);assert.equal(edited.payload.content,'');assert.deepEqual(edited.payload.allowedMentions,{parse:[]});
+ await createDiscordFreeAgency({repository:f.repository,service:f.service,client:f.client,logger:{info(){},error(){}}}).tick();assert.equal(f.sends.filter(s=>s.channelId==='staff').length,2);
+ assert.ok(logs.some(args=>JSON.parse(args[1]).stage==='staff-review.delivered'));
+});
+test('announcement delivery failure cannot prevent Staff receiving the submitted proof',async t=>{
+ const f=discordFixture(t),errors=[];f.submit();const announcements=f.channels.get('announcements'),send=announcements.send;
+ announcements.send=async()=>{throw Error('Announcements unavailable');};
+ const workflow=createDiscordFreeAgency({repository:f.repository,service:f.service,client:f.client,logger:{info(){},error:(...args)=>errors.push(args)}});
+ await workflow.syncGuild(f.guild);
+ assert.equal(f.sends.filter(s=>s.channelId==='staff').length,1);assert.ok(f.state().offers[0].proofMessageId);assert.equal(f.state().windows[0].announcementMessageId,null);
+ assert.ok(errors.some(args=>args[0]==='[Free Agency announcement failed]'));
+ announcements.send=send;await workflow.tick();assert.equal(f.sends.filter(s=>s.channelId==='staff').length,1);assert.equal(f.sends.filter(s=>s.channelId==='announcements').length,1);
 });

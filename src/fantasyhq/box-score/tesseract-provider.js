@@ -186,10 +186,32 @@ function recognizeContractText(bytes) {
       const result = (await worker.recognize(oriented, {}, {text:true,tsv:true})).data;
       const meta = await sharp(oriented).metadata();
       const found = words(result.tsv);
-      const salary = found.filter(w=>/^Salary$/i.test(w.text)&&w.x>meta.width*.5).find(w=>found.some(y=>/^Years$/i.test(y.text)&&y.y>w.y&&y.y-w.y<meta.height*.15));
-      const years = salary && found.find(w=>/^Years$/i.test(w.text)&&w.y>salary.y&&w.y-salary.y<meta.height*.15);
-      const option = years && found.find(w=>/^Option$/i.test(w.text)&&w.y>years.y&&w.y-years.y<meta.height*.25);
-      return {text:result.text,meta,salary,years,option};
+      // A phone photo or crop may put Offer Details anywhere in the image.
+      // Identify its label column instead of requiring the screen's right half.
+      const aligned = (a, b) => Math.abs(a.left - b.left) < Math.max(a.width * 1.4, meta.width * .05);
+      const sameLine = (a, b) => Math.abs(a.y - b.y) < Math.max(a.height, b.height) * .65;
+      const offerSalary = w => /^Salary:?$/i.test(w.text) && !found.some(other => sameLine(w, other)
+        && ((/^Cap:?$/i.test(other.text) && other.left > w.left && other.left - w.left < w.width * 2)
+          || (/^Pending$/i.test(other.text) && other.left < w.left && w.left - other.left < w.width * 3)));
+      const yearsFor = salary => found.filter(w => /^Years:?$/i.test(w.text) && aligned(salary, w)
+        && w.y > salary.y && w.y - salary.y < meta.height * .4).sort((a, b) => a.y - b.y)[0];
+      let salary = found.filter(offerSalary).find(w => yearsFor(w));
+      let years = salary && yearsFor(salary);
+      const below = (label, anchor) => anchor && found.filter(w => label.test(w.text) && aligned(anchor, w)
+        && w.y > anchor.y && w.y - anchor.y < meta.height * .4).sort((a, b) => a.y - b.y)[0];
+      let type = below(/^Type:?$/i, years), option = below(/^Option:?$/i, type || years);
+      // Yellow highlighting can obscure just the Salary label. Three consecutive
+      // aligned offer labels still locate its row; never infer a salary amount.
+      if (!salary) for (const candidate of found.filter(w => /^Years:?$/i.test(w.text))) {
+        const nextType = below(/^Type:?$/i, candidate), nextOption = below(/^Option:?$/i, nextType);
+        if (!nextType || !nextOption) continue;
+        const gap = nextType.y - candidate.y, optionGap = nextOption.y - nextType.y;
+        if (candidate.y - gap < 0 || optionGap < gap * .6 || optionGap > gap * 1.5) continue;
+        years = candidate; type = nextType; option = nextOption;
+        salary = { ...candidate, y: candidate.y - gap, top: candidate.top - gap };
+        break;
+      }
+      return {text:result.text,meta,salary,years,type,option};
     }
     let layout = await inspect();
     if (!layout.salary || !layout.years) return layout.text;
@@ -202,7 +224,8 @@ function recognizeContractText(bytes) {
     await worker.setParameters({tessedit_pageseg_mode:'7'});
     for (const [label,index] of [['Salary',0],['Years',1],['Contract Type',2],['Option',3]]) {
       const height=Math.round(screenHeight*(label==='Years'?.030:.039));
-      const crop={left:Math.round(layout.salary.left+screenWidth*.184),top:Math.round(layout.salary.y+spacing*index-height/2),width:Math.round(screenWidth*.148),height};
+      const anchor = ({Salary:layout.salary,Years:layout.years,'Contract Type':layout.type,Option:layout.option})[label];
+      const crop={left:Math.round((anchor?.left ?? layout.salary.left)+screenWidth*.184),top:Math.round((anchor?.y ?? layout.salary.y+spacing*index)-height/2),width:Math.round(screenWidth*.148),height};
       if(crop.left<0||crop.top<0||crop.left+crop.width>layout.meta.width||crop.top+crop.height>layout.meta.height)return layout.text;
       let cell=sharp(oriented).extract(crop).resize({width:750}).grayscale();
       if(label==='Years'){const stats=await sharp(await cell.png().toBuffer()).stats();if(stats.channels[0].mean<128)cell=cell.negate();cell=cell.normalize().threshold(150);}else cell=cell.normalize();

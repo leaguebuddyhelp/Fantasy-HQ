@@ -23,8 +23,9 @@ function permanentPayload(settings = {}, phase = 'REGULAR_SEASON') {
   const clock = duration === 3600000 ? '**1 hour**' : `**${duration / 1000} seconds (Test Mode)**`;
   return { embeds: [embed('LEAGUEbuddy FREE AGENCY', `Submit an official NBA 2K contract offer for an available free agent.\n\nNew offer windows remain open for ${clock}. Existing windows keep their saved deadlines. Contract details stay private until the player signs.\n\nRegular season: maximum **5 signings** and **2 active targets** per team.`)], components: [row(button('sign', 'SIGN FREE AGENT', ButtonStyle.Primary), button('active', 'MY ACTIVE OFFERS'))], allowedMentions: { parse: [] } };
 }
-function createDiscordFreeAgency({ repository, service = createFreeAgencyService({ repository }), client, ocr = recognizeContractText, fetcher = fetch } = {}) {
+function createDiscordFreeAgency({ repository, service = createFreeAgencyService({ repository }), client, ocr = recognizeContractText, fetcher = fetch, logger = console } = {}) {
   let sweeping = false;
+  const log = (stage, metadata) => logger.info('[Free Agency]', JSON.stringify({ stage, ...metadata }));
   const state = leagueId => repository.loadFreeAgencyState(leagueId);
   const playerName = (leagueId, id) => repository.loadPlayers(leagueId).find(p => p.playerId === id)?.name || id;
   const teamName = (context, id) => context.teams.find(t => t.teamId === id)?.teamName || id;
@@ -60,7 +61,7 @@ function createDiscordFreeAgency({ repository, service = createFreeAgencyService
     const activeLines = list.filter(p => p.status !== 'AVAILABLE').map(p => `**${p.name}** · ${p.status === 'OPEN' ? 'Offer window active' : 'Offer window closed'} · deadline ${time(p.deadlineAt)}`).join('\n');
     return { embeds: [embed(`${d.position} FREE AGENTS`, `${all.length} available players · highest OVR first · page ${page + 1}/${pages}\n${list.length ? 'Choose a player to upload your private contract screenshot.' : 'No free agents at this position.'}${activeLines ? `\n\n${activeLines}` : ''}`)], components: rows };
   }
-  function uploadModal(d) { return new ModalBuilder().setCustomId(`fa:upload:${d.id}`).setTitle('NBA 2K Contract Offer').addLabelComponents(new LabelBuilder().setLabel('Upload the NBA 2K offer screenshot').setDescription('Salary, Years, Contract Type and Option must be visible.').setFileUploadComponent(new FileUploadBuilder().setCustomId('screenshot').setMinValues(1).setMaxValues(1).setRequired(true))); }
+  function uploadModal(d) { return new ModalBuilder().setCustomId(`fa:upload:${d.id}`).setTitle('NBA 2K Contract Offer').addLabelComponents(new LabelBuilder().setLabel('Upload the NBA 2K offer screenshot').setDescription('Cropped photos accepted. Salary, Years, Type and Option must be readable.').setFileUploadComponent(new FileUploadBuilder().setCustomId('screenshot').setMinValues(1).setMaxValues(1).setRequired(true))); }
   function detailsModal(id, details, staff = false) {
     const modal = new ModalBuilder().setCustomId(`fa:${staff ? 'correctsave' : 'editdetails'}:${id}`).setTitle(staff ? 'Correct Contract Details' : 'Confirm OCR Details');
     for (const [key, label] of [['salary', 'Salary, e.g. $6.66M'], ['years', 'Years, e.g. 3+1'], ['structure', 'Flat / Front (-5%) / Back (+5%)'], ['option', 'None / Team / Player']]) {
@@ -72,7 +73,13 @@ function createDiscordFreeAgency({ repository, service = createFreeAgencyService
     }
     return modal;
   }
-  function confirmation(d) { let contract = null; try { contract = normalizeOffer(d.details, { year: require('./asset-valuation').leagueSeasonStartYear(repository.loadLeague(d.leagueId).seasonId) }).contract; } catch { /* Incomplete OCR details remain editable. */ } return { embeds: [embed(`FREE AGENT OFFER · ${playerName(d.leagueId, d.playerId)}`, `${contractText(d.details, contract)}\n\nYour screenshot is the official offer. Staff verifies it before it can win.${d.ocrError ? `\n\n${d.ocrError}\nUse FIX OCR DETAILS or upload a clearer screenshot.` : ''}`)], components: [row(button(`submit:${d.id}`, 'CONFIRM & SUBMIT', ButtonStyle.Success).setDisabled(Boolean(d.ocrError)), button(`edit:${d.id}`, 'FIX OCR DETAILS'), button(`cancel:${d.id}`, 'CANCEL'))] }; }
+  function confirmation(d) {
+    let normalized = null;
+    try { normalized = normalizeOffer(d.details, { year: require('./asset-valuation').leagueSeasonStartYear(repository.loadLeague(d.leagueId).seasonId), player: repository.loadPlayers(d.leagueId).find(p => p.playerId === d.playerId) }); } catch { /* Incomplete OCR details remain editable. */ }
+    const minimum = normalized?.contract.minimumSalary;
+    return { embeds: [embed(`FREE AGENT OFFER · ${playerName(d.leagueId, d.playerId)}`, `${contractText(normalized?.details || d.details, normalized?.contract)}${minimum ? `\n\nMINIMUM resolved to **${'$' + minimum.salary.toLocaleString('en-US')}** · ${minimum.season} · ${minimum.yearsOfService} NBA service years. [Published minimum salary scale](${minimum.sourceUrl}).` : ''}\n\nNot submitted yet. Check these details, then click CONFIRM & SUBMIT to send the offer to Staff. Staff verifies the screenshot before it can win.${d.ocrError ? `\n\n${d.ocrError}\nUse FIX OCR DETAILS or upload a clearer screenshot.` : ''}`)], components: [row(button(`submit:${d.id}`, 'CONFIRM & SUBMIT', ButtonStyle.Success).setDisabled(Boolean(d.ocrError)), button(`edit:${d.id}`, 'FIX OCR DETAILS'), button(`cancel:${d.id}`, 'CANCEL'))] };
+  }
+
   function releaseMenu(d, mode, windowId = null, page = 0) {
     const list = service.eligibleReleases(d.leagueId, d.teamId, windowId), pages = Math.max(1, Math.ceil(list.length / 25)); page = Math.max(0, Math.min(page, pages - 1));
     const visible = list.slice(page * 25, page * 25 + 25), rows = [];
@@ -122,6 +129,7 @@ function createDiscordFreeAgency({ repository, service = createFreeAgencyService
     await channelFor(interaction.guild, d.leagueId, 'proof');
     await channelFor(interaction.guild, d.leagueId, 'announcements');
     const submitted = service.offer(d.leagueId, { teamId: d.teamId, actorUserId: interaction.user.id, playerId: d.playerId, details: d.details, ocrOriginal: d.ocrOriginal, screenshot: d.screenshot, conditionalReleasePlayerId: releaseId || d.conditionalReleasePlayerId || null, staffAuthorized: isStaff(interaction), requestId: d.id });
+    log('offer.submitted', { leagueId: d.leagueId, playerId: d.playerId, offerId: submitted.id, windowId: submitted.windowId });
     await interaction.editReply({ embeds: [embed('OFFER SUBMITTED', `${playerName(d.leagueId, d.playerId)} · awaiting Staff review.\nDeadline: ${time(state(d.leagueId).windows.find(w => w.id === submitted.windowId).deadlineAt)}\n\nYour roster stays unchanged until a signing completes.`)], components: [] });
     await tick();
   }
@@ -192,21 +200,23 @@ function createDiscordFreeAgency({ repository, service = createFreeAgencyService
         await require('./offseason-image').metadata(bytes);
         const file = path.join(repository.buildLeaguePaths(repository.dataRoot, leagueId).leagueRoot, 'free-agency-proof', `${d.id}${path.extname(upload.name).toLowerCase() || '.png'}`);
         fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, bytes, { flag: 'wx' });
+        log('upload.received', { leagueId, playerId: d.playerId, draftId: d.id });
         let text = '', error = null; try { text = await ocr(bytes); } catch (e) { error = e.message; }
         const details = parseContractText(text);
-        try { normalizeOffer(details, { year: require('./asset-valuation').leagueSeasonStartYear(context.seasonId) }); } catch (e) { error ||= e.message; }
+        try { normalizeOffer(details, { year: require('./asset-valuation').leagueSeasonStartYear(context.seasonId), player: repository.loadPlayers(leagueId).find(p => p.playerId === d.playerId) }); } catch (e) { error ||= e.message; }
         changeDraft(d, { screenshot: { path: file, name: path.basename(file), url: upload.url }, details, ocrOriginal: details, ocrError: error });
+        log(error ? 'upload.needs-correction' : 'upload.ready-to-confirm', { leagueId, playerId: d.playerId, draftId: d.id, ...(error ? { error } : {}) });
         await interaction.editReply(confirmation(d)); return;
       }
       if (action === 'editdetails') {
         const details = Object.fromEntries(['salary','years','structure','option'].map(k => [k, interaction.fields.getTextInputValue(k)]));
-        normalizeOffer(details, { year: require('./asset-valuation').leagueSeasonStartYear(context.seasonId) }); changeDraft(d, { details, ocrError: null });
+        normalizeOffer(details, { year: require('./asset-valuation').leagueSeasonStartYear(context.seasonId), player: repository.loadPlayers(leagueId).find(p => p.playerId === d.playerId) }); changeDraft(d, { details, ocrError: null });
         await interaction.reply({ ...confirmation(d), flags: EPHEMERAL }); return;
       }
       if (action === 'submit' || action === 'release' || action === 'winnercut' || action === 'waiversubmit') {
         await interaction.deferUpdate();
         if (action === 'submit') {
-          normalizeOffer(d.details, { year: require('./asset-valuation').leagueSeasonStartYear(context.seasonId) });
+          normalizeOffer(d.details, { year: require('./asset-valuation').leagueSeasonStartYear(context.seasonId), player: repository.loadPlayers(leagueId).find(p => p.playerId === d.playerId) });
           const count = activeMemberships(repository.loadRosterMemberships(leagueId), context.seasonId).filter(m => m.teamId === d.teamId).length;
           if (count >= ROSTER_SIZE && !d.conditionalReleasePlayerId) { changeDraft(d, { releaseMode: 'release' }); await interaction.editReply(releaseMenu(d, 'release')); return; }
           await submitDraft(interaction, context, d); return;
@@ -226,6 +236,7 @@ function createDiscordFreeAgency({ repository, service = createFreeAgencyService
       if (action === 'cancel') { changeDraft(d, { cancelled: true }); await interaction.update({ content: 'Cancelled.', embeds: [], components: [] }); return; }
       throw Error('Unknown Free Agency action.');
     } catch (error) {
+      logger.error('[Free Agency action failed]', JSON.stringify({ action: interaction.customId?.split(':')[1], guildId: interaction.guildId, error: error.message }));
       const payload = { content: error.message, flags: EPHEMERAL };
       if (interaction.deferred && !interaction.replied) await interaction.editReply({ content: error.message }); else if (interaction.replied) await interaction.followUp(payload); else await interaction.reply(payload);
     }
@@ -289,6 +300,7 @@ function createDiscordFreeAgency({ repository, service = createFreeAgencyService
   function proofPayload(context, o, w) {
     const body = `Player: **${playerName(o.leagueId, o.playerId)}**\nTeam: **${teamName(context, o.teamId)}**\nCoach: <@${o.coachUserId}>\nVersion: **${o.version}** · ${o.status.replaceAll('_',' ')}\nSubmitted: ${time(o.submittedAt)}\nImmutable deadline: ${time(w.deadlineAt)}\n\n${contractText(o.details, o.contract)}\nConditional release: ${o.conditionalReleasePlayerId ? playerName(o.leagueId, o.conditionalReleasePlayerId) : 'None'}`;
     const card = embed('FREE AGENT OFFER — STAFF REVIEW', body).setFooter({ text: `FA Proof ${o.id}` });
+    if (o.contract?.minimumSalary) { const minimum = o.contract.minimumSalary; card.addFields({ name: 'NBA minimum salary', value: `${minimum.season} · ${minimum.yearsOfService} NBA service years · ${'$' + minimum.salary.toLocaleString('en-US')}\n[Published scale](${minimum.sourceUrl}) · Original screenshot: MINIMUM` }); }
     if (o.corrections.length) card.addFields({ name: 'OCR original', value: contractText(o.ocrOriginal) }, { name: 'Latest Staff correction', value: `<@${o.corrections.at(-1).actorUserId}> · ${time(o.corrections.at(-1).timestamp)}\n${contractText(o.corrections.at(-1).after)}` });
     const file = new AttachmentBuilder(o.screenshot.path, { name: `contract${path.extname(o.screenshot.path)}` });
     card.setImage(`attachment://${file.name}`);
@@ -342,20 +354,27 @@ function createDiscordFreeAgency({ repository, service = createFreeAgencyService
     try { await ensurePin(guild, leagueId); } catch (error) { console.error('Free Agency pin recovery:', error.message); }
     if (!s.windows.length && !s.waivers.length) return;
     // Missing proof access blocks publication; never leak contracts to another channel.
-    const proof = await channelFor(guild, leagueId, 'proof'), announcements = await channelFor(guild, leagueId, 'announcements');
+    const proof = await channelFor(guild, leagueId, 'proof');
+    let announcements;
     for (const w of s.windows) {
-      const payload = publicPayload(context, w, s.offers, players), revision = hash(payload);
-      if (w.publicRevision !== revision) {
-        const roleId = !w.announcementMessageId ? ping(guild, leagueId) : null;
-        const message = await publish(announcements, { messageId: w.announcementMessageId }, { ...payload, ...(roleId ? { content: `<@&${roleId}>`, allowedMentions: { roles: [roleId], parse: [] } } : {}) }, `FA Window ${w.id}`, w.startedAt);
-        service.update(leagueId, current => Object.assign(current.windows.find(a => a.id === w.id), { announcementMessageId: message.id, announcementChannelId: announcements.id, publicRevision: revision }));
-      }
       for (const o of s.offers.filter(o => o.windowId === w.id)) {
         const payload = proofPayload(context, o, w), revision = hash({ details: o.details, status: o.status, corrections: o.corrections, conditionalReleasePlayerId: o.conditionalReleasePlayerId });
         if (o.proofRevision === revision) continue;
-        const message = await publish(proof, { messageId: o.proofMessageId }, payload, `FA Proof ${o.id}`, o.submittedAt);
+        const roleIds = o.status === 'PENDING_REVIEW' && !o.proofMessageId ? [...guild.roles.cache.values()].filter(r => STAFF_ROLES.has(r.name)).map(r => r.id) : [];
+        const notice = roleIds.length ? { content: roleIds.map(id => `<@&${id}>`).join(' ') + ' · New Free Agent offer awaiting review.', allowedMentions: { roles: roleIds, parse: [] } } : {};
+        const message = await publish(proof, { messageId: o.proofMessageId }, { ...payload, ...notice }, `FA Proof ${o.id}`, o.submittedAt);
+        log('staff-review.delivered', { leagueId, playerId: o.playerId, offerId: o.id, channelId: proof.id, messageId: message.id, status: o.status });
         service.update(leagueId, current => Object.assign(current.offers.find(a => a.id === o.id), { proofMessageId: message.id, proofChannelId: proof.id, proofRevision: revision }));
       }
+      try {
+        announcements ||= await channelFor(guild, leagueId, 'announcements');
+        const payload = publicPayload(context, w, s.offers, players), revision = hash(payload);
+        if (w.publicRevision !== revision) {
+          const roleId = !w.announcementMessageId ? ping(guild, leagueId) : null;
+          const message = await publish(announcements, { messageId: w.announcementMessageId }, { ...payload, ...(roleId ? { content: `<@&${roleId}>`, allowedMentions: { roles: [roleId], parse: [] } } : {}) }, `FA Window ${w.id}`, w.startedAt);
+          service.update(leagueId, current => Object.assign(current.windows.find(a => a.id === w.id), { announcementMessageId: message.id, announcementChannelId: announcements.id, publicRevision: revision }));
+        }
+      } catch (error) { logger.error('[Free Agency announcement failed]', JSON.stringify({ leagueId, windowId: w.id, error: error.message })); }
       await notify(w, s.offers, delivered);
     }
     for (const w of s.waivers) {
@@ -364,6 +383,7 @@ function createDiscordFreeAgency({ repository, service = createFreeAgencyService
         service.update(leagueId, current => Object.assign(current.waivers.find(a => a.id === w.id), { proofMessageId: message.id, proofChannelId: proof.id, proofRevision: w.status }));
       }
       if (w.status === 'APPROVED' && !w.announcementMessageId) {
+        announcements ||= await channelFor(guild, leagueId, 'announcements');
         const roleId = ping(guild, leagueId), payload = { embeds: [embed('PLAYER WAIVED', `**${teamName(context,w.teamId)}** have waived **${playerName(leagueId,w.playerId)}**.\n\nThis player is immediately available in Free Agency.`).setFooter({ text: `Waiver ${w.id}` })], content: roleId ? `<@&${roleId}>` : '', allowedMentions: { roles: roleId ? [roleId] : [], parse: [] } };
         const message = await publish(announcements, {}, payload, `Waiver ${w.id}`, w.submittedAt);
         service.update(leagueId, current => Object.assign(current.waivers.find(a => a.id === w.id), { announcementMessageId: message.id }));

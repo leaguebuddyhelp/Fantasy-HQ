@@ -10,8 +10,9 @@ function salaryAmount(value) {
   if (!Number.isSafeInteger(amount) || amount <= 0) throw Error('Salary must be a positive, readable amount.');
   return amount;
 }
-function normalizeOffer(details, { year, screenshotUrl = null, timestamp = new Date().toISOString() } = {}) {
-  const salary = salaryAmount(details.salary);
+function normalizeOffer(details, { year, screenshotUrl = null, timestamp = new Date().toISOString(), player = null } = {}) {
+  const minimumSalary = /^MINIMUM$/i.test(String(details.salary).trim()) && player ? require('./nba-minimum-salary').nbaMinimumSalary(year, player) : null;
+  const salary = minimumSalary?.salary ?? salaryAmount(details.salary);
   const yearsText = String(details.years).replace(/\s/g, '');
   const yearsMatch = yearsText.match(/^(\d+)(?:\+(1))?$/);
   if (!yearsMatch || !Number.isSafeInteger(Number(yearsMatch[1])) || Number(yearsMatch[1]) < 1) throw Error('Years must be a positive count or a term such as 3+1.');
@@ -33,7 +34,7 @@ function normalizeOffer(details, { year, screenshotUrl = null, timestamp = new D
   if (seasons.some(row => !Number.isSafeInteger(row.salary) || row.salary <= 0)) throw Error('The extracted salary schedule is invalid. Ask Staff to correct it.');
   const guaranteedTotal = seasons.filter(row => row.option !== 'TEAM').reduce((sum, row) => sum + row.salary, 0);
   if (!Number.isSafeInteger(guaranteedTotal)) throw Error('Contract total cannot be represented safely.');
-  return { details: { salary, years: yearsText, structure, option }, contract: { source: 'nba2k', sourceUrl: screenshotUrl, playerUrl: null, fetchedAt: timestamp, currency: 'USD', seasons, guaranteedTotal } };
+  return { details: { salary, years: yearsText, structure, option }, contract: { source: 'nba2k', sourceUrl: screenshotUrl, playerUrl: null, fetchedAt: timestamp, currency: 'USD', seasons, guaranteedTotal, ...(minimumSalary ? { minimumSalary } : {}) } };
 }
 function offerScore(contract, structure = 'FLAT') {
   const controlled = contract.seasons.filter(row => row.option !== 'TEAM');

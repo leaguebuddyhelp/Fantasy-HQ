@@ -38,3 +38,18 @@ test('contract OCR reads bordered, tilted and EXIF-oriented phone JPEGs without 
  const phone=await sharp({create:{width:1900,height:1300,channels:3,background:'#363636'}}).composite([{input:screen,left:150,top:180}]).jpeg({quality:93}).toBuffer();
  for(const image of [phone,await sharp(phone).rotate(4,{background:'#363636'}).jpeg().toBuffer(),await sharp(phone).rotate(-90).withMetadata({orientation:6}).jpeg().toBuffer()]){const original=Buffer.from(image);assert.deepEqual(parseContractText(await recognizeContractText(image)),{salary:'$3.90M',years:'1+1',structure:'Flat',option:'Team'});assert.deepEqual(image,original);}
 });
+
+test('cropped contract photos work without the player panel, screen header or full-screen aspect ratio',{timeout:180000},async()=>{
+ const sharp=require('sharp');
+ for(const [file,expected] of [
+  ['contract-payne-team-option.jpg',{salary:'$3.90M',years:'1+1',structure:'Flat',option:'Team'}],
+  ['contract-yabusele-minimum.jpg',{salary:'MINIMUM',years:'1',structure:'Back (+5%)',option:'None'}],
+ ]){
+  const source=fs.readFileSync(path.join(__dirname,'fixtures',file));
+  const panel=await sharp(source).extract({left:2200,top:850,width:1500,height:870}).resize({width:1000}).jpeg({quality:90}).toBuffer();
+  const partialScreen=await sharp(source).extract({left:1400,top:0,width:2440,height:2160}).resize({width:1500}).jpeg().toBuffer();
+  for(const image of [panel,partialScreen,await sharp(panel).rotate(5,{background:'#292929'}).jpeg().toBuffer()]){
+   const original=Buffer.from(image);assert.deepEqual(parseContractText(await recognizeContractText(image)),expected,file);assert.deepEqual(image,original);
+  }
+ }
+});

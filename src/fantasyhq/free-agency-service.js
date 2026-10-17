@@ -70,7 +70,7 @@ function createFreeAgencyService({ repository = createFantasyHQRepository(), now
     const status = teamStatus(s, teamId);
     if (status.completedSignings >= 5 || (!existing.length && status.activeTargets >= status.allowedActiveTargets)) throw Error(`FA target limit reached (${status.activeTargets}/${status.allowedActiveTargets}); signings ${status.completedSignings}/5.`);
     if (!screenshot?.path || !screenshot?.url) throw Error('An official NBA 2K offer screenshot is required.');
-    const normalized = normalizeOffer(details, { year: leagueSeasonStartYear(s.context.seasonId), screenshotUrl: screenshot.url, timestamp: stamp() });
+    const normalized = normalizeOffer(details, { year: leagueSeasonStartYear(s.context.seasonId), screenshotUrl: screenshot.url, timestamp: stamp(), player: s.players.find(p => p.playerId === playerId) });
     const previous = existing.find(o => o.status === 'APPROVED');
     if (previous && offerScore(normalized.contract, normalized.details.structure) <= offerScore(previous.contract, previous.details.structure)) throw Error('An improvement must be strictly better than your approved offer.');
     if (roster(s, teamId).length >= ROSTER_SIZE && !conditionalReleasePlayerId) throw Error('Your roster is full. Select a conditional release.');
@@ -97,7 +97,7 @@ function createFreeAgencyService({ repository = createFantasyHQRepository(), now
     const w = s.state.windows.find(w => w.id === o.windowId);
     if (!ACTIVE_WINDOWS.has(w.status)) throw Error('This process is no longer active.');
     if (correction) {
-      const normalized = normalizeOffer(correction, { year: leagueSeasonStartYear(o.seasonId), screenshotUrl: o.screenshot.url, timestamp: stamp() });
+      const normalized = normalizeOffer(correction, { year: leagueSeasonStartYear(o.seasonId), screenshotUrl: o.screenshot.url, timestamp: stamp(), player: s.players.find(p => p.playerId === o.playerId) });
       o.corrections.push({ before: o.details, after: normalized.details, actorUserId, timestamp: stamp() });
       Object.assign(o, normalized);
     }
