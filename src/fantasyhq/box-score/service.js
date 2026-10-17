@@ -70,4 +70,4 @@ function createBoxScoreExtractionService(options = {}) {
   }
   return { extract };
 }
-module.exports = { createBoxScoreExtractionService };
+module.exports = { createBoxScoreExtractionService, isExtractionRunning: (root,gameId)=>[...pending.keys()].some(key=>key.startsWith(`${root}:${gameId}:`)) };

@@ -373,6 +373,20 @@ function unsafeRequestHandler(request, response) {
     })(); return;
   }
 
+  if (url.pathname === '/api/league/admin/week-box-score-reset') {
+    if(!isAdminRequest(request)){sendJson(response,403,{error:'Commissioner authorization required.'});return;}
+    if(request.method!=='POST'){sendJson(response,405,{error:'Use POST.'});return;}
+    (async()=>{try{
+      const input=await parseJsonBody(request,4096),submissions=gameRuntime.submissions,repository=submissions.repository;
+      const context=repository.loadLeagueContext({guildId:process.env.GUILD_ID});
+      const actor={authorized:true,...require('./shared/website-auth').websiteActor(request,context,{commissioner:true})};
+      const service=require('./fantasyhq/week-box-score-reset').createWeekBoxScoreReset({submissions});
+      if(input.action==='prepare')sendJson(response,200,service.prepare(process.env.GUILD_ID,actor,Number(input.week)));
+      else if(input.action==='clear')sendJson(response,200,await service.clear(process.env.GUILD_ID,actor,input.token));
+      else throw Error('Unknown reset action.');
+    }catch(error){sendJson(response,400,{error:error.message});}})();return;
+  }
+
   if (url.pathname === '/api/league/admin/backups') {
     if (!isAdminRequest(request)) { sendJson(response, 403, { error: 'Commissioner website key required.' }); return; }
     if (request.method !== 'POST') { sendJson(response, 405, { error: 'Use POST to create a backup.' }); return; }
