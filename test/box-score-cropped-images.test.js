@@ -24,3 +24,17 @@ test('cropped box-score tables retain players and totals without inventing the r
  }
  assert.deepEqual(crop,original);
 });
+
+test('actual angled Pistons photo rectifies the table plane and retains missing scoreboard evidence for review',{timeout:180000},async()=>{
+ const bytes=fs.readFileSync(path.join(__dirname,'fixtures','association-pistons-perspective.jpg')),before=Buffer.from(bytes),provider=createTesseractProvider();
+ const result=await provider.extract([{mediaId:'perspective',bytes}]);
+ assert.equal(result.error,undefined);
+ const screen=provider.parse(result).screenshots[0];
+ assert.equal(screen.tableTeamName,'Pistons');assert.equal(screen.players.length,14);
+ assert.deepEqual(screen.players.map(p=>p.dnp?null:Number(p.stats.PTS)),[29,21,14,14,5,4,3,2,0,0,0,null,null,null]);
+ assert.deepEqual(screen.totals,{MIN:'140',PTS:'92',REB:'43',AST:'27',STL:'4',BLK:'1',TO:'8',FG:'42-66','3PT':'8-16',FT:'0-3',OR:'8',FLS:'3'});
+ assert.ok(screen.uncertainFields.some(f=>f.path==='scoreboard'));
+ assert.ok(screen.uncertainFields.some(f=>f.path==='perspective'));
+ assert.ok(JSON.parse(result.raw).screenshots[0].perspectiveCorrected);
+ assert.deepEqual(bytes,before);
+});

@@ -62,6 +62,12 @@ async function readScreenshot(worker, suppliedImage) {
       originalWords=words(full.tsv).map(w=>({...w,x:w.x/meta.width,y:w.y/meta.height}));
     }
   }
+  const rectified=await require('./perspective').rectifyTablePerspective(image.bytes,words(full.tsv));
+  if(rectified){
+    image.bytes=rectified;meta=await sharp(rectified).metadata();
+    full=(await recognize(rectified,{}, {text:true,tsv:true})).data;
+    originalWords=words(full.tsv).map(w=>({...w,x:w.x/meta.width,y:w.y/meta.height}));
+  }
   const layout = detectLayout(originalWords, meta);
   if (!layout) throw Object.assign(new Error('Could not locate a complete Association box-score table in this image. Cropped photos are supported; include readable column headings, player names and the Total row.'),{ocrRaw:full});
   const {scaleX,scaleY,offsetX,offsetY} = layout;
@@ -86,7 +92,7 @@ async function readScreenshot(worker, suppliedImage) {
   const statHeaders=new Set(headerWords.map(w=>w.text.toUpperCase().replace(/[^A-Z0-9]/g,'')));
   const recognizedHeaders=COLUMNS.filter(([key])=>statHeaders.has(key)).length;
   if (!nameHeader || !total || recognizedHeaders < 8) throw Object.assign(new Error('Could not reliably locate the box-score table. The original images are saved; review them or retry extraction with a clear photo or screenshot.'),{ocrRaw:full});
-  const raw = {mediaId:image.mediaId,layout,fullText:full.text,tsv:full.tsv,cells:[]};
+  const raw = {mediaId:image.mediaId,layout,perspectiveCorrected:Boolean(rectified),fullText:full.text,tsv:full.tsv,cells:[]};
   const uncertainFields=[];
   async function cell(x,y,width,height,path,numeric=false,alternative=null) {
     const crop=cropAt(x,y,width,height);
@@ -124,7 +130,7 @@ async function readScreenshot(worker, suppliedImage) {
     const best=(path.startsWith('scoreboard.') ? ranked.filter(r=>r.confidence>=80 && r.confidence>=ranked[0].confidence-5).sort((a,b)=>(b.height||0)-(a.height||0))[0] : null) || ranked[0] || {text:'',confidence:0};
     const value=best.text;
     raw.cells.push({path,crop,text:value,confidence:best.confidence,readings});
-    const disagreement=new Set(readings.filter(r=>r.confidence>=(path.startsWith('scoreboard.')?80:90)).map(r=>numeric?r.text:normalizeText(r.text))).size>1;
+    const disagreement=new Set(readings.filter(r=>r.confidence>=(path.startsWith('scoreboard.')?80:rectified?80:90)).map(r=>numeric?r.text:normalizeText(r.text))).size>1;
     if (!value || best.confidence < 70 || disagreement) uncertainFields.push({path,reason:disagreement?'OCR readings disagree.':!value?'Cell could not be read.':`OCR confidence ${best.confidence.toFixed(1)}%.`,confidence:'LOW'});
     return value || null;
   }
@@ -137,7 +143,15 @@ async function readScreenshot(worker, suppliedImage) {
     scoreboard.push({teamName,finalScore:scores[4],periods:scores.slice(0,4).map((score,i)=>({label:`Q${i+1}`,score}))});
   }
   if (!scoreboardVisible) uncertainFields.push({path:'scoreboard',reason:'The scoreboard is cropped out or unreadable. Supply team identities, period scores and final scores before approval.',confidence:'LOW'});
-  const tableTeamName=await cell(.385,.124,.18,.028,'tableTeamName');
+  let tableTeamName;
+  const tabWords=rectified && located.filter(w=>w.x>.33&&w.x<.48&&w.y<nameHeader.y-.02&&w.y>nameHeader.y-.13&&/^[A-Za-z][A-Za-z '-]*$/.test(w.text));
+  if(tabWords?.length){
+    const nearest=tabWords.reduce((a,b)=>a.y>b.y?a:b);
+    const line=tabWords.filter(w=>Math.abs(w.y-nearest.y)<.012).sort((a,b)=>a.x-b.x);
+    tableTeamName=line.map(w=>w.text).join(' ');
+    raw.cells.push({path:'tableTeamName',text:tableTeamName,confidence:Math.min(...line.map(w=>w.confidence)),readings:line});
+  }else tableTeamName=await cell(.385,.124,.18,.028,'tableTeamName');
+  if(rectified) uncertainFields.push({path:'perspective',reason:'Camera perspective was corrected. Verify the transformed table against the original photo before approval.',confidence:'LOW'});
   const rowWords=located.filter(w => w.x>.333 && w.x<.46 && w.y>nameHeader.y+.022 && w.y<total.y-.02 && /[a-z]/i.test(w.text));
   const rows=[];
   for (const word of rowWords.sort((a,b)=>a.y-b.y)) if (!rows.some(y=>Math.abs(y-word.y)<.013)) rows.push(word.y);
