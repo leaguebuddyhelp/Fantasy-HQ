@@ -42,7 +42,7 @@ function createFreeAgencyRetirement({repository, backup = () => require('./stora
     if(!channel)continue;
     // Recheck ownership and name before an irreversible Discord deletion.
     if(!(await candidates(leagueId,guild)).some(c=>c.id===saved.id&&c.name===saved.name))throw Error('Channel ownership changed during cleanup.');
-    if(channel.threads){const activeThreads=await channel.threads.fetchActive(),archived=await channel.threads.fetchArchived({limit:1});if(activeThreads.threads.size||archived.threads.size)throw Error('Free-agency channel contains threads. Archive those threads before deleting this channel.');}
+    if(channel.threads){const activeThreads=await channel.threads.fetchActive(),archived=await channel.threads.fetchArchived({limit:2});if(activeThreads.threads.size||archived.threads.size)throw Error('Free-agency channel contains threads. Archive those threads before deleting this channel.');}
     const messages=[];let before;
     for(;;){const page=await channel.messages.fetch({limit:100,...(before?{before}:{})});if(!page.size)break;messages.push(...page.values());before=[...page.values()].at(-1).id;if(page.size<100)break;}
     require('./simulation-storage').atomic(path.join(dir,'channel-'+saved.id+'.json'),{channel:{id:saved.id,name:saved.name,topic:channel.topic},archivedAt:at,messages:messages.map(m=>m.toJSON())});
