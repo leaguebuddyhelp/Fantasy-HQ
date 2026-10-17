@@ -190,7 +190,7 @@ test('each coach supplies exactly one side; both sessions join one submission', 
   await assert.rejects(service.receiveSide(game.gameId, actor, [attachment('one'), attachment('two')], 'm'), /one box score/);
   let result = await service.receiveSide(game.gameId, actor, [attachment('one')], 'm');
   assert.equal(result.media[0].teamId, 'a');
-  await assert.rejects(service.receiveSide(game.gameId, actor, [attachment('two')], 'm'), /other coach/);
+  await assert.rejects(service.receiveSide(game.gameId, actor, [attachment('two')], 'm'), /Replace my box score/);
   const other = { ...actor, userId: 'opponent' };
   await assert.rejects(service.receiveSide(game.gameId, other, [attachment('two')], 'm'), /Click Submit Score/);
   const second = await service.beginSide(game.gameId, other);
@@ -369,4 +369,15 @@ test('upload is rejected if phase changes during image download, preserving prev
   await f.service.begin(f.game.gameId, f.actor);
   await assert.rejects(f.service.receive(f.game.gameId, f.actor, [f.attachment('late')], 'message'), /REGULAR_SEASON/);
   assert.equal(f.service.load(f.game.gameId).media.length, 0);
+});
+
+test('a coach can replace a stored box score; retired media no longer counts', async t => {
+  const { service, actor, game, attachment } = fixture(t);
+  const { submission } = await service.beginSide(game.gameId, actor);
+  await service.receiveSide(game.gameId, actor, [attachment('one')], 'm');
+  await service.cancel(game.gameId, submission.submissionId, actor);
+  const again = await service.beginSide(game.gameId, actor);
+  assert.equal(again.media.length, 0);
+  const result = await service.receiveSide(game.gameId, actor, [attachment('three')], 'm3');
+  assert.equal(result.media.length, 1);
 });

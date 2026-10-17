@@ -17,7 +17,9 @@ function submissionPayload({ game, submission, media, teamId }) {
       embeds: [new EmbedBuilder().setColor(0xffdc21).setTitle(media.length === 2 ? "BOX SCORES RECEIVED" : "SUBMIT SCORE")
         .setDescription(media.length === 2 ? "**2 / 2 team box scores received.** Checking scores and stats…" :
           `${own ? "Your box score is stored. Waiting for the other coach." : `Upload **${teamLabel(name)}’s** Association Box Score here. Cropped photos accepted. Keep column headings, every player row and the Total row readable; missing scoreboard details require Staff review.`}\n\n**${media.length} / 2 team box scores received.** ${submission.soloTestAuthorizedBy ? '🧪 Solo test: use Test as the other vacant team to submit its side next.' : 'Each coach submits their own team.'}`)],
-      allowedMentions: { parse: [] }, components: []
+      allowedMentions: { parse: [] }, components: media.length < 2 ? [new ActionRowBuilder().addComponents(new ButtonBuilder()
+        .setCustomId(`gamecancel:${game.gameId}:${submission.submissionId}`)
+        .setLabel(own ? "Replace my box score" : "Cancel submission").setStyle(ButtonStyle.Secondary))] : []
     };
   }
   const count = media.length;
@@ -131,7 +133,7 @@ function createDiscordGameSubmissions(service = createGameSubmissionService(), o
         await interaction.editReply(submissionPayload(result));
       } else if (action === "gamecancel") {
         await service.cancel(gameId, submissionId, { ...actor(interaction, interaction.user.id), staff: canManageLeague(interaction) });
-        await interaction.editReply("Submission cancelled. Its screenshots are preserved. Click Submit Game to start again.");
+        await interaction.editReply("Submission cancelled. Its screenshots are preserved. Click Submit Score to start again.");
       } else if (action === "gametest") {
         requireLeagueStaff(interaction);
         const result = await service.beginSide(gameId, { ...actor(interaction, interaction.user.id), staff: true, testTeamId: submissionId });

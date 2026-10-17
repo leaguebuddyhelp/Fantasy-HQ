@@ -164,6 +164,13 @@ function createGameSubmissionService(options = {}) {
       const teamId = perTeam ? ownerTeam(record, actor) : null;
       if (actor.staff && !perTeam && record.submissions.some(s => s.status === "COLLECTING" && s.mode !== "STAFF_BOTH")) throw new Error("A coach upload is in progress. Finish or cancel it before Staff Submit.");
       if (perTeam && record.submissions.some(s => s.status === "COLLECTING" && s.mode === "STAFF_BOTH")) throw new Error("Staff are collecting both screenshots. Wait for that submission.");
+      // A restart or deploy can leave a submission marked PROCESSING with no job behind it; that must not block new attempts.
+      const { isExtractionRunning } = require('./box-score/service');
+      for (const stale of record.submissions.filter(s => s.status === "PROCESSING" && !isExtractionRunning(repository.dataRoot, gameId))) {
+        stale.status = "EXTRACTION_FAILED";
+        for (const attempt of (record.extractions || []).filter(e => e.submissionId === stale.submissionId && e.status === "PROCESSING")) Object.assign(attempt, { status: "EXTRACTION_FAILED", error: "Interrupted by a restart; start a new submission or retry from Staff tools." });
+        save(record);
+      }
       if (record.submissions.some(s => s.status === "PROCESSING")) throw new Error("These box scores are processing. Please wait before starting another attempt.");
       let submission = record.submissions.find(s => s.status === "COLLECTING" && (perTeam ? s.mode === "TEAM_SIDES" : s.submittingUserId === actor.userId && (actor.staff ? s.mode === "STAFF_BOTH" : !s.mode)));
       if (!submission) {
@@ -188,19 +195,31 @@ function createGameSubmissionService(options = {}) {
       return { game: record.game, submission, teamId, media: record.media.filter(m => m.submissionId === submission.submissionId) };
     });
   }
+  // Retired screenshots stay on disk as evidence but no longer count toward any submission.
+  function retireMedia(record, predicate) {
+    for (const media of record.media.filter(m => predicate(m) && !m.replacedAt)) {
+      media.replacedFromSubmissionId = media.submissionId;
+      media.submissionId = `${media.submissionId}:replaced`;
+      media.replacedAt = new Date().toISOString();
+    }
+  }
   function cancel(gameId, submissionId, actor) {
     return exclusive(gameId, () => {
       const record = load(gameId);
       check(record, actor);
-      const submission = record.submissions.find(s => s.submissionId === submissionId && (s.mode === "TEAM_SIDES"
-        ? Object.values(s.participants).includes(actor.userId) : s.submittingUserId === actor.userId));
+      const submission = record.submissions.find(s => s.submissionId === submissionId && (actor.staff || (s.mode === "TEAM_SIDES"
+        ? Object.values(s.participants).includes(actor.userId) : s.submittingUserId === actor.userId)));
       if (!submission || submission.status !== "COLLECTING") throw new Error("That submission is no longer collecting screenshots.");
-      if (submission.mode === "TEAM_SIDES") {
+      const own = submission.mode === "TEAM_SIDES" && Object.values(submission.participants).includes(actor.userId);
+      if (own) {
         const teamId = ownerTeam(record, actor);
-        if (record.media.some(m => m.submissionId === submissionId && m.teamId === teamId)) throw new Error("Your box score is already stored. Wait for processing before starting a new attempt.");
+        retireMedia(record, m => m.submissionId === submissionId && m.teamId === teamId);
         delete submission.participants[teamId];
         if (!Object.keys(submission.participants).length && !record.media.some(m => m.submissionId === submissionId)) submission.status = "CANCELLED";
-      } else submission.status = "CANCELLED";
+      } else {
+        retireMedia(record, m => m.submissionId === submissionId);
+        submission.status = "CANCELLED";
+      }
       save(record);
     });
   }
@@ -216,7 +235,7 @@ function createGameSubmissionService(options = {}) {
       const current = record.media.filter(m => m.submissionId === submission.submissionId);
       const fresh = [...new Map(attachments.map(a => [a.id, a])).values()]
         .filter(a => !current.some(m => m.discordAttachment.id === a.id));
-      if (perTeam && (fresh.length > 1 || (fresh.length && current.some(m => m.teamId === teamId)))) throw new Error("Upload one box score for your own team. The other coach must submit theirs.");
+      if (perTeam && (fresh.length > 1 || (fresh.length && current.some(m => m.teamId === teamId)))) throw new Error("Upload one box score for your own team. To change a stored one, press Replace my box score first.");
       if (current.length + fresh.length > 2) throw new Error("Upload exactly two screenshots per submission.");
       for (const attachment of fresh) {
         if (!TYPES[attachment.contentType?.split(";")[0]] || attachment.size > MAX_IMAGE_BYTES) {
