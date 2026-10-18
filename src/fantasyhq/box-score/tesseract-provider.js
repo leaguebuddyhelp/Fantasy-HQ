@@ -57,8 +57,16 @@ function cgroupStats(before) {
 }
 async function readScreenshot(worker, suppliedImage) {
   let recognitionCalls = 0;
-  const startedAt = Date.now(); let slowest = 0, recognizeMs = 0;
+  const startedAt = Date.now(); let slowest = 0, recognizeMs = 0, paramMs = 0, cropMs = 0, lastParams = '';
   const cgroupBefore = cgroupStats();
+  // Each parameter change is a round trip to the worker; skip it when the worker already has the values.
+  const setParams = async params => {
+    const key = JSON.stringify(params);
+    if (key === lastParams) return;
+    const began = Date.now();
+    await worker.setParameters(params);
+    lastParams = key; paramMs += Date.now() - began;
+  };
   const recognize = async (...args) => {
     if (worker.aborted) throw new Error('OCR processing was stopped.');
     recognitionCalls++;
@@ -75,7 +83,7 @@ async function readScreenshot(worker, suppliedImage) {
   if (sourceMeta.format === 'heif') suppliedImage = {...suppliedImage,bytes:await require('../offseason-image').normalize(suppliedImage.bytes)};
   const image = { ...suppliedImage, bytes: sourceMeta.orientation && sourceMeta.orientation !== 1 ? await sharp(suppliedImage.bytes,{limitInputPixels:40000000}).rotate().png().toBuffer() : suppliedImage.bytes };
   let meta = await sharp(image.bytes).metadata();
-  await worker.setParameters({tessedit_pageseg_mode:'6',tessedit_char_whitelist:''});
+  await setParams({tessedit_pageseg_mode:'6',tessedit_char_whitelist:''});
   let full = (await recognize(image.bytes,{}, {text:true,tsv:true})).data;
   let originalWords = words(full.tsv).map(w => ({...w,x:w.x/meta.width,y:w.y/meta.height}));
   // Deskew modest camera tilt using independently recognized table headings.
@@ -119,7 +127,7 @@ async function readScreenshot(worker, suppliedImage) {
   const scoreLabelCrop = cropAt(.04,.512,.25,.042);
   if (scoreLabels.length < 3 && scoreLabelCrop) {
     const strip = await pixels().extract(scoreLabelCrop).resize({width:1200}).greyscale().normalise().png().toBuffer();
-    await worker.setParameters({tessedit_pageseg_mode:'7',tessedit_char_whitelist:''});
+    await setParams({tessedit_pageseg_mode:'7',tessedit_char_whitelist:''});
     const focused = (await recognize(strip,{}, {text:true,tsv:true})).data;
     scoreLabels = words(focused.tsv).filter(w=>/^(1ST|2ND|3RD|4TH|TOTAL)$/i.test(w.text));
   }
@@ -135,10 +143,10 @@ async function readScreenshot(worker, suppliedImage) {
       uncertainFields.push({path,reason:'This field is outside the crop. Enter it from supporting evidence before approval.',confidence:'LOW'});
       return null;
     }
-    await worker.setParameters({tessedit_pageseg_mode:'7',tessedit_char_whitelist:numeric ? (path.endsWith('.MIN') ? '0123456789-:DNP' : '0123456789-:') : ''});
+    await setParams({tessedit_pageseg_mode:'7',tessedit_char_whitelist:numeric ? (path.endsWith('.MIN') ? '0123456789-:DNP' : '0123456789-:') : ''});
     const readings=alternative ? [{...alternative,height:null}] : [];
     for (const height of numeric ? [40,60,100,160] : [60,100]) {
-      const buffer=await pixels().extract(crop).resize({height}).png().toBuffer();
+      const cropBegan=Date.now();const buffer=await pixels().extract(crop).resize({height}).png().toBuffer();cropMs+=Date.now()-cropBegan;
       const data=(await recognize(buffer,{}, {text:true})).data;
       readings.push({text:data.text.trim(),confidence:data.confidence,height});
       const confident = readings.filter(r => r.confidence >= 96 && r.text);
@@ -208,7 +216,7 @@ async function readScreenshot(worker, suppliedImage) {
   const totals=await stats(total.y,'totals');
   // This template is deliberately four-period only: overtime layout changes must be reviewed.
   if (located.some(w => /^(OT|OT1|OT2)$/i.test(w.text))) uncertainFields.push({path:'scoreboard',reason:'Overtime layout needs review; this OCR template supports regulation screens.',confidence:'LOW'});
-  console.log(`OCR screenshot done: ${recognitionCalls} reads in ${Math.round((Date.now() - startedAt) / 1000)}s, slowest ${slowest}ms, in recognize ${Math.round(recognizeMs/1000)}s, rss ${Math.round(process.memoryUsage().rss/1048576)}MB, cgroup ${cgroupStats(cgroupBefore)}`);
+  console.log(`OCR screenshot done: ${recognitionCalls} reads in ${Math.round((Date.now() - startedAt) / 1000)}s, slowest ${slowest}ms, in recognize ${Math.round(recognizeMs/1000)}s, setParameters ${Math.round(paramMs/1000)}s, crops ${Math.round(cropMs/1000)}s, rss ${Math.round(process.memoryUsage().rss/1048576)}MB, cgroup ${cgroupStats(cgroupBefore)}`);
   raw.recognitionCalls = recognitionCalls;
   return {raw,screen:{mediaId:image.mediaId,confidence:'HIGH',scoreboard,tableTeamName,players,totals,uncertainFields}};
 }
