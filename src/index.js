@@ -57,6 +57,7 @@ process.on('unhandledRejection', error => console.error('Unhandled rejection:', 
 process.on('uncaughtException', error => { console.error('Uncaught exception:', error?.stack || error); if (!/tesseract/.test(error?.stack || '')) process.exit(1); });
 // Discord drops clicks the bot acknowledges after 3 seconds, so report any stall of the main thread.
 { let last = Date.now(); setInterval(() => { const now = Date.now(), lag = now - last - 500; last = now; if (lag > 1000) console.warn(`Event loop stalled ${lag}ms`); }, 500).unref(); }
+const fastTradeAcknowledgment = require('./shared/discord-fast-ack').createFastTradeAcknowledgment();
 const writerLease = storageSafety.acquireWriterLease(tradeRepository.dataRoot, { waitMs: 180000 });
 const startupBackup = storageSafety.createStorageBackup(tradeRepository.dataRoot, { label: 'startup' });
 console.log(`League backup: ${startupBackup.id}`);
@@ -90,6 +91,7 @@ function rosterMovementFollowUp(event) {
   setImmediate(()=>{try{require('./fantasyhq/news-service').createNewsService({repository:tradeRepository,submissions:gameRecordStore}).detect(event.leagueId);}catch(error){console.error('Verified transaction News:',error.message);}});
 }
 websiteRuntime.setGameRuntime({ submissions: gameRecordStore, onRosterMovement: rosterMovementFollowUp });
+const discordRosterSync = require('./fantasyhq/discord-roster-sync').createDiscordRosterSync({repository:tradeRepository,onRosterMovement:rosterMovementFollowUp});
 const tradeService = require("./fantasyhq/trade-service").createTradeService({ repository: tradeRepository, onPlayersMoved: rosterMovementFollowUp });
 const discordTrades = require("./fantasyhq/discord-trades").createDiscordTradeWorkflow({ repository: tradeRepository, tradeService });
 const gameSubmissions = require("./fantasyhq/discord-game-submissions").createDiscordGameSubmissions(gameRecordStore);
@@ -801,6 +803,7 @@ const handlers = {
   player: handlePlayerCommand,
   ratings: handleRatingsCommand,
   roster: handleRosterCommand,
+  rostersync: interaction => discordRosterSync.command(interaction),
   schedule: handleScheduleCommand,
   scout: interaction => scoutingCommands.handleScoutCommand(interaction, scoutingService),
   stats: interaction => discordPlayerStats.handleStatsCommand(interaction),
@@ -916,8 +919,10 @@ client.once(Events.ClientReady, async (readyClient) => {
 
 const { runDiscordInteraction, logDiscordClientError } = require('./shared/discord-interaction-error');
 client.on(Events.Error, logDiscordClientError);
-client.on(Events.InteractionCreate, interaction => {
+client.on(Events.InteractionCreate, async interaction => {
   const age = Date.now() - interaction.createdTimestamp;
+  try { await fastTradeAcknowledgment.acknowledge(interaction); }
+  catch(error) { console.error('Interaction acknowledgement timing:', {ageAtReceiptMs:age,ageAtFailureMs:Date.now()-interaction.createdTimestamp,code:error.code}); await require('./shared/discord-interaction-error').replyInteractionError(interaction,error); return; }
   console.log(`Interaction ${interaction.customId || interaction.commandName} received ${age}ms after creation, loop ${process.uptime().toFixed(0)}s uptime, pid ${process.pid}`);
   if (age > 1500) console.warn(`Interaction ${interaction.customId || interaction.commandName} reached the handler ${age}ms after Discord created it`);
   return runDiscordInteraction(interaction, handleInteraction, {
@@ -925,6 +930,7 @@ client.on(Events.InteractionCreate, interaction => {
   });
 });
 async function handleInteraction(interaction) {
+  if ((interaction.isButton() || interaction.isStringSelectMenu() || interaction.isModalSubmit()) && interaction.customId.startsWith('rs:')) { await discordRosterSync.handle(interaction); return; }
   if (interaction.isButton() && interaction.customId.startsWith('freeagents:page:')) {
     try { await require('./fantasyhq/discord-preseason').handleFreeAgentsButton(interaction); }
     catch (error) { await interaction.followUp({ content: error.message, flags: MessageFlags.Ephemeral }).catch(() => {}); }
@@ -1053,7 +1059,7 @@ async function handleInteraction(interaction) {
   if (!handler) return;
 
   try {
-    await interaction.deferReply({ flags: require('./shared/discord-privacy').commandReplyFlags(interaction) });
+    if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: require('./shared/discord-privacy').commandReplyFlags(interaction) });
     await handler(interaction);
   } catch (error) {
     await require("./shared/discord-interaction-error").replyInteractionError(interaction, error);

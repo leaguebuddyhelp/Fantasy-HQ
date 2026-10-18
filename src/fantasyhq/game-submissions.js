@@ -16,7 +16,7 @@ function imageType(bytes) {
 async function downloadDiscordImage(attachment) {
   const url = new URL(attachment.url);
   if (url.protocol !== "https:" || !["cdn.discordapp.com", "media.discordapp.net"].includes(url.hostname)
-    || !url.pathname.startsWith("/attachments/")) throw new Error("Invalid Discord attachment URL.");
+    || !["/attachments/", "/ephemeral-attachments/"].some(prefix => url.pathname.startsWith(prefix))) throw new Error("Invalid Discord attachment URL.");
   const response = await fetch(url, { redirect: "error", signal: AbortSignal.timeout(30000) });
   if (!response.ok) throw new Error("Could not store the screenshot. Please upload it again.");
   const chunks = [];

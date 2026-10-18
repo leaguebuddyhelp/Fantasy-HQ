@@ -4,6 +4,11 @@ const { PermissionFlagsBits, REST, Routes, SlashCommandBuilder } = require("disc
 const { requireEnv } = require("./src/config");
 
 const commands = [
+  new SlashCommandBuilder().setName('rostersync').setDescription('Commissioner: upload 2K Signing/Waive reports, review changes, then save.').setDMPermission(false)
+    .addAttachmentOption(o=>o.setName('photo').setDescription('Signing or Waive Transaction Report photo.').setRequired(true))
+    .addAttachmentOption(o=>o.setName('photo2').setDescription('Additional report photo.'))
+    .addAttachmentOption(o=>o.setName('photo3').setDescription('Additional report photo.'))
+    .addAttachmentOption(o=>o.setName('photo4').setDescription('Additional report photo.')),
   new SlashCommandBuilder().setName("website").setDescription("Get the LEAGUEbuddy website link."),
   new SlashCommandBuilder().setName("promo").setDescription("Post the LEAGUEbuddy recruitment promo with freshly scanned open teams."),
   new SlashCommandBuilder().setName("availableteams").setDescription("Scan current team ownership and show open teams by conference and division."),

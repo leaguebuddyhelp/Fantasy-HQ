@@ -58,7 +58,10 @@ async function runDiscordInteraction(interaction, handler, { refreshActor = asyn
     try {
         // Builders that mutate before update() need role reconciliation before any
         // handler work. Defer the source update while preserving private replies.
-        if (updatesSourceMessage(interaction) && typeof interaction.deferUpdate === 'function') {
+        if (interaction.deferred || interaction.replied) {
+            initialUpdate = updatesSourceMessage(interaction) && interaction.ephemeral !== true;
+            if(interaction.guild){reconciled=true;await refreshActor(interaction.guild, interaction.member);}
+        } else if (updatesSourceMessage(interaction) && typeof interaction.deferUpdate === 'function') {
             initialUpdate = true;
             await methods.get("deferUpdate").original.call(interaction);
             if(interaction.guild){reconciled=true;await refreshActor(interaction.guild, interaction.member);}
