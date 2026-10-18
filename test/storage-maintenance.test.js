@@ -37,3 +37,19 @@ test('cleanup refuses symlinks and unreadable reference files',async t=>{
  await assert.rejects(service.prepare('league',f.actor));fs.unlinkSync(bad);
  fs.symlinkSync('/tmp',path.join(f.root,'outside'));await assert.rejects(service.prepare('league',f.actor),/symbolic/);
 });
+
+test('signed macOS sidecars across storage are backed up and archived while real league JSON is retained',async t=>{
+ const f=setup(t),sourceRoot=f.repository.dataRoot,magic=Buffer.alloc(16);magic.writeUInt32BE(0x00051607,0);
+ const names=['._guild-leagues.json','leagues/2kratings-current/._league.json','leagues/2kratings-current/._teams.json'];
+ for(const name of names){const file=path.join(sourceRoot,name);fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,magic);}
+ save(f.root,'player-upgrades.json',{retired:true});
+ const service=createStorageMaintenance({repository:f.repository,now:()=>clock}),p=await service.prepare('league',f.actor);assert.equal(p.candidates.filter(row=>row.kind==='macos-metadata').length,3);
+ const receipt=service.confirm('league',f.actor,p.token);assert.equal(receipt.removed.length,4);assert.ok(receipt.backupId);
+ for(const name of names){assert.equal(fs.existsSync(path.join(sourceRoot,name)),false);assert.deepEqual(fs.readFileSync(path.join(sourceRoot,'backups',receipt.backupId,name)),magic);assert.ok(fs.existsSync(path.join(f.root,'maintenance',p.token,'data-root',name+'.saved')));}
+ assert.equal(fs.existsSync(path.join(f.root,'player-upgrades.json')),false);assert.ok(f.repository.loadLeague('league').league);
+});
+test('real malformed JSON still blocks cleanup and never masquerades as macOS metadata',async t=>{
+ const f=setup(t);fs.writeFileSync(path.join(f.root,'._not-a-sidecar.json'),'invalid-json');save(f.root,'player-upgrades.json',{retired:true});
+ const service=createStorageMaintenance({repository:f.repository,now:()=>clock}),p=await service.prepare('league',f.actor);assert.equal(p.candidates.some(row=>row.name==='._not-a-sidecar.json'),false);
+ assert.throws(()=>service.confirm('league',f.actor,p.token),/valid storage backup/);assert.ok(fs.existsSync(path.join(f.root,'player-upgrades.json')));
+});

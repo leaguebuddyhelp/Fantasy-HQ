@@ -56,6 +56,24 @@ function createStorageMaintenance({ repository, now = Date.now, backup = () => r
             }
         }
         await scan(root);
+        // AppleDouble sidecars are not JSON even when their copied filename is.
+        // Only files with the actual macOS metadata signature are eligible.
+        async function metadataScan(dir, relative = '') {
+            for (const entry of await fs.promises.readdir(dir,{withFileTypes:true})) {
+                const name = path.join(relative,entry.name);
+                if ((!relative && ['backups','.writer-lock','.writer-recovery'].includes(entry.name)) || name.split(path.sep).includes('maintenance')) continue;
+                if (entry.isSymbolicLink()) throw Error('Maintenance refuses symbolic links.');
+                const file = contained(repository.dataRoot,name);
+                if (entry.isDirectory()) await metadataScan(file,name);
+                else if (entry.isFile() && (entry.name.startsWith('._') || entry.name === '.DS_Store')) {
+                    const bytes=await fs.promises.readFile(file);
+                    if (!require('./storage-safety').isMacMetadata(name,bytes)) continue;
+                    const stat=await fs.promises.stat(file);
+                    candidates.push({name,scope:'data-root',kind:'macos-metadata',bytes:stat.size,mtimeMs:stat.mtimeMs});
+                }
+            }
+        }
+        await metadataScan(repository.dataRoot);
         // Retain all referenced snapshots and the three newest unreferenced ones.
         for (const file of snapshots.filter(row => !linked.has(row.id)).sort((a,b) => b.mtimeMs-a.mtimeMs).slice(3)) {
             if (file.mtimeMs < now() - 2*DAY) candidates.push({ ...file, kind: 'unreferenced-draft-cache' });
@@ -64,13 +82,13 @@ function createStorageMaintenance({ repository, now = Date.now, backup = () => r
         const expiredSessions = [...sessions.links, ...sessions.sessions].filter(row => row.expiresAt <= now()).length;
         const live = read(path.join(root,'mock-draft','live.json'),{mocks:{}});
         const mockSummary = Object.values(live.mocks || {}).map(({id,status,createdAt,updatedAt})=>({id,status,createdAt,updatedAt}));
-        return { leagueId, mockSummary, groups, largest, candidates, expiredSessions, bytesToRemove: candidates.filter(row => !['stale-temporary','retired-player-upgrades'].includes(row.kind)).reduce((sum,row) => sum+row.bytes,0) };
+        return { leagueId, mockSummary, groups, largest, candidates, expiredSessions, bytesToRemove: candidates.filter(row => !['stale-temporary','retired-player-upgrades','macos-metadata'].includes(row.kind)).reduce((sum,row) => sum+row.bytes,0) };
     }
     async function prepare(leagueId, actor) {
         for (const [token, row] of previews) if (row.expiresAt <= now()) previews.delete(token);
         if (previews.size >= 20) throw Error('Too many pending cleanup previews. Wait for them to expire.');
         const view = await inspect(leagueId, actor), root = rootFor(leagueId), token = randomUUID();
-        for (const row of view.candidates) row.sha256 = digest(fs.readFileSync(contained(root, row.name)));
+        for (const row of view.candidates) row.sha256 = digest(fs.readFileSync(contained(row.scope === 'data-root' ? repository.dataRoot : root, row.name)));
         previews.set(token, { leagueId, actorId: actor.id, root: repository.dataRoot, expiresAt: now()+300000, candidates: view.candidates });
         return { ...view, token, preserves: ['Rosters and contracts', 'Trades and ownership', 'Schedule and game history', 'OCR originals and roster report photos', 'Referenced draft snapshots', 'All existing backups'] };
     }
@@ -83,7 +101,7 @@ function createStorageMaintenance({ repository, now = Date.now, backup = () => r
         try {
             const root = rootFor(leagueId), linked = references(root);
             const removable = preview.candidates.filter(row => {
-                const file = contained(root, row.name);
+                const file = contained(row.scope === 'data-root' ? repository.dataRoot : root, row.name);
                 if (!fs.existsSync(file)) return false;
                 const stat = fs.statSync(file);
                 return stat.isFile() && stat.mtimeMs === row.mtimeMs && digest(fs.readFileSync(file)) === row.sha256 && (row.kind !== 'unreferenced-draft-cache' || !linked.has(row.id));
@@ -98,10 +116,10 @@ function createStorageMaintenance({ repository, now = Date.now, backup = () => r
             receipt.backupId = safety.id;
             if (expiredSessions) repository.commitLeagueFiles({ leagueId, files: [{ name: 'coach-web-sessions.json', value: cleaned }] });
             for (const row of removable) {
-                const file = contained(root, row.name);
-                if (['stale-temporary','retired-player-upgrades'].includes(row.kind)) {
+                const file = contained(row.scope === 'data-root' ? repository.dataRoot : root, row.name);
+                if (['stale-temporary','retired-player-upgrades','macos-metadata'].includes(row.kind)) {
                     // Standard backups exclude .tmp files, so archive these bytes explicitly.
-                    const target = contained(root, path.join('maintenance', token, row.name+'.saved'));
+                    const target = contained(root, path.join('maintenance', token, ...(row.scope==='data-root'?['data-root']:[]), row.name+'.saved'));
                     fs.mkdirSync(path.dirname(target), { recursive: true }); fs.renameSync(file, target);
                 } else { fs.unlinkSync(file); receipt.bytesRemoved += row.bytes; }
                 receipt.removed.push({ name: row.name, kind: row.kind, bytes: row.bytes });

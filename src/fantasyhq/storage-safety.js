@@ -80,6 +80,12 @@ function acquireWriterLease(dataRoot, { waitMs = 0 } = {}) {
   return { release, owner };
 }
 
+function isMacMetadata(name, bytes) {
+  const filename = path.basename(name);
+  return (filename.startsWith('._') && bytes.length >= 4 && bytes.readUInt32BE(0) === 0x00051607)
+    || (filename === '.DS_Store' && bytes.length >= 8 && bytes.toString('ascii',4,8) === 'Bud1');
+}
+
 function hash(bytes) { return createHash('sha256').update(bytes).digest('hex'); }
 function createStorageBackup(dataRoot, { label = 'manual' } = {}) {
   assertWriterLease(path.join(dataRoot,'backup-check'));
@@ -100,7 +106,7 @@ function createStorageBackup(dataRoot, { label = 'manual' } = {}) {
       if (!entry.isFile()) throw Error('Backup refused a non-regular file.');
       const bytes = fs.readFileSync(path.join(dataRoot, name));
       // Preserve corrupt records too: integrity is recorded, restoration stays possible.
-      let validJson = null; if (name.endsWith('.json')) { try { JSON.parse(bytes); validJson = true; } catch { validJson = false; } }
+      let validJson = null; if (name.endsWith('.json') && !isMacMetadata(name,bytes)) { try { JSON.parse(bytes); validJson = true; } catch { validJson = false; } }
       fs.mkdirSync(path.dirname(path.join(staging, name)), { recursive: true });
       const digest = hash(bytes), prior = previousFiles.get(name), priorFile = prior && path.join(prior.directory,name);
       let linked = false;
@@ -138,4 +144,4 @@ function restoreStorageBackup(backupRoot, targetRoot) {
   } catch (error) { fs.rmSync(staging, { recursive: true, force: true }); throw error; }
   return { directory: targetRoot, files: manifest.files.length };
 }
-module.exports = { assertWriterLease, acquireWriterLease, createStorageBackup, restoreStorageBackup };
+module.exports = { assertWriterLease, acquireWriterLease, createStorageBackup, restoreStorageBackup, isMacMetadata };

@@ -4,3 +4,6 @@ data/
 reports/*.json
 .DS_Store
 npm-debug.log*
+
+# macOS resource-fork sidecars are not app assets or JSON data.
+._*
