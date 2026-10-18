@@ -36,3 +36,15 @@ Regression coverage includes SDK callback payload types and errors, public/priva
 Existing tests cover trade/role permissions, roster report review and confirmation, roster corrections, game submissions/OCR, phase transitions, schedule, standings, and publication. Passing tests do not certify that an arbitrary new screenshot will extract correctly. No live signings, waivers, trades, week advancement, game creation or roster resets are used as smoke tests.
 
 External DNS/Discord latency remains an infrastructure factor. Independent callback transport reduces the exposure to main-thread stalls; it cannot guarantee success if Discord delivers an already-expired interaction or the network exceeds Discord's response deadline. Monitor new deployment logs and real coach use after rollout. Do not restore retired free-agency flows or roll back roster data as a response to timing failures.
+
+## Production rollout verification
+
+Fixes deployed successfully as `cf9870a`, Railway deployment `bf4128b2-dc5f-44b1-b9ea-c1dcbdda5819`. Bot login confirmed. Startup storage backup: `2026-10-18T15-39-31-857Z-a53eb274`.
+
+Read-only Discord inspection found all 26 expected slash commands registered and no missing required guild-level bot permissions. League channels were present and the retired free-agency channel remained absent. This does not certify every individual channel overwrite or role hierarchy operation.
+
+Post-rollout checks: all 19 website/API requests returned their expected status (18 successful responses and the intended unauthenticated admin 403). A real browser loaded Season 1 regular-season home and the 75-prospect board without JavaScript errors, failed requests or mobile horizontal overflow. Browser API timing for league home was approximately 13.2 seconds during that run; a separate HTTP request took 20.2 seconds. Schedule payload fell to approximately 24 KB uncompressed / 3.2 KB compressed. Owner polling now transfers approximately 3 KB rather than the full league response. The players response compressed to approximately 135 KB.
+
+**Unresolved:** variable production latency remains. Separate post-deployment HTTP checks measured league home at 20.2 seconds and players at 19.7 seconds despite returning valid data. Other requests ranged from roughly 0.08 to 8 seconds. These measurements do not establish whether the remaining delay comes from host/network, storage, compression scheduling or service computation; further production timing instrumentation is needed to distinguish them. Do not label every live workflow fixed solely because the health check and tests pass.
+
+The roughly 130-second startup event-loop warning occurs during the synchronous writer-lease handoff before login. It must be distinguished from runtime stalls; the storage safety lease was preserved. No live roster changes, trades, signings, waivers, game creation, week advancement or data resets were performed for this audit.
