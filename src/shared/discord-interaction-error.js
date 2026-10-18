@@ -44,7 +44,11 @@ async function runDiscordInteraction(interaction, handler, { refreshActor = asyn
             if (initialUpdate && name === 'deferUpdate') return;
             if (initialUpdate && name === 'update') return this.editReply(...args);
             if (initialUpdate && name === 'reply') return this.followUp(...args);
-            const result = await original.apply(this, args);
+            const ackBegan = Date.now();
+            let result;
+            try { result = await original.apply(this, args); }
+            catch (error) { logger.error?.(`Discord ${name} failed after ${Date.now() - ackBegan}ms (interaction age ${Date.now() - interaction.createdTimestamp}ms, deferred=${interaction.deferred}, replied=${interaction.replied}): ${error.code} ${error.message}`); throw error; }
+            if (Date.now() - ackBegan > 1000) logger.warn?.(`Discord ${name} took ${Date.now() - ackBegan}ms to acknowledge`);
             if (['deferReply', 'reply'].includes(name) && (Number(args[0]?.flags || 0) & 64)) privateAcknowledgments.add(interaction);
             if (['deferUpdate', 'update'].includes(name) && require('./discord-privacy').isEphemeralMessage(interaction.message)) privateAcknowledgments.add(interaction);
             if (!reconciled && interaction.guild && !interaction.isAutocomplete?.()) {
@@ -63,7 +67,9 @@ async function runDiscordInteraction(interaction, handler, { refreshActor = asyn
             if(interaction.guild){reconciled=true;await refreshActor(interaction.guild, interaction.member);}
         } else if (updatesSourceMessage(interaction) && typeof interaction.deferUpdate === 'function') {
             initialUpdate = true;
-            await methods.get("deferUpdate").original.call(interaction);
+            const ackBegan = Date.now();
+            try { await methods.get("deferUpdate").original.call(interaction); }
+            catch (error) { logger.error?.(`Discord deferUpdate failed after ${Date.now() - ackBegan}ms (interaction age ${Date.now() - interaction.createdTimestamp}ms): ${error.code} ${error.message}`); throw error; }
             if(interaction.guild){reconciled=true;await refreshActor(interaction.guild, interaction.member);}
         }
         await handler(interaction);
