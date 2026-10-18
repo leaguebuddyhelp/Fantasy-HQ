@@ -155,15 +155,18 @@ function readProspects(fileName) {
 
 function sendJson(response, status, payload) {
   const body = Buffer.from(JSON.stringify(payload));
+  const buildAt = require('node:perf_hooks').performance.now();
+  let encodeAt;
   const headers = { 'Content-Type': MIME_TYPES['.json'], 'Cache-Control': 'no-store', Vary: 'Accept-Encoding' };
   const accepted = String(response.req?.headers['accept-encoding'] || '');
   const gzip = accepted.split(',').some(value => /^gzip(?:\s*;|\s*$)/i.test(value.trim()) && !/;\s*q=0(?:\.0*)?\s*$/i.test(value));
   function send(bytes, compressed = false) {
     if (response.destroyed || response.writableEnded) return;
-    response.writeHead(status, { ...headers, 'Content-Length': bytes.length, ...(compressed ? { 'Content-Encoding': 'gzip' } : {}) });
+    response.writeHead(status, { ...headers, ...require('./shared/http-timing').headers(response, {buildAt, encodeAt, bytes:bytes.length, status}), 'Content-Length': bytes.length, ...(compressed ? { 'Content-Encoding': 'gzip' } : {}) });
     response.end(bytes);
   }
   if (body.length >= 16384 && gzip) {
+    encodeAt = require('node:perf_hooks').performance.now();
     require('zlib').gzip(body, { level: 1 }, (error, compressed) => send(error ? body : compressed, !error));
   } else send(body);
 }
@@ -390,6 +393,27 @@ function unsafeRequestHandler(request, response) {
       else if(input.action==='clear')sendJson(response,200,await service.clear(process.env.GUILD_ID,actor,input.token));
       else throw Error('Unknown reset action.');
     }catch(error){sendJson(response,400,{error:error.message});}})();return;
+  }
+
+  if (url.pathname === '/api/league/admin/maintenance') {
+    if (!isAdminRequest(request)) { sendJson(response, 403, { error: 'Commissioner authorization required.' }); return; }
+    (async () => { try {
+      const context = boundLeagueContext(), repository = leagueService.repository;
+      const actor = require('./shared/website-auth').websiteActor(request, context, { commissioner: true });
+      const service = require('./fantasyhq/storage-maintenance').createStorageMaintenance({ repository });
+      if (request.method === 'GET') {
+        require('./fantasyhq/postseason-state').requireCommissioner(context, actor);
+        const memory = process.memoryUsage();
+        const readMetric = name => { try { return fs.readFileSync('/sys/fs/cgroup/'+name, 'utf8').trim(); } catch { return null; } };
+        sendJson(response, 200, { cpu: { limit: readMetric('cpu.max'), stats: readMetric('cpu.stat'), memoryLimit: readMetric('memory.max') }, storage: await service.inspect(context.league.leagueId, actor), process: { uptimeSeconds: Math.round(process.uptime()), rssMB: Math.round(memory.rss/1048576), heapMB: Math.round(memory.heapUsed/1048576), activeRequests: process._getActiveRequests().map(row=>row.constructor.name) }, http: require('./shared/http-timing').snapshot() });
+        return;
+      }
+      if (request.method !== 'POST') { sendJson(response,405,{error:'Use GET or POST.'}); return; }
+      const body = await parseJsonBody(request,4096);
+      if (body.action === 'prepare') sendJson(response,200,await service.prepare(context.league.leagueId,actor));
+      else if (body.action === 'confirm') sendJson(response,200,service.confirm(context.league.leagueId,actor,body.token));
+      else throw Error('Unknown maintenance action.');
+    } catch(error) { sendJson(response,400,{error:error.message}); } })(); return;
   }
 
   if (url.pathname === '/api/league/admin/backups') {
@@ -1176,6 +1200,7 @@ function unsafeRequestHandler(request, response) {
 }
 
 function requestHandler(request, response) {
+  require('./shared/http-timing').begin(request, response);
   try { return unsafeRequestHandler(request, response); }
   catch (error) {
     if (!response.headersSent) sendJson(response, error instanceof URIError ? 400 : 500, { error: error instanceof URIError ? 'Invalid URL encoding.' : 'Request could not be completed.' });
