@@ -1,4 +1,6 @@
 const sharp = require('sharp');
+// libvips sizes its thread pool from the host's cores; inside a CPU-limited container that oversubscribes and throttles everything.
+sharp.concurrency(2);
 const {normalizeText}=require('../service-helpers');
 const { createWorker } = require('tesseract.js');
 const english = require('@tesseract.js-data/eng');
@@ -89,6 +91,10 @@ async function readScreenshot(worker, suppliedImage) {
   }
   const layout = detectLayout(originalWords, meta);
   if (!layout) throw Object.assign(new Error('Could not locate a complete Association box-score table in this image. Cropped photos are supported; include readable column headings, player names and the Total row.'),{ocrRaw:full});
+  // Decode once: every cell crop below would otherwise re-decode the full-resolution PNG.
+  const decoded = await sharp(image.bytes).raw().toBuffer({resolveWithObject:true});
+  const pixels = () => sharp(decoded.data,{raw:{width:decoded.info.width,height:decoded.info.height,channels:decoded.info.channels}});
+  console.log(`OCR screenshot ${meta.width}x${meta.height}, cpu budget ${cpuBudget().toFixed(2)}`);
   const {scaleX,scaleY,offsetX,offsetY} = layout;
   const located = originalWords.map(w => ({...w,x:(w.x-offsetX)/scaleX,y:(w.y-offsetY)/scaleY}));
   function cropAt(x,y,width,height) {
@@ -103,7 +109,7 @@ async function readScreenshot(worker, suppliedImage) {
   // Whole-image OCR can lose yellow quarter labels amid logos. Read the labels separately.
   const scoreLabelCrop = cropAt(.04,.512,.25,.042);
   if (scoreLabels.length < 3 && scoreLabelCrop) {
-    const strip = await sharp(image.bytes).extract(scoreLabelCrop).resize({width:1200}).greyscale().normalise().png().toBuffer();
+    const strip = await pixels().extract(scoreLabelCrop).resize({width:1200}).greyscale().normalise().png().toBuffer();
     await worker.setParameters({tessedit_pageseg_mode:'7',tessedit_char_whitelist:''});
     const focused = (await recognize(strip,{}, {text:true,tsv:true})).data;
     scoreLabels = words(focused.tsv).filter(w=>/^(1ST|2ND|3RD|4TH|TOTAL)$/i.test(w.text));
@@ -123,7 +129,7 @@ async function readScreenshot(worker, suppliedImage) {
     await worker.setParameters({tessedit_pageseg_mode:'7',tessedit_char_whitelist:numeric ? (path.endsWith('.MIN') ? '0123456789-:DNP' : '0123456789-:') : ''});
     const readings=alternative ? [{...alternative,height:null}] : [];
     for (const height of numeric ? [40,60,100,160] : [60,100]) {
-      const buffer=await sharp(image.bytes).extract(crop).resize({height}).png().toBuffer();
+      const buffer=await pixels().extract(crop).resize({height}).png().toBuffer();
       const data=(await recognize(buffer,{}, {text:true})).data;
       readings.push({text:data.text.trim(),confidence:data.confidence,height});
       const confident = readings.filter(r => r.confidence >= 96 && r.text);
@@ -131,7 +137,7 @@ async function readScreenshot(worker, suppliedImage) {
       if (valid && ((confident.length >= 2 && new Set(confident.map(r => numeric ? r.text : normalizeText(r.text))).size === 1) || (numeric && data.confidence >= 93 && !path.startsWith('scoreboard.')))) break;
     }
     if (Math.max(...readings.map(r=>r.confidence)) < 80) {
-      const source=await sharp(image.bytes).extract(crop).greyscale().normalise().png().toBuffer();
+      const source=await pixels().extract(crop).greyscale().normalise().png().toBuffer();
       const {channels}=await sharp(source).stats();
       const background=channels[0].mean>130?'white':'black';
       const processed=await sharp(source).resize({height:100}).extend({top:20,bottom:20,left:20,right:20,background}).png().toBuffer();
