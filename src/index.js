@@ -58,6 +58,15 @@ process.on('uncaughtException', error => { console.error('Uncaught exception:', 
 // Discord drops clicks the bot acknowledges after 3 seconds, so report any stall of the main thread.
 { let last = Date.now(); setInterval(() => { const now = Date.now(), lag = now - last - 500; last = now; if (lag > 1000) console.warn(`Event loop stalled ${lag}ms`); }, 500).unref(); }
 const fastTradeAcknowledgment = require('./shared/discord-fast-ack').createFastTradeAcknowledgment();
+// Reports how long a job holds the main thread before its first await; Discord drops clicks acknowledged after 3 seconds.
+function timedTick(name, tick) {
+  return (...args) => {
+    const began = Date.now(), result = tick(...args);
+    const blocked = Date.now() - began;
+    if (blocked > 250) console.warn(`Tick ${name} blocked the main thread ${blocked}ms`);
+    return result;
+  };
+}
 const writerLease = storageSafety.acquireWriterLease(tradeRepository.dataRoot, { waitMs: 180000 });
 const startupBackup = storageSafety.createStorageBackup(tradeRepository.dataRoot, { label: 'startup' });
 console.log(`League backup: ${startupBackup.id}`);
@@ -879,17 +888,17 @@ client.once(Events.ClientReady, async (readyClient) => {
       }
     } catch (error) { console.error('Test Mode dashboard refresh:', error.message); }
   }
-  const feedTick = () => discordLeagueFeeds.tick(readyClient).catch(error => console.error("League feeds:", error.message));
+  const feedTick = timedTick('League feeds', () => discordLeagueFeeds.tick(readyClient).catch(error => console.error("League feeds:", error.message)));
   feedTick(); setInterval(feedTick, 60000).unref();
-  const tradeBlockTick = () => discordTradeBlock.tick(client).catch(error => console.error("Trade block:", error.message));
+  const tradeBlockTick = timedTick('Trade block', () => discordTradeBlock.tick(client).catch(error => console.error("Trade block:", error.message)));
   tradeBlockTick(); setInterval(tradeBlockTick, 60000).unref();
-  const activityCheckTick = () => discordActivityCheck.tick(client).catch(error => console.error("Activity check:", error.message));
+  const activityCheckTick = timedTick('Activity check', () => discordActivityCheck.tick(client).catch(error => console.error("Activity check:", error.message)));
   gameSubmissions.resumeInterrupted(client).then(n => n && console.log(`Resumed ${n} interrupted box-score submission(s).`)).catch(error => console.error('Resume box scores:', error.message));
   activityCheckTick(); setInterval(activityCheckTick, 60000).unref();
-  const weeklyTick = () => discordWeeklyDashboard.tick(client).catch(error => console.error('Weekly dashboard:', error.message));
+  const weeklyTick = timedTick('Weekly dashboard', () => discordWeeklyDashboard.tick(client).catch(error => console.error('Weekly dashboard:', error.message)));
   weeklyTick(); setInterval(weeklyTick, 60000).unref();
   let weeklyAwardTickRunning = false;
-  const weeklyAwardTick = async () => {
+  const weeklyAwardTick = timedTick('Weekly awards', async () => {
     if (weeklyAwardTickRunning) return;
     weeklyAwardTickRunning = true;
     try {
@@ -908,9 +917,9 @@ client.once(Events.ClientReady, async (readyClient) => {
         ]) try { await operation(); } catch(error) { console.error(name + ' recovery:', error.message); }
       }
     } finally { weeklyAwardTickRunning = false; }
-  };
+  });
   weeklyAwardTick(); setInterval(weeklyAwardTick, 60000).unref();
-  const activityTick = () => gameActivity.tick(client).catch(error => console.error("Game activity:", error.message));
+  const activityTick = timedTick('Game activity', () => gameActivity.tick(client).catch(error => console.error("Game activity:", error.message)));
   activityTick(); setInterval(activityTick, 60000).unref();
   for (const guild of readyClient.guilds.cache.values()) queueOwnershipSync(guild);
   setInterval(() => { for (const guild of client.guilds.cache.values()) queueOwnershipSync(guild); }, 300000).unref();
