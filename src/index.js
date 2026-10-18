@@ -923,6 +923,15 @@ client.once(Events.ClientReady, async (readyClient) => {
   activityTick(); setInterval(activityTick, 60000).unref();
   for (const guild of readyClient.guilds.cache.values()) queueOwnershipSync(guild);
   setInterval(() => { for (const guild of client.guilds.cache.values()) queueOwnershipSync(guild); }, 300000).unref();
+  // Compare gateway ping and a REST round trip with the stall log to separate network latency from main-thread blocking.
+  const probe = async () => {
+    const began = Date.now();
+    try { await client.rest.get('/gateway'); }
+    catch (error) { console.warn(`Discord REST probe failed: ${error.message}`); return; }
+    const rest = Date.now() - began;
+    if (rest > 500 || client.ws.ping > 500) console.warn(`Discord latency: REST ${rest}ms, gateway ping ${client.ws.ping}ms, rss ${Math.round(process.memoryUsage().rss / 1048576)}MB, heap ${Math.round(process.memoryUsage().heapUsed / 1048576)}MB`);
+  };
+  probe(); setInterval(probe, 15000).unref();
   console.log(`Logged in as ${readyClient.user.tag}`);
 });
 
