@@ -48,3 +48,7 @@ Post-rollout checks: all 19 website/API requests returned their expected status 
 **Unresolved:** variable production latency remains. Separate post-deployment HTTP checks measured league home at 20.2 seconds and players at 19.7 seconds despite returning valid data. Other requests ranged from roughly 0.08 to 8 seconds. These measurements do not establish whether the remaining delay comes from host/network, storage, compression scheduling or service computation; further production timing instrumentation is needed to distinguish them. Do not label every live workflow fixed solely because the health check and tests pass.
 
 The roughly 130-second startup event-loop warning occurs during the synchronous writer-lease handoff before login. It must be distinguished from runtime stalls; the storage safety lease was preserved. No live roster changes, trades, signings, waivers, game creation, week advancement or data resets were performed for this audit.
+
+## Follow-up recovery
+
+The latency findings above describe the pre-recovery deployment. [The follow-up recovery](APP-RECOVERY-2026-10-18.md) found and repaired repeated parsing of a 35 MB live-mock history file and an 11.6-second compression queue delay. Subsequent production samples returned league home in 200 ms and players in 168 ms. Finished mock history was archived safely, obsolete upgrade state and signed macOS sidecars were removed from active storage, and all canonical league data was preserved. See that report for tests, cleanup receipts and measurement limits.

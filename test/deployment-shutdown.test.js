@@ -33,3 +33,9 @@ for (const [signal, expectedCode] of [['SIGTERM', 143], ['SIGINT', 130]]) {
     replacement.release();
   });
 }
+
+test('production container starts Node directly so stop signals reach the writer-lease handler', () => {
+  const dockerfile = fs.readFileSync(path.join(__dirname, '../Dockerfile'), 'utf8');
+  const command = dockerfile.split('\n').find(line => line.startsWith('CMD '));
+  assert.deepEqual(JSON.parse(command.slice(4)), ['node', 'src/index.js']);
+});

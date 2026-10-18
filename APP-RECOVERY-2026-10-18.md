@@ -28,3 +28,28 @@ Node documents the difference between system lookups and asynchronous DNS resolu
 ## Verification
 
 Targeted tests cover archive readability, copy-first safety, pending recap preservation, polling cache invalidation, parallel compression, worker failure, DNS coalescing/TTL/fallback behavior, backup refusal, changed-file/reference protection, commissioner authorization and HTTP timing privacy. Full-suite and production rollout results are recorded after verification below.
+
+## Verified recovery and cleanup
+
+The full repository check passed **722 tests** with zero failures. The follow-up metadata/backup/restore/HTTP/isolation checks passed all **25 targeted tests**, and direct-container startup plus SIGTERM/SIGINT lease-release checks passed all **3 shutdown tests**.
+
+After the response/polling repairs, production measurements were:
+
+| Request | End-to-end | App build | Compression |
+| --- | ---: | ---: | ---: |
+| Health | 274 ms | 0.2 ms | — |
+| Players, gzip | 168 ms | 18.1 ms | 22.9 ms |
+| League home, gzip | 200 ms | 62.1 ms | 4.2 ms |
+| Owner labels | 108 ms | 0.7 ms | — |
+
+The browser loaded league home and opened actual player and team profiles, with no JavaScript errors or mobile overflow. These are observed samples, not a guarantee of every future request's latency.
+
+Twenty-two finished mock records were archived; the hot collection retained one setup draft. No active draft was cancelled. Archived records retain their full original inputs, selections and recap data, and referenced snapshots remain protected.
+
+The first cleanup attempt stopped without changing files because backup validation flagged three `._*.json` files. Inspection identified macOS AppleDouble resource-fork sidecars rather than malformed canonical JSON. Backup validation now recognizes their binary signature while still rejecting genuinely malformed JSON. The final scan found 22 macOS sidecars in total, including non-JSON names. All 22 and the retired `player-upgrades.json` were moved into the maintenance archive after backup. No expired sessions or removable unreferenced snapshots were found; those collections were not cleared.
+
+Cleanup receipt: `34b6adeb-0a19-47bd-92ad-6a9ad8a9d994`.
+Backup before cleanup: `2026-10-18T16-33-31-320Z-daffba2a`.
+Archive: `leagues/LB-official/maintenance/34b6adeb-0a19-47bd-92ad-6a9ad8a9d994/`.
+
+The container now starts Node directly rather than through npm. This ensures the application's tested shutdown handlers can receive stop signals and release the writer lease. The safety lease and full startup backup remain in place.
