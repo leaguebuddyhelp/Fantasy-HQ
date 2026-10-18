@@ -39,3 +39,8 @@ test('production container starts Node directly so stop signals reach the writer
   const command = dockerfile.split('\n').find(line => line.startsWith('CMD '));
   assert.deepEqual(JSON.parse(command.slice(4)), ['node', 'src/index.js']);
 });
+
+test('Railway config overrides any dashboard npm wrapper with direct Node startup', () => {
+  const config = JSON.parse(fs.readFileSync(path.join(__dirname, '../railway.json'), 'utf8'));
+  assert.equal(config.deploy.startCommand, 'node src/index.js');
+});

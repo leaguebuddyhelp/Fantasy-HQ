@@ -31,7 +31,7 @@ Targeted tests cover archive readability, copy-first safety, pending recap prese
 
 ## Verified recovery and cleanup
 
-The full repository check passed **722 tests** with zero failures. The follow-up metadata/backup/restore/HTTP/isolation checks passed all **25 targeted tests**, and direct-container startup plus SIGTERM/SIGINT lease-release checks passed all **3 shutdown tests**.
+The full repository check passed **722 tests** with zero failures. The follow-up metadata/backup/restore/HTTP/isolation checks passed all **25 targeted tests**, and direct-container startup plus SIGTERM/SIGINT lease-release checks passed all **4 shutdown/configuration tests**.
 
 After the response/polling repairs, production measurements were:
 
@@ -53,3 +53,5 @@ Backup before cleanup: `2026-10-18T16-33-31-320Z-daffba2a`.
 Archive: `leagues/LB-official/maintenance/34b6adeb-0a19-47bd-92ad-6a9ad8a9d994/`.
 
 The container now starts Node directly rather than through npm. This ensures the application's tested shutdown handlers can receive stop signals and release the writer lease. The safety lease and full startup backup remain in place.
+
+The live configuration check also found a Railway dashboard `startCommand: npm start` override. The Dockerfile change alone did not replace that value. `railway.json` now pins `node src/index.js` for the deployment; Railway documents that [repository configuration overrides dashboard values](https://docs.railway.com/config-as-code/reference). The deployment manifest must show the direct Node command before calling the startup repair complete.
