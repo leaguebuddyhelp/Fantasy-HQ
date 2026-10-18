@@ -47,16 +47,25 @@ function detectLayout(located, meta) {
   }
   return null;
 }
+// Container limits and throttling are invisible to os.cpus(); read them from the cgroup so slow hosts can be diagnosed from the logs.
+function cgroupStats(before) {
+  const fs = require('fs'), read = file => { try { return fs.readFileSync(file, 'utf8').trim(); } catch { return null; } };
+  const stat = Object.fromEntries((read('/sys/fs/cgroup/cpu.stat') || '').split('\n').map(l => l.split(' ')));
+  if (!before) return stat;
+  const diff = key => stat[key] === undefined ? '?' : Number(stat[key]) - Number(before[key] || 0);
+  return `cpu.max=${read('/sys/fs/cgroup/cpu.max')} mem=${read('/sys/fs/cgroup/memory.current')}/${read('/sys/fs/cgroup/memory.max')} throttled_periods+${diff('nr_throttled')} throttled_usec+${diff('throttled_usec')} cpu_usec+${diff('usage_usec')}`;
+}
 async function readScreenshot(worker, suppliedImage) {
   let recognitionCalls = 0;
-  const startedAt = Date.now(); let slowest = 0;
+  const startedAt = Date.now(); let slowest = 0, recognizeMs = 0;
+  const cgroupBefore = cgroupStats();
   const recognize = async (...args) => {
     if (worker.aborted) throw new Error('OCR processing was stopped.');
     recognitionCalls++;
     const began = Date.now();
     try { return await worker.recognize(...args); }
     finally {
-      const took = Date.now() - began;
+      const took = Date.now() - began; recognizeMs += took;
       // Full-page reads are the expensive ones; log them so slow hosts can be diagnosed from Railway logs.
       if (took > 3000 || took > slowest) { slowest = Math.max(slowest, took); if (took > 3000) console.log(`OCR read #${recognitionCalls} took ${took}ms (${Math.round((Date.now() - startedAt) / 1000)}s into screenshot)`); }
     }
@@ -199,7 +208,7 @@ async function readScreenshot(worker, suppliedImage) {
   const totals=await stats(total.y,'totals');
   // This template is deliberately four-period only: overtime layout changes must be reviewed.
   if (located.some(w => /^(OT|OT1|OT2)$/i.test(w.text))) uncertainFields.push({path:'scoreboard',reason:'Overtime layout needs review; this OCR template supports regulation screens.',confidence:'LOW'});
-  console.log(`OCR screenshot done: ${recognitionCalls} reads in ${Math.round((Date.now() - startedAt) / 1000)}s, slowest ${slowest}ms`);
+  console.log(`OCR screenshot done: ${recognitionCalls} reads in ${Math.round((Date.now() - startedAt) / 1000)}s, slowest ${slowest}ms, in recognize ${Math.round(recognizeMs/1000)}s, rss ${Math.round(process.memoryUsage().rss/1048576)}MB, cgroup ${cgroupStats(cgroupBefore)}`);
   raw.recognitionCalls = recognitionCalls;
   return {raw,screen:{mediaId:image.mediaId,confidence:'HIGH',scoreboard,tableTeamName,players,totals,uncertainFields}};
 }
