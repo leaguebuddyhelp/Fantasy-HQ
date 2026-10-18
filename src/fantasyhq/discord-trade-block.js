@@ -2,12 +2,12 @@ const { ChannelType, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags 
 const { nbaPlayerCard } = require('../shared/discord-player-card');
 const { requireLeagueStaff } = require('./discord-permissions');
 
-function createDiscordTradeBlock({ repository, playerService, tradeWorkflow }) {
+function createDiscordTradeBlock({ repository, playerService, tradeWorkflow, respondAutocomplete = (interaction, choices) => interaction.respond(choices) }) {
     function tradeForComponents() {
         return [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('tradeblock:tradefor').setLabel('Trade for').setStyle(ButtonStyle.Primary))];
     }
     async function handleTradeForButton(interaction) {
-        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
         const ctx = context(interaction.guildId);
         const entry = load(ctx.leagueId).entries.find(item => item.messageId === interaction.message.id && item.threadId === interaction.channelId);
         if (!entry) throw Error('This player is no longer listed on the trade block.');
@@ -53,7 +53,7 @@ function createDiscordTradeBlock({ repository, playerService, tradeWorkflow }) {
         await interaction.editReply(`Trade block threads ready for ${ready} of ${ctx.teams.length} teams in <#${parent.id}>.${failed.length ? '\n' + failed.join('\n') : ''}`);
     }
     function ownedPlayers(ctx, teamId) {
-        return playerService.listPlayers(ctx.leagueId, ctx.seasonId).filter(player => player.teamId === teamId);
+        return playerService.listPlayers(ctx.leagueId, ctx.seasonId, { teamId }).filter(player => player.teamId === teamId);
     }
     async function add(interaction) {
         const ctx = context(interaction.guildId), team = coachTeam(ctx, interaction);
@@ -92,15 +92,17 @@ function createDiscordTradeBlock({ repository, playerService, tradeWorkflow }) {
         throw Error('Unknown trade block action.');
     }
     async function handleTradeBlockAutocomplete(interaction) {
+        let choices = [];
         try {
             const ctx = context(interaction.guildId), team = coachTeam(ctx, interaction);
             const focused = String(interaction.options.getFocused() || '').toLowerCase(), sub = interaction.options.getSubcommand();
             const onBlock = new Set(load(ctx.leagueId).entries.filter(entry => entry.teamId === team.teamId).map(entry => entry.playerId));
-            const choices = ownedPlayers(ctx, team.teamId).filter(player => (sub === 'remove') === onBlock.has(player.playerId) && (!focused || player.name.toLowerCase().includes(focused)))
+            choices = ownedPlayers(ctx, team.teamId).filter(player => (sub === 'remove') === onBlock.has(player.playerId) && (!focused || player.name.toLowerCase().includes(focused)))
                 .sort((a, b) => b.tradeValue - a.tradeValue).slice(0, 25)
                 .map(player => ({ name: `${player.name} · ${player.overall ?? '—'} OVR · TV ${Number(player.tradeValue || 1).toLocaleString('en-US')}`.slice(0, 100), value: player.playerId }));
-            await interaction.respond(choices);
-        } catch { await interaction.respond([]); }
+        } catch { /* No roster choices are exposed when identity lookup fails. */ }
+        // Transport failures must not trigger a second callback for the same request.
+        await respondAutocomplete(interaction, choices);
     }
     // Players traded or released leave the block automatically.
     let running;

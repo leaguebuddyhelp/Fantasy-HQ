@@ -72,3 +72,26 @@ test('existing trade-block listings receive Trade for controls once during recov
  assert.equal(f.edited[0].payload.components[0].toJSON().components[0].custom_id,'tradeblock:tradefor');
  assert.equal(f.settings().tradeBlock.entries[0].tradeForButtonVersion,1);
 });
+
+test('autocomplete transport failure is not retried as a second empty callback', async () => {
+ const f=fixture(),i=f.act('add');let attempts=0;
+ i.respond=async()=>{attempts++;throw Object.assign(Error('expired'),{code:10062});};
+ await assert.rejects(()=>f.service.handleTradeBlockAutocomplete(i),e=>e.code===10062);
+ assert.equal(attempts,1);
+});
+
+test('a preacknowledged Trade for button preserves the listing and opens the private builder once',async()=>{
+ const f=fixture();await f.service.handleTradeBlockCommand(f.act('add','p1'));
+ const entry=f.settings().tradeBlock.entries[0];
+ const i={guildId:'g',channelId:entry.threadId,message:{id:entry.messageId},deferred:true,ephemeral:true,deferReply:async()=>{throw Error('double acknowledgement');}};
+ await f.service.handleTradeForButton(i);assert.equal(f.opened.length,1);assert.equal(f.deleted.length,0);
+});
+
+test('trade-block autocomplete requests valuation only for the coach roster and exposes nothing to unassigned users',async()=>{
+ const f=fixture();let requested;
+ // The actual service filters membership before evaluating contracts (covered separately).
+ const repository={loadLeagueContext:()=>({league:{leagueId:'l'},seasonId:'1',teams:[{teamId:'bos'}]}),loadRoleOwnership:()=>({roleIds:{bos:'bos-role'}}),loadOwners:()=>[{teamId:'bos',userId:'u1'}],loadSettings:()=>({})};
+ const service=createDiscordTradeBlock({repository,playerService:{listPlayers:(leagueId,seasonId,options)=>{requested=options;return [{playerId:'p1',name:'Player',teamId:'bos',tradeValue:12}];}}});
+ await service.handleTradeBlockAutocomplete(f.act('add'));assert.deepEqual(requested,{teamId:'bos'});
+ requested=null;await service.handleTradeBlockAutocomplete(f.act('add',null,'nobody'));assert.equal(requested,null);assert.deepEqual(f.replies.at(-1),[]);
+});

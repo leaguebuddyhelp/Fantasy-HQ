@@ -32,3 +32,25 @@ test('roster upload command is deferred privately before OCR and role checks, pr
  const f=setup(t),i={id:'999',token:'secret',commandName:'rostersync',isChatInputCommand:()=>true,isButton:()=>false,guild:{},member:{},editReply:async()=>{}};const promise=f.ack.acknowledge(i);assert.equal(f.posted().type,5);f.worker.emit('message',{id:'999',ok:true});await promise;assert.equal(i.ephemeral,true);assert.equal(i.deferred,true);
  const {sendAcknowledgment}=require('../src/shared/discord-ack-worker');let body;sendAcknowledgment({id:'999',token:'secret',queuedAt:Date.now(),type:5},()=>{},(options,respond)=>{const request=new EventEmitter();request.setTimeout=()=>{};request.end=text=>{body=JSON.parse(text);const response=new EventEmitter();response.statusCode=204;respond(response);response.emit('end');};return request;});assert.deepEqual(body,{type:5,data:{flags:64}});
 });
+test('trade-block commands and Trade for buttons defer privately while autocomplete remains a choice response',async t=>{
+ const f=setup(t);
+ for(const i of [
+  {id:'1201',token:'secret',commandName:'tradeblock',isChatInputCommand:()=>true},
+  {id:'1202',token:'secret',customId:'tradeblock:tradefor',isButton:()=>true}
+ ]){
+  const promise=f.ack.acknowledge(i);assert.equal(f.posted().type,5);
+  f.worker.emit('message',{id:i.id,ok:true});await promise;assert.equal(i.deferred,true);assert.equal(i.ephemeral,true);
+ }
+ const i={id:'1203',token:'secret',commandName:'tradeblock',isAutocomplete:()=>true,isChatInputCommand:()=>false};
+ await f.ack.acknowledge(i);assert.equal(i.deferred,undefined);
+ const choices=[{name:'Player',value:'p1'}],promise=f.ack.respondAutocomplete(i,choices);
+ assert.equal(f.posted().type,8);assert.deepEqual(f.posted().choices,choices);
+ f.worker.emit('message',{id:i.id,ok:true});await promise;assert.equal(i.responded,true);assert.equal(i.deferred,undefined);
+});
+test('autocomplete transport sends choices rather than a deferred response',()=>{
+ const {sendAcknowledgment}=require('../src/shared/discord-ack-worker');let body;
+ const choices=[{name:'Player',value:'p1'}];
+ sendAcknowledgment({id:'1204',token:'secret',queuedAt:Date.now(),type:8,choices},()=>{},(options,respond)=>{
+  const request=new EventEmitter();request.setTimeout=()=>{};request.end=text=>{body=JSON.parse(text);const response=new EventEmitter();response.statusCode=204;respond(response);response.emit('end');};return request;
+ });assert.deepEqual(body,{type:8,data:{choices}});
+});

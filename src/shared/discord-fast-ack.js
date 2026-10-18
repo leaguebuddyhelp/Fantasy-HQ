@@ -7,14 +7,23 @@ function createFastTradeAcknowledgment({workerFactory=()=>new Worker(path.join(_
  // Start before startup recovery can block the main event loop.
  start();
  async function acknowledge(interaction){
-  const privateUpload=interaction.isChatInputCommand?.()&&interaction.commandName==='rostersync';
+  const privateUpload=interaction.isChatInputCommand?.()&&['rostersync','tradeblock'].includes(interaction.commandName);
+  const privateTradeFor=interaction.isButton?.()&&interaction.customId==='tradeblock:tradefor';
+  const privateReply=privateUpload||privateTradeFor;
   const tradeControl=(interaction.isButton?.()||interaction.isStringSelectMenu?.())&&String(interaction.customId||'').startsWith('trade:');
-  if((!tradeControl&&!privateUpload)||interaction.deferred||interaction.replied)return;
+  if((!tradeControl&&!privateReply)||interaction.deferred||interaction.replied)return;
   if(!/^\d+$/.test(interaction.id)||!interaction.token)throw Error('Invalid trade interaction.');
   if(pending.has(interaction.id))throw Object.assign(Error('This click is already being acknowledged.'),{code:40060});
-  const current=start();await new Promise((resolve,reject)=>{pending.set(interaction.id,{resolve,reject});current.ref();current.postMessage({id:interaction.id,token:interaction.token,queuedAt:Date.now(),type:privateUpload?5:6});});
-  interaction.deferred=true;interaction.ephemeral=Boolean(privateUpload);
+  const current=start();await new Promise((resolve,reject)=>{pending.set(interaction.id,{resolve,reject});current.ref();current.postMessage({id:interaction.id,token:interaction.token,queuedAt:Date.now(),type:privateReply?5:6});});
+  interaction.deferred=true;interaction.ephemeral=Boolean(privateReply);
  }
- return {acknowledge,close:async()=>{const current=worker;worker=null;if(current)await current.terminate();}};
+ async function respondAutocomplete(interaction,choices){
+  if(interaction.responded)return;
+  if(!/^\d+$/.test(interaction.id)||!interaction.token)throw Error('Invalid autocomplete interaction.');
+  if(pending.has(interaction.id))throw Object.assign(Error('Already responding to this search.'),{code:40060});
+  const current=start();await new Promise((resolve,reject)=>{pending.set(interaction.id,{resolve,reject});current.ref();current.postMessage({id:interaction.id,token:interaction.token,queuedAt:Date.now(),type:8,choices});});
+  interaction.responded=true;
+ }
+ return {acknowledge,respondAutocomplete,close:async()=>{const current=worker;worker=null;if(current)await current.terminate();}};
 }
 module.exports={createFastTradeAcknowledgment};

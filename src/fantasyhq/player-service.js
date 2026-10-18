@@ -60,11 +60,11 @@ function createPlayerService(options = {}) {
     return new Map(memberships.map((membership) => [membership.playerId, membership]));
   }
 
-  function listPlayers(leagueId, seasonId) {
+  function listPlayers(leagueId, seasonId, { teamId } = {}) {
     const context = repository.loadLeague(leagueId, seasonId);
     const teams = new Map(context.teams.map((team) => [team.teamId, team]));
     const currentMemberships = playerTeamIndex(leagueId, context.seasonId);
-    return repository.loadPlayers(leagueId).map((player) => {
+    return repository.loadPlayers(leagueId).filter(player => teamId === undefined || (currentMemberships.get(player.playerId)?.teamId || null) === teamId).map((player) => {
       const membership = currentMemberships.get(player.playerId) || null;
       const team = membership ? teams.get(membership.teamId) : null;
       return {

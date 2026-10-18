@@ -151,7 +151,7 @@ const discordPlayerStats = require("./fantasyhq/discord-player-stats").createDis
   playerService: require("./fantasyhq/player-service").createPlayerService({ repository: discordStatsRepository }),
   statsService: require("./fantasyhq/player-stats-service").createPlayerStatsService({ repository: discordStatsRepository, publishedOnly: true }),
 });
-const discordTradeBlock = require("./fantasyhq/discord-trade-block").createDiscordTradeBlock({ repository: discordStatsRepository, tradeWorkflow: discordTrades, playerService: require("./fantasyhq/player-service").createPlayerService({ repository: discordStatsRepository }) });
+const discordTradeBlock = require("./fantasyhq/discord-trade-block").createDiscordTradeBlock({ respondAutocomplete: fastTradeAcknowledgment.respondAutocomplete, repository: discordStatsRepository, tradeWorkflow: discordTrades, playerService: require("./fantasyhq/player-service").createPlayerService({ repository: discordStatsRepository }) });
 const discordTeamStatsRepository = require("./fantasyhq/repository").createFantasyHQRepository();
 const discordTeamStats = require("./fantasyhq/discord-team-stats").createDiscordTeamStatsHandlers({
   repository: discordTeamStatsRepository,
