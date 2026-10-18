@@ -1,6 +1,6 @@
 const {parentPort}=require('worker_threads');
 const https=require('https');
-const agent=new https.Agent({keepAlive:true,maxSockets:8});
+const agent=new https.Agent({keepAlive:true,maxSockets:8,lookup:require('./discord-dns').createDiscordLookup()});
 // Only initial callback traffic runs here. Bot data, permissions and mutations stay
 // in the owning process; no bot token is needed for an interaction callback.
 function sendAcknowledgment({id,token,queuedAt,type=6,choices=[],payload,query=''},send=result=>parentPort.postMessage(result),makeRequest=https.request){

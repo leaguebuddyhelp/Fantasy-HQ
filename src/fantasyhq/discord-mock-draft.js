@@ -417,11 +417,13 @@ function createDiscordMockDraft({ repository, simulations, live, client = null }
                 try { await ensurePin(guild, leagueId); } catch (e) { console.error('Live Mock pin:', e.message); }
                 try { simulations.reconcileRequests(leagueId); } catch (e) { console.error('Mock refresh inputs:', e.message); }
                 simulations.refresh(leagueId).catch(e => console.error('Mock simulations:', e.message));
+                try { live.archiveFinished?.(leagueId); } catch (error) { console.error('Mock history archive:', error.message); }
             }
-            for (const m of live.all(leagueId).filter(m => m.guildId === guild.id && m.status === 'CLEANED' && m.participants.some(p => { const d = m.dmDelivery[p.userId]; return d && !d.delivered && !d.permanent && (d.attempts || 0) < 3 && (!d.nextRetryAt || d.nextRetryAt <= Date.now()); }))) {
+            const mocks = live.pollable ? live.pollable(leagueId) : live.all(leagueId);
+            for (const m of mocks.filter(m => m.guildId === guild.id && m.status === 'CLEANED' && m.participants.some(p => { const d = m.dmDelivery[p.userId]; return d && !d.delivered && !d.permanent && (d.attempts || 0) < 3 && (!d.nextRetryAt || d.nextRetryAt <= Date.now()); }))) {
                 await serial(key(leagueId, m.id), () => deliverRecaps(guild, live.get(leagueId, m.id))).catch(e => console.error('Mock recap recovery:', e.message));
             }
-            for (const m of live.all(leagueId).filter(m => m.guildId === guild.id && !['CLEANED', 'FAILED', 'CANCELLED'].includes(m.status) && (!m.cleanup.nextRetryAt || m.cleanup.nextRetryAt <= Date.now()))) {
+            for (const m of mocks.filter(m => m.guildId === guild.id && !['CLEANED', 'FAILED', 'CANCELLED'].includes(m.status) && (!m.cleanup.nextRetryAt || m.cleanup.nextRetryAt <= Date.now()))) {
                 if (m.seasonId !== c.seasonId && !['COMPLETED', 'CLEANUP_PENDING'].includes(m.status)) { live.mutate(leagueId, m.id, draft => { draft.status = 'CANCELLED'; draft.failure = 'League season changed.'; }); continue; }
                 await serial(key(leagueId, m.id), () => pump(guild, leagueId, m.id)).catch(e => { live.mutate(leagueId, m.id, draft => { draft.lastRecoveryError = e.message; }); console.error('Live Mock recovery:', e.message); });
             }

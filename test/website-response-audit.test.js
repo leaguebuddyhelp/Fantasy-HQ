@@ -22,10 +22,10 @@ test('maintenance API requires commissioner credentials and exposes only reviewe
  const {EventEmitter}=require('node:events'),f=fixture(t),keys=['FANTASYHQ_DATA_ROOT','GUILD_ID','WEBSITE_ADMIN_KEY','WEBSITE_ADMIN_KEYS'],saved=Object.fromEntries(keys.map(k=>[k,process.env[k]]));
  Object.assign(process.env,{FANTASYHQ_DATA_ROOT:f.root,GUILD_ID:'guild',WEBSITE_ADMIN_KEY:'key'});delete process.env.WEBSITE_ADMIN_KEYS;
  t.after(()=>{for(const [k,v]of Object.entries(saved))v===undefined?delete process.env[k]:process.env[k]=v;});
- f.repository.saveLeague('league',{commissionerUserId:'c'});const {requestHandler}=require('../src/web');
+ f.repository.saveLeague('league',{commissionerUserId:'c'});delete require.cache[require.resolve('../src/web')];const {requestHandler}=require('../src/web');
  function request(headers={},body){return new Promise(resolve=>{const req=new EventEmitter();Object.assign(req,{url:'/api/league/admin/maintenance',method:body?'POST':'GET',headers});let status;requestHandler(req,{writeHead(s){status=s;},end(data){resolve({status,payload:JSON.parse(data)});}});if(body){req.emit('data',Buffer.from(JSON.stringify(body)));req.emit('end');}});}
  assert.equal((await request()).status,403);const header={'x-leaguebuddy-admin-key':'key'};
- const view=await request(header);assert.equal(view.status,200);assert.ok(view.payload.storage.groups['players.json']);
+ const view=await request(header);assert.equal(view.status,200,JSON.stringify(view.payload));assert.ok(view.payload.storage.groups['players.json']);
  const p=await request(header,{action:'prepare'});assert.equal(p.status,200);
  assert.equal((await request(header,{action:'confirm',token:p.payload.token})).status,200);
  process.env.WEBSITE_ADMIN_KEYS=JSON.stringify({assistant:'staff-key'});assert.equal((await request({'x-leaguebuddy-admin-key':'staff-key'})).status,400);

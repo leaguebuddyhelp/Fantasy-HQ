@@ -25,7 +25,23 @@ function awardsFor(selections) {
 function createLiveMockService({ repository, simulations, now = () => Date.now(), rng = liveRandom } = {}) {
     function file(leagueId) { return path.join(rootFor(repository, leagueId), 'live.json'); }
     function all(leagueId) { return Object.values(read(file(leagueId), { mocks: {} }).mocks); }
-    function get(leagueId, id) { const mock = read(file(leagueId), { mocks: {} }).mocks[id]; if (!mock) throw Error('This mock no longer exists.'); return mock; }
+    function get(leagueId, id) { const mock = read(file(leagueId), { mocks: {} }).mocks[id] || (/^[a-f0-9-]{36}$/.test(id) ? read(path.join(rootFor(repository,leagueId),'archive',id+'.json')) : null); if (!mock) throw Error('This mock no longer exists.'); return mock; }
+    const pollCache = new Map();
+    function pollable(leagueId) {
+        const filename = file(leagueId);
+        let stat; try { stat = fs.statSync(filename); } catch(error) { if(error.code==='ENOENT') return []; throw error; }
+        const signature = `${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
+        let cached = pollCache.get(filename);
+        if (!cached || cached.signature !== signature) {
+            const rows = all(leagueId).map(({id,guildId,seasonId,status,participants,dmDelivery,cleanup,createdAt,updatedAt}) => ({id,guildId,seasonId,status,participants,dmDelivery,cleanup,createdAt,updatedAt}));
+            cached = {signature, rows};
+            if (pollCache.size >= 8) pollCache.delete(pollCache.keys().next().value);
+            pollCache.set(filename,cached);
+        }
+        // Polling never needs roster/input copies or full historical pick recaps.
+        return structuredClone(cached.rows);
+    }
+    function archiveFinished(leagueId) { const archive = require('./mock-archive'); const at=now(); if(!pollable(leagueId).some(mock=>archive.canArchive(mock,at))) return {archived:[]}; return archive.archiveFinished(rootFor(repository,leagueId),{now:at}); }
     function transaction(leagueId, action) {
         return locked(rootFor(repository, leagueId), () => { const state = read(file(leagueId), { schemaVersion: 1, mocks: {} }); const result = action(state); atomicWrite(file(leagueId), state); return structuredClone(result); });
     }
@@ -147,6 +163,6 @@ function createLiveMockService({ repository, simulations, now = () => Date.now()
         const q = String(query).normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().trim();
         return m.input.prospects.filter(p => !m.selections.some(s => s.prospectId === p.prospectId) && (!q || [p.name, p.team, p.position_1, p.position_2, String(p.board_number)].some(v => String(v || '').normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().includes(q))));
     }
-    return { all, get, mutate, create, coach, invite, lottery, baseOrder, useBaseOrder, lock, start, commit, pause, resume, controller, available, setAvailable, setSoloControl, repository };
+    return { all, get, pollable, archiveFinished, mutate, create, coach, invite, lottery, baseOrder, useBaseOrder, lock, start, commit, pause, resume, controller, available, setAvailable, setSoloControl, repository };
 }
 module.exports = { createLiveMockService, CLOCK_MS, awardsFor };

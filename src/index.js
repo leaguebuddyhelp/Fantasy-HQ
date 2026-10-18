@@ -56,7 +56,8 @@ const storageSafety = require('./fantasyhq/storage-safety');
 process.on('unhandledRejection', error => console.error('Unhandled rejection:', error?.message || error));
 process.on('uncaughtException', error => { console.error('Uncaught exception:', error?.stack || error); if (!/tesseract/.test(error?.stack || '')) process.exit(1); });
 // Discord drops clicks the bot acknowledges after 3 seconds, so report any stall of the main thread.
-{ let last = Date.now(); setInterval(() => { const now = Date.now(), lag = now - last - 500; last = now; if (lag > 1000) console.warn(`Event loop stalled ${lag}ms`); }, 500).unref(); }
+const discordAgent = new (require('undici').Agent)({ connections: 8, keepAliveTimeout: 30000, keepAliveMaxTimeout: 60000, connect: { lookup: require('./shared/discord-dns').createDiscordLookup() } });
+client.rest.setAgent(discordAgent);
 const fastTradeAcknowledgment = require('./shared/discord-fast-ack').createFastTradeAcknowledgment();
 fastTradeAcknowledgment.install(client.rest);
 // Reports how long a job holds the main thread before its first await; Discord drops clicks acknowledged after 3 seconds.
@@ -72,6 +73,7 @@ const writerLease = storageSafety.acquireWriterLease(tradeRepository.dataRoot, {
 const startupBackup = storageSafety.createStorageBackup(tradeRepository.dataRoot, { label: 'startup' });
 console.log(`League backup: ${startupBackup.id}`);
 setInterval(() => { try { storageSafety.createStorageBackup(tradeRepository.dataRoot, { label: 'daily' }); } catch (error) { console.error('League backup failed:', error.message); } }, 86400000).unref();
+{ let last = Date.now(); setInterval(() => { const now = Date.now(), lag = now - last - 500; last = now; if (lag > 1000) console.warn(`Event loop stalled ${lag}ms`); }, 500).unref(); }
 const discordLeagueFeeds = require("./fantasyhq/discord-league-feeds").createDiscordLeagueFeeds({ repository: tradeRepository });
 const gameRecordStore = require("./fantasyhq/game-submissions").createGameSubmissionService({ repository: tradeRepository });
 roleOwnership.setOwnerChangeHandler(async change => {

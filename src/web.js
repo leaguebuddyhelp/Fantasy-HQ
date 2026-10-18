@@ -167,7 +167,7 @@ function sendJson(response, status, payload) {
   }
   if (body.length >= 16384 && gzip) {
     encodeAt = require('node:perf_hooks').performance.now();
-    require('zlib').gzip(body, { level: 1 }, (error, compressed) => send(error ? body : compressed, !error));
+    require('./shared/json-compression').compress(body).then(compressed => send(compressed, true), () => send(body));
   } else send(body);
 }
 

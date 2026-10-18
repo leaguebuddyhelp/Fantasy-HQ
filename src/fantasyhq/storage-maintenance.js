@@ -29,6 +29,11 @@ function createStorageMaintenance({ repository, now = Date.now, backup = () => r
             const file = contained(root, path.join('mock-draft', name));
             if (fs.statSync(file).isFile()) collect(JSON.parse(fs.readFileSync(file, 'utf8')));
         }
+        const archive = path.join(dir,'archive');
+        if (fs.existsSync(archive)) for (const name of fs.readdirSync(archive)) {
+            if (!/^[a-f0-9-]{36}\.json$/.test(name)) continue;
+            collect(JSON.parse(fs.readFileSync(contained(root,path.join('mock-draft','archive',name)),'utf8')));
+        }
         return found;
     }
     async function inspect(leagueId, actor) {
@@ -46,6 +51,7 @@ function createStorageMaintenance({ repository, now = Date.now, backup = () => r
                 groups[group] ||= { files: 0, bytes: 0 }; groups[group].files++; groups[group].bytes += stat.size;
                 largest.push({ name, bytes: stat.size }); largest.sort((a,b) => b.bytes-a.bytes); largest.length = Math.min(largest.length, 15);
                 if (/^mock-draft\/snapshots\/[a-f0-9-]{36}\.json$/.test(name)) snapshots.push({ name, id: path.basename(name, '.json'), mtimeMs: stat.mtimeMs, bytes: stat.size });
+                if (name === 'player-upgrades.json') candidates.push({ name, kind: 'retired-player-upgrades', bytes: stat.size, mtimeMs: stat.mtimeMs });
                 if (entry.name.endsWith('.tmp') && stat.mtimeMs < now() - DAY) candidates.push({ name, kind: 'stale-temporary', bytes: stat.size, mtimeMs: stat.mtimeMs });
             }
         }
@@ -56,7 +62,9 @@ function createStorageMaintenance({ repository, now = Date.now, backup = () => r
         }
         const sessions = repository.loadCoachWebSessions(leagueId);
         const expiredSessions = [...sessions.links, ...sessions.sessions].filter(row => row.expiresAt <= now()).length;
-        return { leagueId, groups, largest, candidates, expiredSessions, bytesToRemove: candidates.filter(row => row.kind !== 'stale-temporary').reduce((sum,row) => sum+row.bytes,0) };
+        const live = read(path.join(root,'mock-draft','live.json'),{mocks:{}});
+        const mockSummary = Object.values(live.mocks || {}).map(({id,status,createdAt,updatedAt})=>({id,status,createdAt,updatedAt}));
+        return { leagueId, mockSummary, groups, largest, candidates, expiredSessions, bytesToRemove: candidates.filter(row => !['stale-temporary','retired-player-upgrades'].includes(row.kind)).reduce((sum,row) => sum+row.bytes,0) };
     }
     async function prepare(leagueId, actor) {
         for (const [token, row] of previews) if (row.expiresAt <= now()) previews.delete(token);
@@ -91,7 +99,7 @@ function createStorageMaintenance({ repository, now = Date.now, backup = () => r
             if (expiredSessions) repository.commitLeagueFiles({ leagueId, files: [{ name: 'coach-web-sessions.json', value: cleaned }] });
             for (const row of removable) {
                 const file = contained(root, row.name);
-                if (row.kind === 'stale-temporary') {
+                if (['stale-temporary','retired-player-upgrades'].includes(row.kind)) {
                     // Standard backups exclude .tmp files, so archive these bytes explicitly.
                     const target = contained(root, path.join('maintenance', token, row.name+'.saved'));
                     fs.mkdirSync(path.dirname(target), { recursive: true }); fs.renameSync(file, target);
