@@ -60,3 +60,10 @@ test('modal-opening controls remain available without a preemptive defer', () =>
  const {updatesSourceMessage}=require('../src/shared/discord-interaction-error');
  for(const customId of ['fa:player:id','fa:edit:id','fa:correct:id','mock:search:id','gamedate:id','post:extend'])assert.equal(updatesSourceMessage({isButton:()=>true,customId}),false,customId);
 });
+
+test('expired autocomplete callbacks are not retried by a handler fallback',async()=>{
+ const {runDiscordInteraction}=require('../src/shared/discord-interaction-error');let attempts=0;
+ const i={isAutocomplete:()=>true,respond:async()=>{attempts++;throw Object.assign(Error('expired'),{code:10062});}};
+ await runDiscordInteraction(i,async interaction=>{try{await interaction.respond([{name:'x',value:'x'}]);}catch{await interaction.respond([]);}},{logger:{error(){}}});
+ assert.equal(attempts,1);
+});

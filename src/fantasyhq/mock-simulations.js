@@ -62,7 +62,7 @@ async function simulate(input, { seed = randomUUID(), previous = null } = {}) {
     const snapshot = { id: randomUUID(), leagueId: input.leagueId, seasonId: input.seasonId, draftClassId: input.draftClassId, draftYear: input.draftYear, currentWeek: input.currentWeek, generatedAt: new Date().toISOString(), simulationCount: 1000, input, simulations, prospectAggregates: aggregates, metadata: { engineVersion: ENGINE_VERSION, seed, boardHash: hash(input.prospects), standingsHash: hash(input.standings), ownershipHash: hash(input.picks), rosterHash: hash(input.rosters), inputHash: hash(input), ...generateDraftOrder(input, { lottery: false }) } };
     return validateSnapshot(snapshot);
 }
-function createMockSimulationService({ repository, scoutingService, standingsService, rosterService, generator = simulate } = {}) {
+function createMockSimulationService({ repository, scoutingService, standingsService, rosterService, generator = require('./mock-simulation-runner').simulateInWorker } = {}) {
     scoutingService ||= require('./scouting-service').createScoutingService({ repository });
     standingsService ||= require('./standings-service').createStandingsService({ repository });
     rosterService ||= require('./roster-service').createRosterService({ repository });

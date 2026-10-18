@@ -58,6 +58,7 @@ process.on('uncaughtException', error => { console.error('Uncaught exception:', 
 // Discord drops clicks the bot acknowledges after 3 seconds, so report any stall of the main thread.
 { let last = Date.now(); setInterval(() => { const now = Date.now(), lag = now - last - 500; last = now; if (lag > 1000) console.warn(`Event loop stalled ${lag}ms`); }, 500).unref(); }
 const fastTradeAcknowledgment = require('./shared/discord-fast-ack').createFastTradeAcknowledgment();
+fastTradeAcknowledgment.install(client.rest);
 // Reports how long a job holds the main thread before its first await; Discord drops clicks acknowledged after 3 seconds.
 function timedTick(name, tick) {
   return (...args) => {
@@ -923,25 +924,6 @@ client.once(Events.ClientReady, async (readyClient) => {
   activityTick(); setInterval(activityTick, 60000).unref();
   for (const guild of readyClient.guilds.cache.values()) queueOwnershipSync(guild);
   setInterval(() => { for (const guild of client.guilds.cache.values()) queueOwnershipSync(guild); }, 300000).unref();
-  // Compare gateway ping and a REST round trip with the stall log to separate network latency from main-thread blocking.
-  let maxLag = 0, lagMark = Date.now();
-  setInterval(() => { const now = Date.now(); maxLag = Math.max(maxLag, now - lagMark - 100); lagMark = now; }, 100).unref();
-  const probe = async () => {
-    const dnsBegan = Date.now();
-    await require('dns').promises.lookup('discord.com').catch(() => {});
-    const dns = Date.now() - dnsBegan;
-    // Fixed CPU workload: a CPU-starved host takes many times longer than the ~15ms a normal core needs.
-    const cpuBegan = process.hrtime.bigint();
-    let x = 0; for (let i = 0; i < 2e7; i++) x += i % 7;
-    const cpu = Number(process.hrtime.bigint() - cpuBegan) / 1e6;
-    const lag = maxLag; maxLag = 0;
-    const began = Date.now();
-    try { await client.rest.get('/gateway'); }
-    catch (error) { console.warn(`Discord REST probe failed: ${error.message}`); return; }
-    const rest = Date.now() - began;
-    if (rest > 500 || client.ws.ping > 500) console.warn(`Discord latency: dns ${dns}ms, cpu-benchmark ${cpu.toFixed(0)}ms, max loop lag ${lag}ms, REST ${rest}ms, gateway ping ${client.ws.ping}ms, rss ${Math.round(process.memoryUsage().rss / 1048576)}MB, heap ${Math.round(process.memoryUsage().heapUsed / 1048576)}MB`);
-  };
-  probe(); setInterval(probe, 15000).unref();
   console.log(`Logged in as ${readyClient.user.tag}`);
 });
 

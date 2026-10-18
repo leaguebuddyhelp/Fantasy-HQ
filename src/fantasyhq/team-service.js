@@ -28,6 +28,19 @@ function createTeamService(options = {}) {
     });
   }
 
+  function listTeamSummaries(leagueId, seasonId) {
+    const context = repository.loadLeague(leagueId, seasonId);
+    const owners = new Map(repository.loadOwners(leagueId).map(owner => [owner.teamId, owner]));
+    const memberships = activeMemberships(repository.loadRosterMemberships(leagueId), context.seasonId);
+    const counts = new Map();
+    for (const membership of memberships) counts.set(membership.teamId, (counts.get(membership.teamId) || 0) + 1);
+    const schedule = repository.scheduleExists(leagueId, context.seasonId) ? repository.loadSchedule(leagueId, context.seasonId) : null;
+    const teamMap = new Map(context.teams.map(team => [team.teamId, team]));
+    return context.teams.map(team => ({ ...team, ownerUserId: owners.get(team.teamId)?.userId || null,
+      ownerDisplayName: owners.get(team.teamId)?.displayName || owners.get(team.teamId)?.username || null,
+      rosterSize: counts.get(team.teamId) || 0, schedule: teamSchedule(schedule, team.teamId, teamMap) }));
+  }
+
   function listTeams(leagueId, seasonId) {
     const context = repository.loadLeague(leagueId, seasonId);
     const owners = new Map(repository.loadOwners(leagueId).map((owner) => [owner.teamId, owner]));
@@ -91,6 +104,7 @@ function createTeamService(options = {}) {
   return {
     getTeam,
     listTeams,
+    listTeamSummaries,
     repository,
   };
 }

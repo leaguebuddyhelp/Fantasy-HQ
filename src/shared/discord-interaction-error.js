@@ -35,8 +35,8 @@ function updatesSourceMessage(interaction) {
 
 async function runDiscordInteraction(interaction, handler, { refreshActor = async () => {}, logger = console } = {}) {
     const methods = new Map();
-    let reconciled = false, initialUpdate = false;
-    for (const name of ['deferReply', 'deferUpdate', 'reply', 'update', 'showModal']) {
+    let reconciled = false, initialUpdate = false, expiredAcknowledgment;
+    for (const name of ['deferReply', 'deferUpdate', 'reply', 'update', 'showModal', 'respond']) {
         if (typeof interaction[name] !== 'function') continue;
         const own = Object.getOwnPropertyDescriptor(interaction, name), original = interaction[name];
         methods.set(name, { own, original });
@@ -44,10 +44,11 @@ async function runDiscordInteraction(interaction, handler, { refreshActor = asyn
             if (initialUpdate && name === 'deferUpdate') return;
             if (initialUpdate && name === 'update') return this.editReply(...args);
             if (initialUpdate && name === 'reply') return this.followUp(...args);
+            if (expiredAcknowledgment) throw expiredAcknowledgment;
             const ackBegan = Date.now();
             let result;
             try { result = await original.apply(this, args); }
-            catch (error) { logger.error?.(`Discord ${name} failed after ${Date.now() - ackBegan}ms (interaction age ${Date.now() - interaction.createdTimestamp}ms, deferred=${interaction.deferred}, replied=${interaction.replied}): ${error.code} ${error.message}`); throw error; }
+            catch (error) { if (EXPIRED_INTERACTION_CODES.has(Number(error.code))) expiredAcknowledgment = error; logger.error?.(`Discord ${name} failed after ${Date.now() - ackBegan}ms (interaction age ${Date.now() - interaction.createdTimestamp}ms, deferred=${interaction.deferred}, replied=${interaction.replied}): ${error.code} ${error.message}`); throw error; }
             if (Date.now() - ackBegan > 1000) logger.warn?.(`Discord ${name} took ${Date.now() - ackBegan}ms to acknowledge`);
             if (['deferReply', 'reply'].includes(name) && (Number(args[0]?.flags || 0) & 64)) privateAcknowledgments.add(interaction);
             if (['deferUpdate', 'update'].includes(name) && require('./discord-privacy').isEphemeralMessage(interaction.message)) privateAcknowledgments.add(interaction);

@@ -209,12 +209,17 @@ function showToast(message) {
 
 
 async function requestJson(url, options = {}) {
-  const response = await fetch(url, options);
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(payload.error || `Request failed (${response.status})`);
-  }
-  return payload;
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 20000);
+  try {
+    const response = await fetch(url, { ...options, signal: options.signal || controller.signal });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || `Request failed (${response.status})`);
+    return payload;
+  } catch (error) {
+    if (controller.signal.aborted) throw new Error('This is taking too long. Please retry.');
+    throw error;
+  } finally { window.clearTimeout(timeout); }
 }
 
 function draftRequestJson(url) {
@@ -1358,30 +1363,37 @@ async function loadDraftClass(selection) {
 }
 
 async function initialize() {
-  try {
-    await validateAdminMode();
-    const [leaguePayload, draftPayload] = await Promise.all([
-      requestJson("/api/league-site"),
-      draftRequestJson("/api/draft-classes"),
-    ]);
-    state.leagueSite = leaguePayload;
-    renderLeagueSite();
-    state.boards = draftPayload.boards;
-    state.canBrowseAllDraftClasses = draftPayload.canBrowseAll === true;
-    state.draftSeasonNumber = draftPayload.seasonNumber;
-    state.prospectStatsAvailable = draftPayload.prospectStatsAvailable === true;
-    const currentUrl = new URL(window.location.href);
-    const requestedClass = currentUrl.searchParams.get("class");
-    await loadDraftClass(requestedClass);
-    if (window.location.hash === "#league-stats") await loadLeagueStats();
-    if (window.location.hash === "#team-stats") await loadTeamStats();
-    if (hasAdminAccess()) {
-      try { await loadAdminPanels(); await loadAdminWorkflow(); }
-      catch (error) { elements.adminKeyStatus.textContent = error.message; }
-    }
-  } catch (error) {
-    console.error(error);
-    elements.resultCount.textContent = "The draft board could not be loaded.";
+  await validateAdminMode();
+  await Promise.allSettled([
+    (async () => {
+      try {
+        state.leagueSite = await requestJson('/api/league-site');
+        renderLeagueSite();
+      } catch (error) {
+        elements.leagueStatusPill.textContent = 'League unavailable · refresh to retry';
+        setPanelMessage(elements.teamDirectory, error.message);
+        showToast(error.message);
+      }
+    })(),
+    (async () => {
+      try {
+        const draftPayload = await draftRequestJson('/api/draft-classes');
+        state.boards = draftPayload.boards;
+        state.canBrowseAllDraftClasses = draftPayload.canBrowseAll === true;
+        state.draftSeasonNumber = draftPayload.seasonNumber;
+        state.prospectStatsAvailable = draftPayload.prospectStatsAvailable === true;
+        await loadDraftClass(new URL(window.location.href).searchParams.get('class'));
+      } catch (error) {
+        elements.resultCount.textContent = 'The draft board could not be loaded. Refresh to retry.';
+        elements.topTenCount.textContent = error.message;
+      }
+    })(),
+  ]);
+  if (window.location.hash === '#league-stats') await loadLeagueStats();
+  if (window.location.hash === '#team-stats') await loadTeamStats();
+  if (hasAdminAccess()) {
+    try { await loadAdminPanels(); await loadAdminWorkflow(); }
+    catch (error) { elements.adminKeyStatus.textContent = error.message; }
   }
 }
 
@@ -1808,7 +1820,7 @@ async function refreshOwnerLabels() {
   if (document.hidden || ownershipRefreshPending || !state.leagueSite?.league) return;
   ownershipRefreshPending = true;
   try {
-    const payload = await requestJson("/api/league-site");
+    const payload = await requestJson("/api/league/owners");
     if (payload.league?.leagueId !== state.leagueSite.league.leagueId) return;
     if (payload.league.seasonNumber !== state.leagueSite.league.seasonNumber
         || payload.league.currentPhase !== state.leagueSite.league.currentPhase) {

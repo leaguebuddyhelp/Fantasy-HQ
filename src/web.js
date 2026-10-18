@@ -154,13 +154,18 @@ function readProspects(fileName) {
 }
 
 function sendJson(response, status, payload) {
-  const body = JSON.stringify(payload);
-  response.writeHead(status, {
-    "Content-Type": MIME_TYPES[".json"],
-    "Content-Length": Buffer.byteLength(body),
-    "Cache-Control": "no-store",
-  });
-  response.end(body);
+  const body = Buffer.from(JSON.stringify(payload));
+  const headers = { 'Content-Type': MIME_TYPES['.json'], 'Cache-Control': 'no-store', Vary: 'Accept-Encoding' };
+  const accepted = String(response.req?.headers['accept-encoding'] || '');
+  const gzip = accepted.split(',').some(value => /^gzip(?:\s*;|\s*$)/i.test(value.trim()) && !/;\s*q=0(?:\.0*)?\s*$/i.test(value));
+  function send(bytes, compressed = false) {
+    if (response.destroyed || response.writableEnded) return;
+    response.writeHead(status, { ...headers, 'Content-Length': bytes.length, ...(compressed ? { 'Content-Encoding': 'gzip' } : {}) });
+    response.end(bytes);
+  }
+  if (body.length >= 16384 && gzip) {
+    require('zlib').gzip(body, { level: 1 }, (error, compressed) => send(error ? body : compressed, !error));
+  } else send(body);
 }
 
 function sendNoContent(response, status = 204) {
@@ -231,7 +236,7 @@ function leagueSitePayload() {
 
   const context = leagueService.getBoundLeagueContext({ guildId });
   const repository = leagueService.repository;
-  const teams = teamService.listTeams(context.league.leagueId, context.seasonId);
+  const teams = teamService.listTeamSummaries(context.league.leagueId, context.seasonId);
   const players = playerService.listPlayers(context.league.leagueId, context.seasonId);
   const memberships = rosterService.currentRosterEntries(context.league.leagueId, context.seasonId);
   const owners = repository.loadOwners(context.league.leagueId);
@@ -636,6 +641,19 @@ function unsafeRequestHandler(request, response) {
     return;
   }
 
+  if (url.pathname === '/api/league/owners' && request.method === 'GET') {
+    try {
+      const context = boundLeagueContext();
+      const owners = new Map(leagueService.repository.loadOwners(context.league.leagueId).map(owner => [owner.teamId, owner]));
+      sendJson(response, 200, {
+        league: { leagueId: context.league.leagueId, seasonNumber: context.league.seasonNumber, currentPhase: context.league.currentPhase },
+        summary: { teams: context.teams.length, ownersAssigned: owners.size },
+        teams: context.teams.map(team => ({ teamId: team.teamId, ownerUserId: owners.get(team.teamId)?.userId || null, ownerDisplayName: owners.get(team.teamId)?.displayName || owners.get(team.teamId)?.username || null })),
+      });
+    } catch (error) { sendJson(response, 400, { error: error.message }); }
+    return;
+  }
+
   if (url.pathname === "/api/league-site") {
     try {
       const payload = leagueSitePayload();
@@ -819,7 +837,7 @@ function unsafeRequestHandler(request, response) {
       const schedule = setupService.repository.scheduleExists(context.league.leagueId, context.seasonId)
         ? setupService.repository.loadSchedule(context.league.leagueId, context.seasonId)
         : null;
-      const teams = teamService.listTeams(context.league.leagueId, context.seasonId);
+      const teams = context.teams.map(({ teamId, teamName, abbreviation, conference }) => ({ teamId, teamName, abbreviation, conference }));
       sendJson(response, 200, { schedule, teams });
     } catch (error) {
       console.error("Website schedule data error:", error);

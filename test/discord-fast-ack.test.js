@@ -54,3 +54,33 @@ test('autocomplete transport sends choices rather than a deferred response',()=>
   const request=new EventEmitter();request.setTimeout=()=>{};request.end=text=>{body=JSON.parse(text);const response=new EventEmitter();response.statusCode=204;respond(response);response.emit('end');};return request;
  });assert.deepEqual(body,{type:8,data:{choices}});
 });
+test('all slash commands are acknowledged early with their established public or private visibility',async t=>{
+ const f=setup(t);
+ for(const [index,name] of ['team','scout','stats','availableteams','promo'].entries()){
+  const i={id:String(2000+index),token:'secret',commandName:name,isChatInputCommand:()=>true};
+  const p=f.ack.acknowledge(i);assert.equal(f.posted().payload.type,5);
+  assert.equal(f.posted().payload.data.flags,['availableteams','promo'].includes(name)?0:64);
+  f.worker.emit('message',{id:i.id,ok:true});await p;
+  assert.equal(i.ephemeral,!['availableteams','promo'].includes(name));
+ }
+});
+test('SDK modal, autocomplete and message callbacks use the worker without changing callback type or rate-limit errors',async t=>{
+ const {REST,Routes}=require('discord.js');const f=setup(t);let fallback=0;
+ const rest=new REST({makeRequest:async()=>{fallback++;return new Response(null,{status:204});}});
+ rest.setToken('bot-secret');const uninstall=f.ack.install(rest);t.after(uninstall);
+ for(const [index,type] of [4,7,8,9].entries()){
+  const id=String(2100+index),body={type,data:type===8?{choices:[]}:{content:'test'}};
+  const p=rest.post(Routes.interactionCallback(id,'callback-secret'),{auth:false,body});
+  while(f.posted()?.id!==id)await new Promise(setImmediate);
+  assert.deepEqual(f.posted().payload,body);assert.equal(f.posted().Authorization,undefined);
+  f.worker.emit('message',{id,ok:true,status:204,headers:{},body:''});await p;
+ }
+ const p=rest.post(Routes.interactionCallback('2200','callback-secret'),{auth:false,body:{type:8,data:{choices:[]}}});
+ while(f.posted()?.id!=='2200')await new Promise(setImmediate);
+ f.worker.emit('message',{id:'2200',ok:false,status:404,headers:{'content-type':'application/json'},body:JSON.stringify({code:10062,message:'Unknown interaction'})});
+ await assert.rejects(p,e=>e.code===10062);
+ await rest.get('/gateway');assert.equal(fallback,1);
+ // Multipart uploads keep SDK file handling rather than crossing the JSON bridge.
+ await rest.options.makeRequest('https://discord.com/api/v10/interactions/2300/token/callback',{method:'POST',body:new FormData()});assert.equal(fallback,2);
+ rest.clearHashSweeper();rest.clearHandlerSweeper();
+});
