@@ -55,3 +55,13 @@ Archive: `leagues/LB-official/maintenance/34b6adeb-0a19-47bd-92ad-6a9ad8a9d994/`
 The container now starts Node directly rather than through npm. This ensures the application's tested shutdown handlers can receive stop signals and release the writer lease. The safety lease and full startup backup remain in place.
 
 The live configuration check also found a Railway dashboard `startCommand: npm start` override. The Dockerfile change alone did not replace that value. `railway.json` now pins `node src/index.js` for the deployment; Railway documents that [repository configuration overrides dashboard values](https://docs.railway.com/config-as-code/reference). The deployment manifest must show the direct Node command before calling the startup repair complete.
+
+## Final production verification
+
+Final deployment: `d8572655-adb3-428f-9bac-e67d5ce736fb`, status SUCCESS, recovery build `a0da89d`. Railway's live service setting and effective deployment manifest both show `node src/index.js`; bot login and website startup were confirmed. Repository config alone did not replace the existing service override in this deployment path, so the service start command was also explicitly updated through Railway's supported API. No new access credentials were registered.
+
+All 19 final endpoint checks returned their expected status, including the intended unauthenticated admin 403. End-to-end times ranged from 79–219 ms in that run: league home 212 ms, players 154 ms, teams 219 ms, schedule 119 ms and standings 89 ms. The real browser loaded Season 1 regular-season home and all 75 prospects, opened actual NBA player/team profiles, and reported no JavaScript failures or mobile horizontal overflow.
+
+The final inventory reported approximately 238 MB RSS and 49 MB heap, compared with the earlier 346 MB RSS / 155 MB heap sample. One setup mock remained active, no eligible cleanup files remained, and the retired upgrade file was absent from active storage. Player IDs remained unique (652 players; 440 rostered across 30 teams, at 14–15 players each) and the schedule retained 210 games. The cleanup receipt touched only the 22 metadata sidecars and retired upgrade file; canonical player, membership, contract, trade and game records were not cleanup targets.
+
+The measurements establish the observed recovery in this session; they do not substitute for future monitoring or guarantee that every future image will OCR perfectly.
