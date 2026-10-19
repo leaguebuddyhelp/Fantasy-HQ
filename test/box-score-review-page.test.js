@@ -47,3 +47,46 @@ test('cropped review lets staff select missing teams and match players to the se
  assert.equal(await page.getByLabel('N. Hyland roster match').inputValue(),'p');
  assert.deepEqual(errors,[]);
 });
+
+test('unmatched review row can sign a free agent to its game team and save the roster match',async t=>{
+ const browser=await chromium.launch({headless:true});t.after(()=>browser.close());
+ const page=await browser.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
+ const stats=Object.fromEntries(['MIN','PTS','REB','AST','STL','BLK','TO','FG','3PT','FT','OR','FLS'].map(k=>[k,null]));
+ const screen={mediaId:'image',tableTeamName:'Wolves',confidence:'HIGH',scoreboard:[{teamName:'Wolves',finalScore:10,periods:[{label:'Q1',score:10}]}],players:[{displayedName:'New Player',playerId:null,dnp:false,confidence:'HIGH',stats}],totals:stats};
+ const extraction={extractionId:'e1',status:'REVIEW_REQUIRED',issues:[],normalized:{screenshots:[{displayedTeamName:'Wolves',teamId:'wolves',scoreboard:[{displayedTeamName:'Wolves',teamId:'wolves'}],players:[{candidates:[]}]}]},rosterSnapshot:{wolves:[]}};
+ let payload={game:{gameId:'g',leagueId:'league',seasonId:'1',weekNumber:1,team1Id:'wolves',team2Id:'rockets',team1Name:'Wolves',team2Name:'Rockets',status:'SCHEDULED'},editable:{screenshots:[screen]},extractions:[extraction],teamRecords:[]};
+ const calls=[];
+ await page.route('http://review.test/**',async route=>{
+  const request=route.request(),url=new URL(request.url());calls.push([request.method(),url.pathname]);
+  if(url.pathname==='/box-score-review.js')return route.fulfill({contentType:'text/javascript',body:fs.readFileSync('web/box-score-review.js','utf8')});
+  if(!url.pathname.startsWith('/api/'))return route.fulfill({contentType:'text/html',body:fs.readFileSync('web/box-score-review.html','utf8')});
+  if(url.pathname==='/api/league/admin/rosters/free-agents')return route.fulfill({json:{players:[{playerId:'fa',name:'Free Agent',position1:'SG',overall:70}]}});
+  if(url.pathname==='/api/league/admin/rosters/correction-preview')return route.fulfill({json:{token:'correction-token',reason:'Approved emergency roster addition'}});
+  if(url.pathname==='/api/league/admin/rosters/assign-free-agent')return route.fulfill({json:{player:{playerId:'fa',name:'Free Agent'}}});
+  if(url.pathname.endsWith('/correct')) {
+   const body=request.postDataJSON();
+   const corrected={...extraction,extractionId:'e2',status:'READY_FOR_REVIEW',issues:[],correctedInput:body.input,rosterAdditions:[{screenshotIndex:0,playerId:'fa',teamId:'wolves',name:'Free Agent'}]};
+   payload={...payload,editable:body.input,extractions:[corrected]};
+   return route.fulfill({json:corrected});
+  }
+  if(url.pathname.endsWith('/review'))return route.fulfill({json:payload});
+  return route.fulfill({json:{}});
+ });
+ await page.goto('http://review.test/games/g/submissions/s/review');
+ await page.locator('#key').fill('test-key');await page.locator('#access button').click();
+ await page.locator('#operator').fill('Commissioner');
+ await page.getByText('Add free agent to Wolves').click();
+ await page.locator('.review-free-agent-add form').waitFor({timeout:3000}).catch(async()=>assert.fail(await page.locator('.review-free-agent-add').innerText()));
+ await page.getByLabel('Choose free agent').selectOption('fa');
+ await page.getByLabel('Starting annual salary').fill('$1M');
+ await page.getByLabel('Contract years').fill('1');
+ await page.getByLabel('Reason for roster addition').fill('Approved emergency roster addition');
+ await page.getByRole('button',{name:'Add to roster and match player'}).click();
+ await page.getByRole('button',{name:'Confirm and add player'}).click();
+ await page.waitForFunction(()=>document.querySelector('#action-status')?.textContent.startsWith('Saved successfully'),null,{timeout:5000});
+ assert.equal(await page.getByLabel('New Player roster match').inputValue(),'fa');
+ assert.ok(calls.some(([,path])=>path.endsWith('/correction-preview')));
+ assert.ok(calls.some(([,path])=>path.endsWith('/assign-free-agent')));
+ assert.ok(calls.some(([,path])=>path.endsWith('/correct')));
+ assert.deepEqual(errors,[]);
+});

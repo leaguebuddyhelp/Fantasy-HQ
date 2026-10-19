@@ -8,7 +8,7 @@ function editable(extraction) {
     players:s.players.map(p=>({displayedName:p.displayedName,playerId:p.playerId,dnp:p.dnp,confidence:p.confidence,stats:p.stats.raw || {}})), totals:s.totals.raw || {} })) });
 }
 function createReviewService(submissions) {
-  function validate(record, source, input, reviewedPaths) {
+  function validate(record, source, input, reviewedPaths, rosterAdditions = []) {
     const original=editable(source);
     if (!input || input.screenshots?.length!==2) throw new Error('Two box scores are required.');
     input.screenshots.forEach((s,i)=>{
@@ -18,12 +18,36 @@ function createReviewService(submissions) {
       s.confidence=old.confidence; s.uncertainFields=[];
       s.players.forEach((p,j)=>{p.confidence=old.players[j].confidence;});
     });
-    const rosters=source.rosterSnapshot;
+    const rosters=source.rosterSnapshot && structuredClone(source.rosterSnapshot);
     if(!rosters) throw new Error('Roster snapshot unavailable. Run extraction again.');
     const teams=submissions.repository.loadLeague(record.game.leagueId,record.game.seasonId).teams;
     const resolved=normalizeExtraction(input,{game:record.game,media:record.media.filter(m=>m.submissionId===source.submissionId),teams,rosters});
     const all=new Set([...(source.reviewedPaths || []),...(reviewedPaths || [])]);
     const matches={};
+    const additions = new Map();
+    const players = new Map(submissions.repository.loadPlayers(record.game.leagueId).map(player => [player.playerId, player]));
+    const memberships = submissions.repository.loadRosterMemberships(record.game.leagueId);
+    const approvedAdditions = [...(source.rosterAdditions || []), ...(rosterAdditions || [])];
+    for (const addition of approvedAdditions) {
+      const { screenshotIndex, playerId, teamId } = addition || {};
+      if (!Number.isInteger(screenshotIndex) || screenshotIndex < 0 || screenshotIndex >= input.screenshots.length
+        || typeof playerId !== 'string' || typeof teamId !== 'string') throw new Error('Invalid roster addition for this review.');
+      const screen = input.screenshots[screenshotIndex];
+      const resolvedTeamId = source.normalized.screenshots[screenshotIndex].teamId || resolved.normalized.screenshots[screenshotIndex].teamId;
+      if (resolvedTeamId !== teamId || !screen.players.some(player => player.playerId === playerId)) throw new Error('Added player must be matched to a row on the same team.');
+      const membership = memberships.find(entry => entry.playerId === playerId && entry.teamId === teamId
+        && String(entry.seasonId) === String(record.game.seasonId) && entry.active !== false && !entry.endedAt);
+      const player = players.get(playerId);
+      const signedAt = Date.parse(membership?.startedAt || ''), extractedAt = Date.parse(source.timestamp || '');
+      if (!membership || membership.source !== 'admin-free-agent' || !Number.isFinite(signedAt) || !Number.isFinite(extractedAt) || signedAt < extractedAt
+        || !player || player.retiredAt) throw new Error('The added player is no longer an active free-agent signing on this team. Reload the review.');
+      const key = `${screenshotIndex}:${playerId}`;
+      const existing = additions.get(key);
+      if (existing && existing.teamId !== teamId) throw new Error('A player cannot be added to two teams in one review.');
+      additions.set(key, { screenshotIndex, playerId, teamId, name: player.name });
+      rosters[teamId] ||= [];
+      if (!rosters[teamId].some(entry => entry.playerId === playerId)) rosters[teamId].push({ playerId, name: player.name });
+    }
     input.screenshots.forEach((s,i)=>{
       if(all.has(`screenshots.${i}`))s.confidence='HIGH';
       const teamId=source.normalized.screenshots[i].teamId || resolved.normalized.screenshots[i].teamId;
@@ -39,7 +63,7 @@ function createReviewService(submissions) {
     const output=normalizeExtraction(input,{game:record.game,media:record.media.filter(m=>m.submissionId===source.submissionId),teams,rosters,playerMatches:matches,learnedAliases:require('./learning').loadLearning(submissions.repository,record.game.leagueId).aliases});
     for(const issue of source.issues || []) if(issue.code==='UNCERTAIN_FIELD' && !all.has(issue.path))output.issues.push(issue);
     if(record.submissions.find(s=>s.submissionId===source.submissionId)?.mode==='TEAM_SIDES') for(const screen of output.normalized.screenshots) if(record.media.find(m=>m.mediaId===screen.mediaId)?.teamId!==screen.teamId)output.issues.push({code:'UPLOADED_TEAM_MISMATCH',path:screen.mediaId,message:'Screenshot does not match the uploading team.'});
-    return {...output,reviewedPaths:[...all]};
+    return {...output,reviewedPaths:[...all],rosterAdditions:[...additions.values()]};
   }
   function revisionReason(record, body) {
     if(submissions.repository.loadLeague(record.game.leagueId).seasonId!==String(record.game.seasonId))throw Error('This result belongs to an archived season; current-season review controls cannot change it.');
@@ -71,7 +95,7 @@ function createReviewService(submissions) {
       const {source,submission}=current(record,submissionId,body.extractionId, !!reason);
       const operator=String(body.operator || '').trim(); if(!operator || operator.length>100)throw new Error('Enter your commissioner name (up to 100 characters).');
       const input=structuredClone(body.input);
-      const output=validate(record,source,input,body.reviewedPaths);
+      const output=validate(record,source,input,body.reviewedPaths,body.rosterAdditions);
       const revision={...output,extractionId:randomUUID(),gameId,submissionId,mediaIds:source.mediaIds,
         parentExtractionId:source.extractionId,rosterSnapshot:source.rosterSnapshot,correctedInput:input,
         ...(reason ? { revisionReason: reason, revisesExtractionId: record.game.result.extractionId } : {}),
@@ -88,7 +112,7 @@ function createReviewService(submissions) {
       const {source}=current(record,submissionId,body.extractionId, !!reason);
       if (reason && source.revisesExtractionId !== record.game.result.extractionId) throw Error('Save a correction of the current official result first.');
       if(!source.correctedInput || !source.actor)throw new Error('Save and revalidate your review first.');
-      const output=validate(record,source,structuredClone(source.correctedInput),[]);
+      const output=validate(record,source,structuredClone(source.correctedInput),[],source.rosterAdditions);
       if(output.issues.length)throw new Error('Resolve all validation warnings before approval.');
       const operator=String(body.operator || '').trim(); if(!operator || operator.length>100)throw new Error('Enter your commissioner name.');
       if (reason) { archive(record, body, 'CORRECTED'); record.game.finalizedAt = null; record.game.locked = false; record.game.previousApprovalNotice = record.game.approvalNotice || record.game.previousApprovalNotice; delete record.game.approvalNotice; }

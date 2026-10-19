@@ -246,6 +246,31 @@ test('review prevents stale overwrites, wrong-team player selection and changed 
   await f.review.correct(f.game.gameId,f.submission.submissionId,f.body);
   await assert.rejects(f.review.correct(f.game.gameId,f.submission.submissionId,f.body),/stale/);
 });
+test('review accepts a free agent added to the game team without rewriting the extraction roster snapshot',async t=>{
+  const f=await reviewFixture(t),playerId='new-free-agent',signedAt=new Date(Date.now()+1000).toISOString();fixReview(f);
+  const beforeSnapshot=structuredClone(f.original.rosterSnapshot);
+  const players=f.repository.loadPlayers('test');players.push({playerId,name:'New Free Agent'});f.repository.savePlayers('test',players);
+  const memberships=f.repository.loadRosterMemberships('test');memberships.push({playerId,teamId:'mil',seasonId:'1',active:true,source:'admin-free-agent',startedAt:signedAt});
+  f.repository.saveRosterMemberships('test',memberships);
+  f.body.input.screenshots[0].players[1].playerId=playerId;
+  await assert.rejects(f.review.correct(f.game.gameId,f.submission.submissionId,f.body),/appropriate roster/);
+  f.body.rosterAdditions=[{screenshotIndex:0,playerId,teamId:'mil'}];
+  const correction=await f.review.correct(f.game.gameId,f.submission.submissionId,f.body);
+  assert.deepEqual(correction.rosterAdditions,[{screenshotIndex:0,playerId,teamId:'mil',name:'New Free Agent'}]);
+  assert.deepEqual(f.original.rosterSnapshot,beforeSnapshot);
+  await f.review.approve(f.game.gameId,f.submission.submissionId,{extractionId:correction.extractionId,operator:'Approver'});
+  const saved=f.submissions.load(f.game.gameId);
+  assert.equal(saved.game.status,'FINAL');
+  assert.ok(saved.playerGameStats.some(stat=>stat.playerId===playerId));
+});
+test('review cannot claim a roster addition for a different team or an older roster membership',async t=>{
+  const f=await reviewFixture(t),playerId='existing-player';
+  f.body.input.screenshots[0].players[1].playerId=playerId;
+  const players=f.repository.loadPlayers('test');players.push({playerId,name:'Existing Player'});f.repository.savePlayers('test',players);
+  const memberships=f.repository.loadRosterMemberships('test');memberships.push({playerId,teamId:'cle',seasonId:'1',active:true,source:'admin-free-agent',startedAt:new Date(Date.now()+1000).toISOString()});f.repository.saveRosterMemberships('test',memberships);
+  f.body.rosterAdditions=[{screenshotIndex:0,playerId,teamId:'mil'}];
+  await assert.rejects(f.review.correct(f.game.gameId,f.submission.submissionId,f.body),/no longer an active free-agent signing/);
+});
 function reviewRequest(f,action,authorized,body) {
   const {Readable}=require('stream');const request=Readable.from(body?[JSON.stringify(body)]:[]);request.method=body?'POST':'GET';
   return new Promise(resolve=>{let code;const response={writeHead(c){code=c;},end(b){resolve({code,body:b});}};

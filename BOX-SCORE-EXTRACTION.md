@@ -49,9 +49,10 @@ HIGH/MEDIUM/LOW confidence and provider-reported uncertain field paths are retai
 
 - Page: `/games/:gameId/submissions/:submissionId/review`
 - Data: `GET /api/games/:gameId/submissions/:submissionId/review`
+- Unmatched player rows can open the existing commissioner free-agent signing flow for that game team. A signing is audited using the roster correction workflow; review validation accepts the new player only while the corresponding active free-agent membership remains on that team. The extraction's original roster snapshot remains unchanged.
 - Original: `GET /api/games/:gameId/submissions/:submissionId/media/:mediaId`
 
-API requests require the `x-leaguebuddy-admin-key` header. The page is a read-only status/issues foundation. Data includes all attempts; each submission points to its latestExtractionId. Original-media access never requests Discord again. No write/finalize/correct route was added.
+API requests require the `x-leaguebuddy-admin-key` header. Data includes all attempts; each submission points to its latestExtractionId. Original-media access never requests Discord again. Corrections are revalidated before approval; approval runs the existing finalizer. Roster additions use the separate audited free-agent and correction-preview routes.
 
 ## Verification and limits
 

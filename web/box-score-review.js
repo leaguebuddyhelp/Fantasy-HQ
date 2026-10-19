@@ -2,7 +2,7 @@ const form = document.querySelector('#access'), status = document.querySelector(
 localStorage.removeItem('leaguebuddyAdminKey');
 const key = document.querySelector('#key'); key.value = sessionStorage.getItem('leaguebuddyAdminKey') || '';
 const endpoint = `/api${location.pathname}`;
-let data, draft, latest, dirty = false, busy = false, objectUrls = [];
+let data, draft, latest, dirty = false, busy = false, objectUrls = [], rosterAdditions = [];
 let highlightedRow, highlightedIssueCard, revisionMode = false, revisionReason = '';
 const fields = ['MIN', 'PTS', 'REB', 'AST', 'STL', 'BLK', 'TO', 'FG', '3PT', 'FT', 'OR', 'FLS'];
 const reviewed = new Set();
@@ -83,7 +83,7 @@ function input(value, path, update, type = 'text') {
 async function load() {
   status.textContent = 'Loading…';
   const next = await (await api(endpoint)).json();
-  if (imageKey !== key.value) { objectUrls.forEach(URL.revokeObjectURL); objectUrls = []; imageCache.clear(); imageKey = key.value; } data = next; draft = structuredClone(data.editable); latest = data.extractions.at(-1); dirty = false; reviewed.clear(); await render();
+  if (imageKey !== key.value) { objectUrls.forEach(URL.revokeObjectURL); objectUrls = []; imageCache.clear(); imageKey = key.value; }   data = next; draft = structuredClone(data.editable); latest = data.extractions.at(-1); rosterAdditions = structuredClone(latest?.rosterAdditions || []); dirty = false; reviewed.clear(); await render();
 }
 async function render() {
   summary.replaceChildren(); highlightedRow = null; highlightedIssueCard = null;
@@ -184,7 +184,11 @@ async function render() {
     }
     const scroll = el('div', null, 'review-table-wrap'), table = el('table'), head = el('tr');
     for (const title of ['Player / roster match', 'DNP', ...fields]) head.append(el('th', title)); table.append(head);
-    const teamId = latest.normalized.screenshots[i].teamId || (screen.tableTeamName === data.game.team1Name ? data.game.team1Id : screen.tableTeamName === data.game.team2Name ? data.game.team2Id : null), roster = latest.rosterSnapshot?.[teamId] || [];
+    const teamId = latest.normalized.screenshots[i].teamId || (screen.tableTeamName === data.game.team1Name ? data.game.team1Id : screen.tableTeamName === data.game.team2Name ? data.game.team2Id : null);
+    const roster = [...(latest.rosterSnapshot?.[teamId] || [])];
+    for (const addition of rosterAdditions.filter(entry => entry.teamId === teamId)) {
+      if (!roster.some(player => player.playerId === addition.playerId)) roster.push({ playerId: addition.playerId, name: addition.name });
+    }
     for (const [j, p] of screen.players.entries()) {
       const row = el('tr'), cell = el('td'); cell.append(el('span', p.displayedName));
       const select = el('select'); select.setAttribute('aria-label', `${p.displayedName} roster match`); select.dataset.path = `${base}.players.${j}.playerId`; select.append(new Option('Select roster player…', ''));
@@ -203,6 +207,71 @@ async function render() {
         }
         if (candidates.length > 3) choices.append(el('small', `${candidates.length - 3} more in roster list`));
         cell.append(choices);
+      }
+      if (!p.playerId && teamId && !locked) {
+        const addPanel = el('details', null, 'review-free-agent-add');
+        addPanel.append(el('summary', `Add free agent to ${screen.tableTeamName || 'this team'}`));
+        let pool = null;
+        addPanel.addEventListener('toggle', async () => {
+          if (!addPanel.open || pool) return;
+          try {
+            addPanel.append(el('p', 'Loading free agents…'));
+            pool = (await (await api('/api/league/admin/rosters/free-agents')).json()).players;
+            addPanel.lastChild.remove();
+            const form = el('form', null, 'admin-form admin-form-compact'), grid = el('div', null, 'admin-form-grid');
+            const search = el('input'); search.type = 'search'; search.placeholder = 'Search free agents'; search.setAttribute('aria-label', 'Search free agents');
+            const playerSelect = el('select'); playerSelect.required = true; playerSelect.setAttribute('aria-label', 'Choose free agent');
+            const salary = el('input'); salary.required = true; salary.placeholder = '$6.66M'; salary.setAttribute('aria-label', 'Starting annual salary');
+            const years = el('input'); years.required = true; years.placeholder = '3 or 3+1'; years.setAttribute('aria-label', 'Contract years');
+            const structure = el('select'); structure.setAttribute('aria-label', 'Salary structure');
+            for (const [value, label] of [['FLAT','Flat'],['FRONT','Front-loaded (-5%)'],['BACK','Back-loaded (+5%)']]) structure.add(new Option(label, value));
+            const option = el('select'); option.setAttribute('aria-label', 'Final-year option');
+            for (const [value, label] of [['None','None'],['Team','Team option'],['Player','Player option']]) option.add(new Option(label, value));
+            const reason = el('input'); reason.required = true; reason.minLength = 10; reason.placeholder = 'At least 10 characters'; reason.setAttribute('aria-label', 'Reason for roster addition');
+            const label = (text, control) => { const node = el('label'); node.append(el('span', text), control); return node; };
+            const fillPlayers = () => {
+              const selected = playerSelect.value, query = search.value.trim().toLowerCase();
+              playerSelect.replaceChildren(new Option('Choose a free agent', ''));
+              pool.filter(player => !player.signingBlockedReason && (!query || [player.name, player.position1, player.position2].some(value => String(value || '').toLowerCase().includes(query))))
+                .forEach(player => playerSelect.add(new Option(`${player.name} · ${player.position1 || 'Position unknown'} · ${player.overall ?? '—'} OVR`, player.playerId)));
+              if ([...playerSelect.options].some(entry => entry.value === selected)) playerSelect.value = selected;
+            };
+            search.addEventListener('input', fillPlayers); fillPlayers();
+            grid.append(label('Search', search), label('Free agent', playerSelect), label('Starting annual salary', salary), label('Contract years', years), label('Salary structure', structure), label('Final-year option', option), label('Reason for roster addition', reason));
+            const add = el('button', 'Add to roster and match player'); add.type = 'button';
+            const note = el('p', 'review-free-agent-status'); note.setAttribute('role', 'status');
+            let correction = null;
+            form.append(grid, add, note);
+            add.addEventListener('click', async () => {
+              if (busy) return;
+              const operator = summary.querySelector('#operator')?.value.trim();
+              if (!operator) { note.textContent = 'Enter your commissioner name above first.'; return; }
+              const player = pool.find(entry => entry.playerId === playerSelect.value);
+              if (!player) { note.textContent = 'Choose an available free agent.'; return; }
+              const contractDetails = { salary: salary.value.trim(), years: years.value.trim(), structure: structure.value, option: option.value };
+              const payload = { teamId, playerId: player.playerId, contractDetails };
+              if (reason.value.trim().length < 10) { note.textContent = 'Enter a reason of at least 10 characters.'; reason.focus(); return; }
+              add.disabled = true; note.textContent = 'Preparing roster correction…';
+              try {
+                if (!correction) {
+                  correction = await (await api('/api/league/admin/rosters/correction-preview', { action: 'assign', payload, reason: reason.value.trim() })).json();
+                  note.textContent = `Review signing ${player.name} to ${screen.tableTeamName} · ${contractDetails.salary} · ${contractDetails.years} years. Press confirm to continue.`;
+                  add.textContent = 'Confirm and add player';
+                  add.disabled = false;
+                  return;
+                }
+                await api('/api/league/admin/rosters/assign-free-agent', { ...payload, ...correction, operator });
+                rosterAdditions.push({ screenshotIndex: i, playerId: player.playerId, teamId });
+                if (![...select.options].some(entry => entry.value === player.playerId)) select.add(new Option(player.name, player.playerId));
+                select.value = player.playerId; select.dispatchEvent(new Event('change'));
+                note.textContent = 'Player added. Saving and revalidating the review…';
+                await act('correct');
+              } catch (error) { note.textContent = error.message; add.disabled = false; }
+            });
+            addPanel.append(form);
+          } catch (error) { addPanel.append(el('p', error.message, 'review-problem')); }
+        });
+        cell.append(addPanel);
       }
       const rowIssues = issues.filter(issue => ['UNCERTAIN_FIELD','CONFIDENCE'].includes(issue.code) && (issue.path === `${base}.players.${j}` || issue.path.startsWith(`${base}.players.${j}.`)));
       if (rowIssues.length && !locked) {
@@ -230,7 +299,7 @@ async function render() {
     let accepted = false;
     try {
       sessionStorage.setItem('leaguebuddyReviewOperator', name.value.trim());
-      const response = await api(endpoint.replace(/review$/, action), { extractionId: latest.extractionId, operator: name.value.trim(), revisionReason, ...(action === 'correct' ? { input: draft, reviewedPaths: [...reviewed] } : {}) });
+      const response = await api(endpoint.replace(/review$/, action), { extractionId: latest.extractionId, operator: name.value.trim(), revisionReason, ...(action === 'correct' ? { input: draft, reviewedPaths: [...reviewed], rosterAdditions } : {}) });
       if (action === 'approve') { const game = await response.json(); accepted = true; dirty = false; revisionMode = false; revisionReason = ''; approve.textContent = 'APPROVED ✓'; approvalConfirmation(game); }
       await load();
       feedback(action === 'approve' ? 'Game approved. Stats and standings are saved.' : latest.issues.length ? `Saved successfully. ${latest.issues.length} items still need review above before approval.` : 'Saved successfully. All checks passed — you can now approve the game.');
