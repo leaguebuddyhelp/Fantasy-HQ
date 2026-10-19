@@ -18,7 +18,7 @@ test('corrected performances stay reviewable below all headline thresholds and m
  f.service.review('league',f.actor,{id:draft.id,action:'approve'});f.service.publishDue('league');
  await f.submissions.mutate(gameId,r=>{Object.assign(r.playerGameStats[0],{PTS:2,REB:1,AST:0,STL:0,BLK:0,TO:1,FGM:1,FGA:10,'3PM':0,'3PA':0,FTM:0,FTA:0});});
  const review=f.service.staffList('league',f.actor).find(a=>a.id===draft.id);assert.ok(review.pendingSource);assert.notEqual(review.sourceUnavailable,true);
- const corrected=f.service.review('league',f.actor,{id:draft.id,action:'correct'});assert.match(corrected.article,/recorded 2 points/);
+ const corrected=f.service.review('league',f.actor,{id:draft.id,action:'correct'});assert.match(corrected.article,/2 points/);
  const members=f.repository.loadRosterMemberships('league');members.find(m=>m.playerId==='b-0').startedAt='2030-01-01T00:00:00Z';f.repository.saveRosterMemberships('league',members);
  const invalid=f.service.staffList('league',f.actor).find(a=>a.playerIds[0]==='b-0');assert.equal(invalid.sourceUnavailable,true);assert.throws(()=>f.service.review('league',f.actor,{id:invalid.id,action:'approve'}),/source is no longer eligible/);
 });

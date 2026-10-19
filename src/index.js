@@ -796,6 +796,7 @@ async function handleTransferPortalClassAutocomplete(interaction) {
 }
 
 const handlers = {
+  newsreview: interaction => require('./fantasyhq/discord-news-review').createDiscordNewsReview({repository:tradeRepository,submissions:gameRecordStore}).command(interaction),
   website: interaction => require("./fantasyhq/discord-website").handleWebsite(interaction),
   promo: interaction => require("./fantasyhq/discord-promo").handlePromo(interaction, {repository:tradeRepository,ownership:roleOwnership}),
   mockdraft: interaction => discordMocks.projection(interaction),
@@ -961,6 +962,7 @@ async function handleInteraction(interaction) {
   if ((interaction.isButton() || interaction.isStringSelectMenu() || interaction.isModalSubmit()) && (interaction.customId.startsWith('book:') || interaction.customId === 'coachweb:open')) {
     await require('./fantasyhq/discord-sportsbook').createDiscordSportsbook({repository:tradeRepository,submissions:gameRecordStore}).handle(interaction);return;
   }
+  if (interaction.isButton() && interaction.customId.startsWith('newsrev:')) { await require('./fantasyhq/discord-news-review').createDiscordNewsReview({repository:tradeRepository,submissions:gameRecordStore}).button(interaction); return; }
   if ((interaction.isButton() || interaction.isStringSelectMenu() || interaction.isModalSubmit()) && interaction.customId.startsWith('mock:')) { await discordMocks.handle(interaction); return; }
   if (interaction.isButton() && interaction.customId === "tradeblock:tradefor") { await discordTradeBlock.handleTradeForButton(interaction); return; }
   if ((interaction.isButton() || interaction.isStringSelectMenu()) && interaction.customId.startsWith("trade:")) { await discordTrades.handleTradeInteraction(interaction); return; }

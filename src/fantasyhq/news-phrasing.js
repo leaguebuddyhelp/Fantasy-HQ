@@ -1,0 +1,50 @@
+const {createHash}=require('crypto');
+const roll=(seed,salt,length)=>parseInt(createHash('sha256').update(String(seed)+':'+salt).digest('hex').slice(0,8),16)%length;
+const pick=(seed,salt,options)=>options[roll(seed,salt,options.length)];
+const fill=(template,values)=>template.replace(/\{(\w+)\}/g,(_,key)=>values[key]??'');
+const shuffle=(seed,salt,items)=>items.map((item,index)=>({item,key:roll(seed,salt+index,1e6)})).sort((a,b)=>a.key-b.key).map(row=>row.item);
+
+const PERFORMANCE_HEADLINES={
+ Scoring:['{name} erupts for {PTS} against {opponent}','{name} lights up {opponent} with {PTS} points','{PTS} points: {name} carries {team}','{name} goes off as {team} {word}','Scoring explosion from {name} headlines {team}’s game','{name} can’t be stopped in {team}’s showdown with {opponent}','{name} puts {opponent} on notice with a {PTS}-point night'],
+ Rebounding:['{name} owns the glass with {REB} boards','{name} dominates the boards against {opponent}','{REB} rebounds: {name} controls the paint for {team}','{name} cleans up as {team} {word}','Board work from {name} stands out in {team}’s game','{name} out-muscles {opponent} for {REB} rebounds'],
+ Playmaking:['{name} runs the show with {AST} assists','{name} dishes {AST} dimes against {opponent}','{AST} assists: {name} orchestrates {team}’s offense','{name} pulls the strings as {team} {word}','Playmaking clinic from {name} lifts {team}','{name} sets the table for {team} with {AST} assists'],
+ Defense:['{name} locks in on defense with {STL} steals and {BLK} blocks','{name} wrecks {opponent}’s offense','Defensive masterclass from {name}','{name} makes {opponent} pay on the defensive end','{STL} steals, {BLK} blocks: {name} sets the tone for {team}','{name} anchors {team}’s defense in a {word} effort'],
+ Efficiency:['{name} is nearly perfect from the field','{name} shoots the lights out against {opponent}','Efficient night for {name} as {team} {word}','{name} makes every shot count for {team}','{name} stays hot, finishing {FG} from the field','Sharp shooting from {name} headlines {team}’s game'],
+ Shooting:['{name} rains threes on {opponent}','{name} is on fire from deep','{3PM} threes: {name} heats up for {team}','{name} can’t miss from three as {team} {word}','Deep-ball display from {name} against {opponent}'],
+ Default:['{name} makes the box score impossible to ignore','{name} delivers as {team} {word}','{name} stuffs the stat sheet against {opponent}','{name} turns in a night to remember for {team}','All-around effort from {name} stands out','{name} posts a big line as {team} {word}','Spotlight on {name} after {team}’s game with {opponent}']
+};
+const OPENERS=['{name} finished with {PTS} points as {team} {resultVerb} {opponent}, {scoreText}.','{team} {resultVerb} {opponent}, {scoreText}, and {name} was in the middle of it with {PTS} points.','In a {scoreText} {resultNoun} against {opponent}, {name} put up {PTS} points for {team}.','{name} led the way for {team} with {PTS} points in the {scoreText} {resultNoun} over {opponent}.','{name} posted {PTS} points while {team} {resultVerb} {opponent}, {scoreText}.','The {scoreText} result against {opponent} came with a {PTS}-point showing from {name}.'];
+const ASSIST_REB=['{name} also grabbed {REB} rebounds and handed out {AST} assists.','The line included {REB} rebounds and {AST} assists.','{REB} rebounds and {AST} assists rounded out the offensive production.','On the glass and as a passer, {name} added {REB} rebounds and {AST} assists.','{name} chipped in {REB} rebounds and {AST} assists as well.'];
+const SHOOTING=['{name} shot {FG} from the field, {3PT} from three and {FT} at the line.','From the floor it was {FG}, with {3PT} from deep and {FT} on free throws.','The shooting splits read {FG} overall, {3PT} from three and {FT} from the stripe.','{name} went {FG} on field goals, {3PT} on threes and {FT} on free throws.'];
+const DEFENSE=['{name} added {STL} steals and {BLK} blocks against {TO} turnovers in {MIN} minutes.','Defensively, {name} had {STL} steals and {BLK} blocks, with {TO} turnovers over {MIN} minutes.','{STL} steals and {BLK} blocks came in {MIN} minutes, alongside {TO} turnovers.','Over {MIN} minutes, {name} logged {STL} steals, {BLK} blocks and {TO} turnovers.'];
+const CONTEXT_SEASON_BEST=['That {metric} total beat every earlier approved performance from {name} this season.','It was a season-best {metric} mark for {name}.','No earlier approved game this season matched that {metric} total.'];
+const CONTEXT_DEFENSE=['The {combined} combined steals and blocks put the defensive impact next to the offensive numbers.','{combined} steals and blocks gave {team} real impact away from the scoring column.'];
+const CONTEXT_GENERAL=['The scoring, rebounding and passing totals give the performance context beyond the final score.','Beyond the final score, the full stat line shows how much {name} contributed.','Taken together, the numbers show the full scope of {name}’s night.'];
+const CLOSERS=['This account is based on the finalized box score from week {week}{stage}.','Everything here comes from the finalized week {week} box score{stage}.','The finalized box score from week {week}{stage} is the source for these numbers.','Numbers come straight from the approved week {week} box score{stage}.'];
+
+function performanceCopy(facts) {
+ const {name,log,scenario}=facts,seed=log.gameId+':'+log.playerId;
+ const words=log.result==='W';
+ const group=scenario.category==='Defense'?'Defense':scenario.category==='Efficiency'?'Efficiency':scenario.metric==='3PM'?'Shooting':scenario.metric==='REB'?'Rebounding':scenario.metric==='AST'?'Playmaking':scenario.metric==='PTS'?'Scoring':'Default';
+ const values={name,team:log.teamName,opponent:log.opponent,word:words?'win':'fall',resultVerb:words?'beat':'fell to',resultNoun:words?'win':'loss',scoreText:log.score.replace('-',' to '),PTS:log.PTS,REB:log.REB,AST:log.AST,STL:log.STL,BLK:log.BLK,TO:log.TO,MIN:log.MIN,FG:log.FG,'3PT':log['3PT'],'3PM':String(log['3PT']).split('-')[0],FT:log.FT,metric:scenario.metric,combined:log.STL+log.BLK,week:log.week,stage:log.stage?' in '+String(log.stage).replaceAll('_',' '):''};
+ const headline=fill(pick(seed,'h',PERFORMANCE_HEADLINES[group].concat(roll(seed,'d',3)===0?PERFORMANCE_HEADLINES.Default:[])),values);
+ const context=scenario.context==='SEASON_BEST'?CONTEXT_SEASON_BEST:scenario.category==='Defense'?CONTEXT_DEFENSE:CONTEXT_GENERAL;
+ const middle=shuffle(seed,'m',[pick(seed,'a',ASSIST_REB),pick(seed,'s',SHOOTING),pick(seed,'f',DEFENSE)]);
+ const article=[pick(seed,'o',OPENERS),...middle,pick(seed,'c',context),pick(seed,'z',CLOSERS)].map(t=>fill(t,values)).join(' ');
+ return {headline,article};
+}
+
+const TRADE_HEADLINES=['{teams} make their deal official','{teams} strike a trade','{teams} swap assets in a completed deal','Trade alert: {teams} finalize a move','{teams} agree to terms on a trade','Deal done between {teams}'];
+const TRADE_OPENERS=['{teams} completed a trade after the league approved its execution proof.','The league signed off on a trade between {teams}.','A trade between {teams} is now official.','{teams} have finalized a deal, confirmed by staff.'];
+const SIGN_HEADLINES=['{team} signs {name}','{team} adds {name}','{name} joins {team}','{team} lands {name}','{name} inks with {team}','Roster move: {team} brings in {name}'];
+const WAIVE_HEADLINES=['{team} waives {name}','{team} parts ways with {name}','{name} cut by {team}','{team} releases {name}','{name} hits the market after {team} waives him'];
+const PROGRESSION_UP=['{name} takes a step forward','{name} is on the rise','Progression boost for {name}','{name} levels up in the offseason','{name}’s rating climbs'];
+const PROGRESSION_DOWN=['{name} faces a new rating reality','{name} slips in progression','A rating dip for {name}','{name} takes a hit in progression','{name}’s rating drops'];
+const CHAMPION_HEADLINES=['{team} finishes the season on top','{team} are your champions','Title winners: {team}','{team} hoist the trophy','Champions: {team} close out the season'];
+const DRAFT_LOTTERY=['{team} win the top spot in the draft lottery','{team} land the No. 1 pick','Lottery luck: {team} hold the first pick','{team} will pick first in the upcoming draft'];
+const DRAFT_PICK=['{team} select {name}','{name} heads to {team} in the draft','{team} land {name} in the draft','{team} draft {name}','{name} is drafted by {team}'];
+const SCOUT=['{name} tops the big board','Scouts are talking about {name}','Big board watch: {name} stands out','{name} headlines the draft class','Eyes on {name} as the draft class takes shape'];
+const BETTING_WIN=['{user} cashes a big ticket','{user} wins big at the sportsbook','A huge payday for {user}','{user} beats the books','Sportsbook winner: {user} cashes in'];
+const BETTING_LEADER=['{user} leads the sportsbook','{user} tops the betting leaderboard','The sportsbook belongs to {user} right now','{user} is the one to beat at the books'];
+
+module.exports={roll,pick,fill,shuffle,performanceCopy,TRADE_HEADLINES,TRADE_OPENERS,SIGN_HEADLINES,WAIVE_HEADLINES,PROGRESSION_UP,PROGRESSION_DOWN,CHAMPION_HEADLINES,DRAFT_LOTTERY,DRAFT_PICK,SCOUT,BETTING_WIN,BETTING_LEADER};
