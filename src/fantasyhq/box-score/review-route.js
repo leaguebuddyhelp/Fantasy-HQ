@@ -53,7 +53,7 @@ function handleBoxScoreReview(request,response,url,{ authorized, submissions = c
       response.end(submissions.readOriginal(gameId,mediaId));
     } else {
       response.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});
-      response.end(JSON.stringify({game:record.game,submission,media,teamRecords,
+      response.end(JSON.stringify({game:record.game,submission,latestSubmissionId:record.submissions.at(-1)?.submissionId,media,teamRecords,
         editable:(record.extractions || []).filter(e=>e.submissionId===submissionId).at(-1)?.normalized ? editable((record.extractions || []).filter(e=>e.submissionId===submissionId).at(-1)) : null,
         playerGameStats:record.playerGameStats || [],teamGameStats:record.teamGameStats || [],dnpPlayers:record.dnpPlayers || [],
         extractions:attempts.map((e,i) => {

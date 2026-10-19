@@ -83,6 +83,7 @@ function input(value, path, update, type = 'text') {
 async function load() {
   status.textContent = 'Loading…';
   const next = await (await api(endpoint)).json();
+  if (next.latestSubmissionId && next.submission?.submissionId && next.latestSubmissionId !== next.submission.submissionId) { location.replace(location.pathname.replace(next.submission.submissionId, next.latestSubmissionId) + location.search); return; }
   if (imageKey !== key.value) { objectUrls.forEach(URL.revokeObjectURL); objectUrls = []; imageCache.clear(); imageKey = key.value; }   data = next; draft = structuredClone(data.editable); latest = data.extractions.at(-1); rosterAdditions = structuredClone(latest?.rosterAdditions || []); dirty = false; reviewed.clear(); await render();
 }
 async function render() {
