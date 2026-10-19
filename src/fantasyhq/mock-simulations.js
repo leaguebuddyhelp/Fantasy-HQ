@@ -136,7 +136,8 @@ function createMockSimulationService({ repository, scoutingService, standingsSer
         return locked(root, () => {
             const existing = read(file);
             const sameClass = existing?.seasonId === input.seasonId && existing.draftClassId === input.draftClassId;
-            if (sameClass && existing.week === input.currentWeek && existing.engineVersion === ENGINE_VERSION) return existing;
+            const orderKey = hash(generateDraftOrder(input, { lottery: false }).order.map(o => [o.pickNumber, o.originalPickAssetId, o.originalTeamId, o.currentOwnerTeamId]));
+            if (sameClass && existing.week === input.currentWeek && existing.engineVersion === ENGINE_VERSION && existing.orderKey === orderKey) return existing;
             const snapshot = requireActive(leagueId, input);
             if (snapshot.metadata.engineVersion !== ENGINE_VERSION) {
                 if (sameClass) return existing;
@@ -150,7 +151,7 @@ function createMockSimulationService({ repository, scoutingService, standingsSer
             const generated = generateDraftOrder(input, { lottery: false });
             const seed = `weekly:${leagueId}:${input.seasonId}:${input.draftClassId}:${input.currentWeek ?? 'preseason'}`;
             const selections = project(input, generated.order, snapshot, seededRandom(seed)).map(s => ({ ...s, avp: snapshot.prospectAggregates[s.prospectId]?.avp ?? null }));
-            const result = { schemaVersion: 1, engineVersion: ENGINE_VERSION, leagueId, seasonId: input.seasonId, draftClassId: input.draftClassId, week: input.currentWeek, simulationSnapshotId: snapshot.id, generatedAt: snapshot.generatedAt, input, selections, warnings: generated.warnings };
+            const result = { orderKey, schemaVersion: 1, engineVersion: ENGINE_VERSION, leagueId, seasonId: input.seasonId, draftClassId: input.draftClassId, week: input.currentWeek, simulationSnapshotId: snapshot.id, generatedAt: snapshot.generatedAt, input, selections, warnings: generated.warnings };
             atomicWrite(file, result);
             return read(file);
         });

@@ -150,14 +150,16 @@ test('/mockdraft is identical for repeated calls, different coaches and service 
     const restarted = createMockSimulationService({ repository: f.repository, scoutingService: { boardForContext: () => ({ file: 'class.json', prospects: f.input.prospects }) }, standingsService: { getStandings: () => f.input.standings }, rosterService: { currentRosterEntries: () => [] } });
     assert.deepEqual(restarted.weeklyProjection('l'), published);
 });
-test('weekly command stays frozen through intraweek roster, standings, pick trades and simulation refreshes', async t => {
+test('weekly command follows the current order after pick trades and stays stable otherwise', async t => {
     const f = fixture(t), first = f.simulations.weeklyProjection('l');
     const picks = f.repository.loadDraftPicks('l'); picks[14].currentOwnerTeamId = 't0'; f.repository.saveDraftPicks('l', picks);
     f.input.standings.conferences.East[14].PCT = 0.99;
     requestRefresh(f.repository, 'l', 'trade.completed', 'trade:weekly-test');
     const refreshed = await f.simulations.refresh('l', { seed: 'new-market' });
     assert.notEqual(refreshed.id, first.simulationSnapshotId);
-    assert.deepEqual(f.simulations.weeklyProjection('l'), first);
+    const after = f.simulations.weeklyProjection('l');
+    assert.notEqual(after.orderKey, first.orderKey);
+    assert.deepEqual(f.simulations.weeklyProjection('l'), after);
 });
 test('advancing the league week publishes a new weekly projection only after the fresh market is saved', async t => {
     const f = fixture(t), first = f.simulations.weeklyProjection('l');
