@@ -757,7 +757,7 @@ test('mock needs count primary positions only and identify two needs even for co
 test('weekly second round includes picks 31–60, honors asset owners, never repeats first-round prospects and stays frozen across restarts',t=>{
  const f=fixture(t),second=f.input.teams.map(team=>({pickId:'second_'+team.teamId,round:2,draftYear:2027,originalTeamId:team.teamId,currentOwnerTeamId:team.teamId}));second[0].currentOwnerTeamId='t1';f.repository.saveDraftPicks('l',[...f.input.picks.filter(p=>p.round===1),...second]);const first=f.simulations.weeklyProjection('l'),round2=f.simulations.secondRoundProjection('l',first);assert.equal(round2.length,30);assert.deepEqual(round2.map(s=>s.pickNumber),Array.from({length:30},(_,i)=>31+i));assert.equal(new Set([...first.selections,...round2].map(s=>s.prospectId)).size,60);assert.equal(round2.find(s=>s.originalTeamId==='t0').currentOwnerTeamId,'t1');
  const restart=createMockSimulationService({repository:f.repository,scoutingService:{boardForContext:()=>({file:'class.json',prospects:f.input.prospects})},standingsService:{getStandings:()=>f.input.standings}});assert.deepEqual(restart.secondRoundProjection('l',first),round2);assert.deepEqual(f.simulations.weeklyProjection('l'),first);
- const embed=require('../src/fantasyhq/discord-mock-draft').projectionEmbed(first.input,round2,first,[],2).toJSON();assert.match(embed.description,/Second Round/);assert.match(embed.fields[0].name,/31/);assert.match(embed.fields.at(-1).name,/60/);
+ const embed=require('../src/fantasyhq/discord-mock-draft').projectionEmbed(first.input,round2,first,[],2).toJSON();assert.match(embed.description,/Second Round/);assert.match(embed.fields[0].value,/#31/);assert.match(embed.fields.at(-1).value,/#60/);
 });
 
 

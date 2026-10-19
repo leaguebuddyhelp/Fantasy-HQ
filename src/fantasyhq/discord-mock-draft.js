@@ -52,7 +52,7 @@ function projectionEmbed(input, selections, snapshot, warnings = [], round = 1) 
             value += `${value ? '\n\n' : ''}${lines[end++]}`;
         }
         if (end === start) throw Error('A prospect entry exceeds Discord’s embed field limit.');
-        card.addFields({ name: `Picks ${selections[start].pickNumber}–${selections[end - 1].pickNumber}`, value, inline: false });
+        card.addFields({ name: '\u200b', value, inline: false });
         start = end;
     }
     if (card.length > 6000) throw Error('The complete mock projection exceeds Discord’s single-embed limit.');
