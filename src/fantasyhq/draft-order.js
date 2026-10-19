@@ -12,7 +12,7 @@ function weighted(pool, rng) {
 function draftField({ teams, standings, draftYear, settings = {} }) {
     if (teams.length !== 30 || new Set(teams.map(t => t.teamId)).size !== 30) throw Error('Mock drafts require the configured 30 teams.');
     const rules = rulesForYear(draftYear), rows = Object.values(standings.conferences).flat();
-    const compare = (a, b) => a.PCT - b.PCT || tieKey(draftYear, a.teamId).localeCompare(tieKey(draftYear, b.teamId));
+    const compare = (a, b) => a.PCT - b.PCT || (a.DIFF || 0) - (b.DIFF || 0) || tieKey(draftYear, a.teamId).localeCompare(tieKey(draftYear, b.teamId));
     const conferences = ['East', 'West'].map(c => teams.filter(t => t.conference === c).map(t => ({ ...t, ...(rows.find(r => r.teamId === t.teamId) || { PCT: 0, W: 0, L: 0 }) })).sort((a, b) => Number.isInteger(a.rank) && Number.isInteger(b.rank) ? a.rank - b.rank : compare(b, a)).map((t, i) => ({ ...t, seed: i + 1 })));
     if (conferences.some(c => c.length !== 15)) throw Error('Expected 15 teams per conference.');
     const all = conferences.flat(), config = settings.mockDraft || {}, explicitLosers = config.playInLoserTeamIds;
