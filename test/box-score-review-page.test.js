@@ -60,7 +60,7 @@ test('unmatched review row can sign a free agent to its game team and save the r
   const request=route.request(),url=new URL(request.url());calls.push([request.method(),url.pathname]);
   if(url.pathname==='/box-score-review.js')return route.fulfill({contentType:'text/javascript',body:fs.readFileSync('web/box-score-review.js','utf8')});
   if(!url.pathname.startsWith('/api/'))return route.fulfill({contentType:'text/html',body:fs.readFileSync('web/box-score-review.html','utf8')});
-  if(url.pathname==='/api/league/admin/rosters/free-agents')return route.fulfill({json:{players:[{playerId:'fa',name:'Free Agent',position1:'SG',overall:70}]}});
+  if(url.pathname==='/api/league/admin/rosters/free-agents')return route.fulfill({json:{players:[{playerId:'fa',name:'Free Agent',position1:'SG',overall:70}],rostered:[{playerId:'rp',name:'Neu Playr',teamId:'rockets',teamName:'Rockets',rostered:true,position1:'PG',overall:80}]}});
   if(url.pathname==='/api/league/admin/rosters/correction-preview')return route.fulfill({json:{token:'correction-token',reason:'Approved emergency roster addition'}});
   if(url.pathname==='/api/league/admin/rosters/assign-free-agent')return route.fulfill({json:{player:{playerId:'fa',name:'Free Agent'}}});
   if(url.pathname.endsWith('/correct')) {
@@ -75,9 +75,11 @@ test('unmatched review row can sign a free agent to its game team and save the r
  await page.goto('http://review.test/games/g/submissions/s/review');
  await page.locator('#key').fill('test-key');await page.locator('#access button').click();
  await page.locator('#operator').fill('Commissioner');
- await page.getByText('Add free agent to Wolves').click();
+ await page.getByText('Add free agent or player from another roster to Wolves').click();
  await page.locator('.review-free-agent-add form').waitFor({timeout:3000}).catch(async()=>assert.fail(await page.locator('.review-free-agent-add').innerText()));
- await page.getByLabel('Choose free agent').selectOption('fa');
+ assert.match(await page.getByLabel('Choose player').innerText(),/Neu Playr · On Rockets/);
+ await page.getByLabel('Search players').fill('');
+ await page.getByLabel('Choose player').selectOption('fa');
  await page.getByLabel('Starting annual salary').fill('$1M');
  await page.getByLabel('Contract years').fill('1');
  await page.getByLabel('Reason for roster addition').fill('Approved emergency roster addition');

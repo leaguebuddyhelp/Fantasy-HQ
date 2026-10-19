@@ -263,6 +263,17 @@ test('review accepts a free agent added to the game team without rewriting the e
   assert.equal(saved.game.status,'FINAL');
   assert.ok(saved.playerGameStats.some(stat=>stat.playerId===playerId));
 });
+test('review accepts a player moved from another roster by an admin correction',async t=>{
+  const f=await reviewFixture(t),playerId='moved-player',movedAt=new Date(Date.now()+1000).toISOString();fixReview(f);
+  const players=f.repository.loadPlayers('test');players.push({playerId,name:'Moved Player'});f.repository.savePlayers('test',players);
+  const memberships=f.repository.loadRosterMemberships('test');
+  memberships.push({playerId,teamId:'cle',seasonId:'1',active:false,startedAt:'2020-01-01T00:00:00.000Z',endedAt:movedAt,endedReason:'ADMIN_CORRECTION'},{playerId,teamId:'mil',seasonId:'1',active:true,startedAt:movedAt});
+  f.repository.saveRosterMemberships('test',memberships);
+  f.body.input.screenshots[0].players[1].playerId=playerId;
+  f.body.rosterAdditions=[{screenshotIndex:0,playerId,teamId:'mil'}];
+  const correction=await f.review.correct(f.game.gameId,f.submission.submissionId,f.body);
+  assert.equal(correction.rosterAdditions[0].playerId,playerId);
+});
 test('review cannot claim a roster addition for a different team or an older roster membership',async t=>{
   const f=await reviewFixture(t),playerId='existing-player';
   f.body.input.screenshots[0].players[1].playerId=playerId;

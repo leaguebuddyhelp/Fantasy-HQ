@@ -1002,7 +1002,7 @@ function unsafeRequestHandler(request, response) {
     if (!isAdminRequest(request, url)) { sendJson(response, 403, { error: 'Admin authorization required.' }); return; }
     try {
       const context = boundLeagueContext();
-      sendJson(response, 200, { players: rosterService.freeAgents(context.league.leagueId, context.seasonId) });
+      sendJson(response, 200, { players: rosterService.freeAgents(context.league.leagueId, context.seasonId), ...(url.searchParams.get('rostered') === '1' ? { rostered: rosterService.rosteredPlayers(context.league.leagueId, context.seasonId) } : {}) });
     } catch (error) { sendJson(response, 400, { error: error.message }); }
     return;
   }

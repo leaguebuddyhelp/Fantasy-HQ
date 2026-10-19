@@ -38,3 +38,15 @@ test('actual angled Pistons photo rectifies the table plane and retains missing 
  assert.ok(JSON.parse(result.raw).screenshots[0].perspectiveCorrected);
  assert.deepEqual(bytes,before);
 });
+
+test('a scrolled table with the Total row off screen reads every player and sums the team totals',{timeout:180000},async()=>{
+ const provider=createTesseractProvider();
+ const response=await provider.extract([{mediaId:'no-total',bytes:fs.readFileSync(path.join(__dirname,'fixtures','association-clippers-no-total.png'))}]);
+ assert.equal(response.error,undefined);
+ const [screen]=provider.parse(response).screenshots;
+ assert.equal(screen.players.length,15);
+ assert.equal(screen.players.filter(p=>p.dnp).length,3);
+ assert.equal(screen.totals.PTS,'69');
+ assert.ok(screen.uncertainFields.some(f=>f.path==='totals'));
+ assert.ok(screen.scoreboard.every(b=>b.finalScore!==null));
+});

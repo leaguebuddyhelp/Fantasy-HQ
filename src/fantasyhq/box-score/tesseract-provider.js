@@ -121,6 +121,8 @@ async function readScreenshot(worker, suppliedImage) {
   }
   const nameHeader = located.find(w => /^NAME$/i.test(w.text) && w.x > .33 && w.x < .46 && w.y > .18 && w.y < .24);
   const total = located.find(w => /^total$/i.test(w.text) && w.x > .33 && w.x < .46 && w.y > .65);
+  // A scrolled table can push the Total row off screen; rows then end at the bottom of the table panel.
+  const tableBottom = total ? total.y - .02 : .885;
   let headerWords = located.filter(w=>w.y>.18&&w.y<.24&&w.x>.46);
   let scoreLabels=located.filter(w=>w.x<.33&&w.y>.49&&w.y<.54&&/^(1ST|2ND|3RD|4TH|TOTAL)$/i.test(w.text));
   // Whole-image OCR can lose yellow quarter labels amid logos. Read the labels separately.
@@ -133,7 +135,7 @@ async function readScreenshot(worker, suppliedImage) {
   }
   const statHeaders=new Set(headerWords.map(w=>w.text.toUpperCase().replace(/[^A-Z0-9]/g,'')));
   const recognizedHeaders=COLUMNS.filter(([key])=>statHeaders.has(key)).length;
-  if (!nameHeader || !total || recognizedHeaders < 8) throw Object.assign(new Error('Could not reliably locate the box-score table. The original images are saved; review them or retry extraction with a clear photo or screenshot.'),{ocrRaw:full});
+  if (!nameHeader || recognizedHeaders < 8) throw Object.assign(new Error('Could not reliably locate the box-score table. The original images are saved; review them or retry extraction with a clear photo or screenshot.'),{ocrRaw:full});
   const raw = {mediaId:image.mediaId,layout,perspectiveCorrected:Boolean(rectified),fullText:full.text,tsv:full.tsv,cells:[]};
   const uncertainFields=[];
   async function cell(x,y,width,height,path,numeric=false,alternative=null) {
@@ -194,7 +196,7 @@ async function readScreenshot(worker, suppliedImage) {
     raw.cells.push({path:'tableTeamName',text:tableTeamName,confidence:Math.min(...line.map(w=>w.confidence)),readings:line});
   }else tableTeamName=await cell(.385,.124,.18,.028,'tableTeamName');
   if(rectified) uncertainFields.push({path:'perspective',reason:'Camera perspective was corrected. Verify the transformed table against the original photo before approval.',confidence:'LOW'});
-  const rowWords=located.filter(w => w.x>.333 && w.x<.46 && w.y>nameHeader.y+.022 && w.y<total.y-.02 && /[a-z]/i.test(w.text));
+  const rowWords=located.filter(w => w.x>.333 && w.x<.46 && w.y>nameHeader.y+.022 && w.y<tableBottom && /[a-z]/i.test(w.text));
   const rows=[];
   for (const word of rowWords.sort((a,b)=>a.y-b.y)) if (!rows.some(y=>Math.abs(y-word.y)<.013)) rows.push(word.y);
   if (!rows.length || rows.length>18) throw new Error('Player rows could not be located reliably.');
@@ -213,7 +215,15 @@ async function readScreenshot(worker, suppliedImage) {
     const rowStats=dnp ? Object.fromEntries(COLUMNS.map(([k])=>[k,null])) : await stats(y,`${path}.stats`,min);
     players.push({displayedName,dnp,stats:rowStats,confidence:uncertainFields.some(f=>f.path===`${path}.displayedName`)?'LOW':'HIGH'});
   }
-  const totals=await stats(total.y,'totals');
+  let totals;
+  if (total) totals = await stats(total.y,'totals');
+  else {
+    // Sum the visible rows; a hidden player then shows up as a mismatch against the scoreboard score.
+    const played = players.filter(p => !p.dnp), sum = key => played.some(p => p.stats[key] == null) ? null : String(played.reduce((n,p) => n + Number(p.stats[key]), 0));
+    const pairs = key => { if (played.some(p => !/^\d+-\d+$/.test(p.stats[key] || ''))) return null; const t = played.reduce((a,p) => { const [m,x] = p.stats[key].split('-').map(Number); return [a[0]+m,a[1]+x]; }, [0,0]); return `${t[0]}-${t[1]}`; };
+    totals = Object.fromEntries(COLUMNS.map(([key]) => [key, ['FG','3PT','FT'].includes(key) ? pairs(key) : sum(key)]));
+    uncertainFields.push({path:'totals',reason:'The Total row is not visible in this screenshot, so team totals were added up from the player rows. Confirm no player is cut off below the list.',confidence:'LOW'});
+  }
   // This template is deliberately four-period only: overtime layout changes must be reviewed.
   if (located.some(w => /^(OT|OT1|OT2)$/i.test(w.text))) uncertainFields.push({path:'scoreboard',reason:'Overtime layout needs review; this OCR template supports regulation screens.',confidence:'LOW'});
   console.log(`OCR screenshot done: ${recognitionCalls} reads in ${Math.round((Date.now() - startedAt) / 1000)}s, slowest ${slowest}ms, in recognize ${Math.round(recognizeMs/1000)}s, setParameters ${Math.round(paramMs/1000)}s, crops ${Math.round(cropMs/1000)}s, rss ${Math.round(process.memoryUsage().rss/1048576)}MB, cgroup ${cgroupStats(cgroupBefore)}`);

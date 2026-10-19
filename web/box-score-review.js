@@ -211,17 +211,18 @@ async function render() {
       }
       if (!p.playerId && teamId && !locked) {
         const addPanel = el('details', null, 'review-free-agent-add');
-        addPanel.append(el('summary', `Add free agent to ${screen.tableTeamName || 'this team'}`));
+        addPanel.append(el('summary', `Add free agent or player from another roster to ${screen.tableTeamName || 'this team'}`));
         let pool = null;
         addPanel.addEventListener('toggle', async () => {
           if (!addPanel.open || pool) return;
           try {
             addPanel.append(el('p', 'Loading free agents…'));
-            pool = (await (await api('/api/league/admin/rosters/free-agents')).json()).players;
+            const found = await (await api('/api/league/admin/rosters/free-agents?rostered=1')).json();
+            pool = [...found.players, ...(found.rostered || []).filter(player => player.teamId !== teamId)];
             addPanel.lastChild.remove();
             const form = el('form', null, 'admin-form admin-form-compact'), grid = el('div', null, 'admin-form-grid');
-            const search = el('input'); search.type = 'search'; search.placeholder = 'Search free agents'; search.setAttribute('aria-label', 'Search free agents');
-            const playerSelect = el('select'); playerSelect.required = true; playerSelect.setAttribute('aria-label', 'Choose free agent');
+            const search = el('input'); search.type = 'search'; search.placeholder = 'Search players'; search.setAttribute('aria-label', 'Search players'); search.value = p.displayedName || '';
+            const playerSelect = el('select'); playerSelect.required = true; playerSelect.setAttribute('aria-label', 'Choose player');
             const salary = el('input'); salary.required = true; salary.placeholder = '$6.66M'; salary.setAttribute('aria-label', 'Starting annual salary');
             const years = el('input'); years.required = true; years.placeholder = '3 or 3+1'; years.setAttribute('aria-label', 'Contract years');
             const structure = el('select'); structure.setAttribute('aria-label', 'Salary structure');
@@ -230,15 +231,20 @@ async function render() {
             for (const [value, label] of [['None','None'],['Team','Team option'],['Player','Player option']]) option.add(new Option(label, value));
             const reason = el('input'); reason.required = true; reason.minLength = 10; reason.placeholder = 'At least 10 characters'; reason.setAttribute('aria-label', 'Reason for roster addition');
             const label = (text, control) => { const node = el('label'); node.append(el('span', text), control); return node; };
+            const grams = text => { const t = ` ${String(text || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim()} `; return new Set(Array.from({ length: Math.max(0, t.length - 1) }, (_, k) => t.slice(k, k + 2))); };
+            const similarity = (a, b) => { const x = grams(a), y = grams(b); if (!x.size || !y.size) return 0; let shared = 0; for (const gram of x) if (y.has(gram)) shared++; return 2 * shared / (x.size + y.size); };
             const fillPlayers = () => {
-              const selected = playerSelect.value, query = search.value.trim().toLowerCase();
-              playerSelect.replaceChildren(new Option('Choose a free agent', ''));
-              pool.filter(player => !player.signingBlockedReason && (!query || [player.name, player.position1, player.position2].some(value => String(value || '').toLowerCase().includes(query))))
-                .forEach(player => playerSelect.add(new Option(`${player.name} · ${player.position1 || 'Position unknown'} · ${player.overall ?? '—'} OVR`, player.playerId)));
+              const selected = playerSelect.value, query = search.value.trim();
+              playerSelect.replaceChildren(new Option('Choose a player', ''));
+              pool.map(player => ({ player, score: query ? similarity(query, player.name) : 0 }))
+                .filter(({ player, score }) => !player.signingBlockedReason && (!query || score >= 0.3 || String(player.name || '').toLowerCase().includes(query.toLowerCase())))
+                .sort((a, b) => b.score - a.score || Number(b.player.overall || 0) - Number(a.player.overall || 0)).slice(0, 40)
+                .forEach(({ player }) => playerSelect.add(new Option(`${player.name} · ${player.rostered ? `On ${player.teamName}` : 'Free agent'} · ${player.position1 || 'Position unknown'} · ${player.overall ?? '—'} OVR`, player.playerId)));
               if ([...playerSelect.options].some(entry => entry.value === selected)) playerSelect.value = selected;
+              else if (query && playerSelect.options.length > 1) playerSelect.selectedIndex = 1;
             };
             search.addEventListener('input', fillPlayers); fillPlayers();
-            grid.append(label('Search', search), label('Free agent', playerSelect), label('Starting annual salary', salary), label('Contract years', years), label('Salary structure', structure), label('Final-year option', option), label('Reason for roster addition', reason));
+            grid.append(label('Search', search), label('Player', playerSelect), label('Starting annual salary', salary), label('Contract years', years), label('Salary structure', structure), label('Final-year option', option), label('Reason for roster change', reason));
             const add = el('button', 'Add to roster and match player'); add.type = 'button';
             const note = el('p', 'review-free-agent-status'); note.setAttribute('role', 'status');
             let correction = null;
@@ -248,20 +254,21 @@ async function render() {
               const operator = summary.querySelector('#operator')?.value.trim();
               if (!operator) { note.textContent = 'Enter your commissioner name above first.'; return; }
               const player = pool.find(entry => entry.playerId === playerSelect.value);
-              if (!player) { note.textContent = 'Choose an available free agent.'; return; }
+              if (!player) { note.textContent = 'Choose a player.'; return; }
               const contractDetails = { salary: salary.value.trim(), years: years.value.trim(), structure: structure.value, option: option.value };
-              const payload = { teamId, playerId: player.playerId, contractDetails };
+              if (!player.rostered && (!contractDetails.salary || !contractDetails.years)) { note.textContent = 'Enter the salary and contract years for the free agent.'; return; }
+              const payload = player.rostered ? { playerId: player.playerId, fromTeamId: player.teamId, toTeamId: teamId } : { teamId, playerId: player.playerId, contractDetails };
               if (reason.value.trim().length < 10) { note.textContent = 'Enter a reason of at least 10 characters.'; reason.focus(); return; }
               add.disabled = true; note.textContent = 'Preparing roster correction…';
               try {
                 if (!correction) {
-                  correction = await (await api('/api/league/admin/rosters/correction-preview', { action: 'assign', payload, reason: reason.value.trim() })).json();
-                  note.textContent = `Review signing ${player.name} to ${screen.tableTeamName} · ${contractDetails.salary} · ${contractDetails.years} years. Press confirm to continue.`;
+                  correction = await (await api('/api/league/admin/rosters/correction-preview', { action: player.rostered ? 'move' : 'assign', payload, reason: reason.value.trim() })).json();
+                  note.textContent = player.rostered ? `Review moving ${player.name} from ${player.teamName} to ${screen.tableTeamName}. This changes both rosters. Press confirm to continue.` : `Review signing ${player.name} to ${screen.tableTeamName} · ${contractDetails.salary} · ${contractDetails.years} years. Press confirm to continue.`;
                   add.textContent = 'Confirm and add player';
                   add.disabled = false;
                   return;
                 }
-                await api('/api/league/admin/rosters/assign-free-agent', { ...payload, ...correction, operator });
+                await api(player.rostered ? '/api/league/admin/rosters/move-player' : '/api/league/admin/rosters/assign-free-agent', { ...payload, ...correction, operator });
                 rosterAdditions.push({ screenshotIndex: i, playerId: player.playerId, teamId });
                 if (![...select.options].some(entry => entry.value === player.playerId)) select.add(new Option(player.name, player.playerId));
                 select.value = player.playerId; select.dispatchEvent(new Event('change'));

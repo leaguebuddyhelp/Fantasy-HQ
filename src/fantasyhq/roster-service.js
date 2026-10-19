@@ -56,6 +56,14 @@ function createRosterService(options = {}) {
       .sort((a,b) => Number(b.overall || 0) - Number(a.overall || 0) || String(a.name || '').localeCompare(String(b.name || '')));
   }
 
+  function rosteredPlayers(leagueId, seasonId) {
+    const names = new Map(repository.loadLeague(leagueId, seasonId).teams.map(team => [team.teamId, team.name || team.teamName || team.teamId]));
+    const players = new Map(repository.loadPlayers(leagueId).map(player => [player.playerId, player]));
+    return activeMemberships(repository.loadRosterMemberships(leagueId), seasonId)
+      .map(m => ({ player: players.get(m.playerId), m })).filter(({ player }) => player && !player.retiredAt)
+      .map(({ player, m }) => ({ ...player, teamId: m.teamId, teamName: names.get(m.teamId) || m.teamId, rostered: true }));
+  }
+
   function assignFreeAgent({ leagueId, seasonId, teamId, playerId, contractDetails, actingUserId, operator }) {
     const correction = require('./roster-corrections').authorizeRosterEdit(repository, 'assign', arguments[0]);
     const context = repository.loadLeague(leagueId, seasonId);
@@ -334,6 +342,7 @@ function createRosterService(options = {}) {
 
   return {
     freeAgents,
+    rosteredPlayers,
     assignFreeAgent,
     applyRosterImport,
     bulkUpdateRoster,
