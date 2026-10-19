@@ -113,7 +113,7 @@ test("non-images, excess screenshots and disguised files are rejected", async t 
   const { service, actor, game, attachment, repository } = fixture(t);
   await service.begin(game.gameId, actor);
   await assert.rejects(service.receive(game.gameId, actor, [{ ...attachment("bad"), contentType: "text/plain" }], "m"), /JPG/);
-  await assert.rejects(service.receive(game.gameId, actor, [attachment("1"), attachment("2"), attachment("3")], "m"), /exactly two/);
+  await assert.rejects(service.receive(game.gameId, actor, [attachment("1"), attachment("2"), attachment("3"), attachment("4"), attachment("5")], "m"), /at most four/);
   const invalid = createGameSubmissionService({ repository, download: async () => Buffer.from("not an image") });
   await assert.rejects(invalid.receive(game.gameId, actor, [attachment("fake")], "m"), /Unsupported image/);
   assert.equal(service.load(game.gameId).media.length, 0);

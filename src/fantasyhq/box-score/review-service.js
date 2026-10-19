@@ -38,10 +38,10 @@ function createReviewService(submissions) {
       const membership = memberships.find(entry => entry.playerId === playerId && entry.teamId === teamId
         && String(entry.seasonId) === String(record.game.seasonId) && entry.active !== false && !entry.endedAt);
       const player = players.get(playerId);
-      const signedAt = Date.parse(membership?.startedAt || ''), extractedAt = Date.parse(source.timestamp || '');
+      const signedAt = Date.parse(membership?.startedAt || '');
       const moved = membership && memberships.some(entry => entry.playerId === playerId && entry.teamId !== teamId && String(entry.seasonId) === String(record.game.seasonId)
         && entry.endedReason === 'ADMIN_CORRECTION' && entry.endedAt === membership.startedAt);
-      if (!membership || (membership.source !== 'admin-free-agent' && !moved) || !Number.isFinite(signedAt) || !Number.isFinite(extractedAt) || signedAt < extractedAt
+      if (!membership || (membership.source !== 'admin-free-agent' && !moved) || !Number.isFinite(signedAt)
         || !player || player.retiredAt) throw new Error('The added player is no longer an active free-agent signing on this team. Reload the review.');
       const key = `${screenshotIndex}:${playerId}`;
       const existing = additions.get(key);

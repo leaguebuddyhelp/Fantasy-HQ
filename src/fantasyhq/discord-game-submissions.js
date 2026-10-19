@@ -154,7 +154,7 @@ function createDiscordGameSubmissions(service = createGameSubmissionService(), o
       const source = { ...actor(message, message.author.id), staff: canManageLeague({ guildId: message.guildId, guild: message.guild, member: message.member, memberPermissions: message.member?.permissions }) };
       const result = await (staffUpload ? service.receiveStaff : service.receiveSide)(record.game.gameId, source, [...message.attachments.values()], message.id);
       await message.reply(submissionPayload(result));
-      if (result.media.length === 2 && extractor) {
+      if (result.media.length >= 2 && result.submission.status === 'RECEIVED' && extractor) {
         const progress = await message.reply({
           content: "Processing the stored box scores…", allowedMentions: { parse: [], repliedUser: false },
           components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setLabel("Retry extraction")

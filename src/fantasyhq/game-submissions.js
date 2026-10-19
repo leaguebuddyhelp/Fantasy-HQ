@@ -243,7 +243,8 @@ function createGameSubmissionService(options = {}) {
       const fresh = [...new Map(attachments.map(a => [a.id, a])).values()]
         .filter(a => !current.some(m => m.discordAttachment.id === a.id));
       if (perTeam && (fresh.length > 1 || (fresh.length && current.some(m => m.teamId === teamId)))) throw new Error("Upload one box score for your own team. To change a stored one, press Replace my box score first.");
-      if (current.length + fresh.length > 2) throw new Error("Upload exactly two screenshots per submission.");
+      const limit = perTeam ? 2 : 4;
+      if (current.length + fresh.length > limit) throw new Error(perTeam ? "Upload exactly two screenshots per submission." : "Upload at most four screenshots per submission (a cropped team may use two photos).");
       for (const attachment of fresh) {
         if (!TYPES[attachment.contentType?.split(";")[0]] || attachment.size > MAX_IMAGE_BYTES) {
           throw new Error("Upload JPG, PNG, WebP, or HEIC photos or screenshots, each 24 MB or smaller.");
@@ -275,7 +276,7 @@ function createGameSubmissionService(options = {}) {
           },
         });
         const media = record.media.filter(m => m.submissionId === submission.submissionId);
-        if (media.length === 2) record.submissions.find(s => s.submissionId === submission.submissionId).status = "RECEIVED";
+        if (media.length >= 2 && (perTeam || fresh.indexOf(attachment) === fresh.length - 1)) record.submissions.find(s => s.submissionId === submission.submissionId).status = "RECEIVED";
         save(record);
       }
       record = load(gameId);

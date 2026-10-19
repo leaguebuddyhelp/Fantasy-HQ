@@ -61,3 +61,7 @@ The manually transcribed IMG_1155/IMG_1156 fixture contains Milwaukee 120, Cleve
 Automated coverage includes normalization, splits, DNPs, OT, names with apostrophes, ambiguous players, missing/low-confidence values, wrong teams, duplicate source images, conflicting scores/quarters, totals mismatches, provider errors/refusals/incomplete output, raw retention, retries using stored originals, concurrency, untouched game/schedule data, protected review routes and Discord retry authorization.
 
 No OPENAI_API_KEY was configured during implementation. Live model accuracy and live Discord rendering remain unverified; model/API behavior was tested with mocked responses. No paid extraction was run. Standings, season averages, official stats, opponent confirmation and full review/correction remain outside this step.
+
+## Angled photos and split tables
+- Row baselines and column positions are fitted from recognised numbers, so tilted phone photos of a TV read correctly.
+- A staff submission may contain up to four images. When one team's table is cut off (a photo missing its Total row), photos of the same team are merged: rows are combined without duplicates and the real Total row is kept. The merged table is flagged for review.

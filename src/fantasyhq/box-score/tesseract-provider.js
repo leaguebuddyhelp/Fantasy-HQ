@@ -155,6 +155,13 @@ async function readScreenshot(worker, suppliedImage) {
       const valid = numeric ? (path.endsWith('.FG') || path.endsWith('.3PT') || path.endsWith('.FT') ? /^\d+-\d+$/.test(data.text.trim()) : /^(?:\d+(?::\d{2})?|DNP)$/.test(data.text.trim())) : !!data.text.trim();
       if (valid && ((confident.length >= 2 && new Set(confident.map(r => numeric ? r.text : normalizeText(r.text))).size === 1) || (numeric && data.confidence >= 93 && !path.startsWith('scoreboard.')))) break;
     }
+    if (numeric && !path.startsWith('scoreboard.') && !/\.(FG|3PT|FT)$/.test(path) && readings.some(r=>r.text==='1')) {
+      const padded=await pixels().extract(crop).resize({height:100}).extend({top:20,bottom:20,left:60,right:60,extendWith:'copy'}).png().toBuffer();
+      await setParams({tessedit_pageseg_mode:'8',tessedit_char_whitelist:'0123456789-:'});
+      const data=(await recognize(padded,{}, {text:true})).data;
+      await setParams({tessedit_pageseg_mode:'7',tessedit_char_whitelist:'0123456789-:'});
+      readings.push({text:data.text.trim(),confidence:data.confidence,height:100,preprocessing:'padded'});
+    }
     if (Math.max(...readings.map(r=>r.confidence)) < 80) {
       const source=await pixels().extract(crop).greyscale().normalise().png().toBuffer();
       const {channels}=await sharp(source).stats();
@@ -178,12 +185,17 @@ async function readScreenshot(worker, suppliedImage) {
     if (!value || best.confidence < 70 || disagreement) uncertainFields.push({path,reason:disagreement?'OCR readings disagree.':!value?'Cell could not be read.':`OCR confidence ${best.confidence.toFixed(1)}%.`,confidence:'LOW'});
     return value || null;
   }
+  const scoreAnchor=['1ST','2ND','3RD','4TH','TOTAL'].map(k=>scoreLabels.find(w=>w.text.toUpperCase()===k));
+  const labelY=scoreLabels.length>=3?scoreLabels.reduce((n,w)=>n+w.y,0)/scoreLabels.length:null;
+  const labelShifts=scoreAnchor.map((w,i)=>w&&w.x-(.0645+i*.0493)).filter(v=>v!==null&&v!==undefined&&Math.abs(v)<.03).sort((a,b)=>a-b);
+  const scoreShiftX=labelShifts.length>=2?labelShifts[Math.floor(labelShifts.length/2)]:0;
+  const rowOffsetY=labelY!==null&&Math.abs(labelY-.512)<.05?labelY-.512:0;
   const scoreboard=[];
   const scoreboardVisible = scoreLabels.length >= 3 && Boolean(scoreLabelCrop);
   for (let side=0;side<2;side++) {
-    const teamName=scoreboardVisible ? await cell(.045, side===0 ? .122:.621,.28,.035,`scoreboard.${side}.teamName`) : null;
+    const teamName=scoreboardVisible ? await cell(.045, (side===0 ? .122:.621)+rowOffsetY,.28,.035,`scoreboard.${side}.teamName`) : null;
     const scores=[];
-    for (let i=0;i<5;i++) scores.push(scoreboardVisible ? await cell(.043+i*.0493,side===0 ? .473:.549,.043,.035,`scoreboard.${side}.scores.${i}`,true) : null);
+    for (let i=0;i<5;i++) scores.push(scoreboardVisible ? await cell(scoreShiftX+.043+i*.0493,(side===0 ? .473:.549)+rowOffsetY,.043,.035,`scoreboard.${side}.scores.${i}`,true) : null);
     scoreboard.push({teamName,finalScore:scores[4],periods:scores.slice(0,4).map((score,i)=>({label:`Q${i+1}`,score}))});
   }
   if (!scoreboardVisible) uncertainFields.push({path:'scoreboard',reason:'The scoreboard is cropped out or unreadable. Supply team identities, period scores and final scores before approval.',confidence:'LOW'});
@@ -200,17 +212,54 @@ async function readScreenshot(worker, suppliedImage) {
   const rows=[];
   for (const word of rowWords.sort((a,b)=>a.y-b.y)) if (!rows.some(y=>Math.abs(y-word.y)<.013)) rows.push(word.y);
   if (!rows.length || rows.length>18) throw new Error('Player rows could not be located reliably.');
+  // Camera tilt makes row baselines drift across the table. Fit that drift from every recognised stat-area number and heading.
+  const rowKeys=[nameHeader.y,...rows,...(total?[total.y]:[])];
+  const tiltPoints=located.filter(w=>w.x>.46&&w.x<.97&&w.y>nameHeader.y-.02&&w.y<(total?total.y:tableBottom)+.03&&(/^(?:\d+(?:[-:]\d+)?|MIN|PTS|REB|AST|STL|BLK|TO|FG|3PT|FT|OR|FLS)$/i.test(w.text))&&w.confidence>=60);
+  let tilt=[0,0];
+  for(let pass=0;pass<3;pass++){
+    const sample=[];
+    for(const w of tiltPoints){
+      const dx=w.x-.4;
+      const predicted=r=>r+(tilt[0]+tilt[1]*(r-nameHeader.y))*dx;
+      const row=rowKeys.reduce((a,b)=>Math.abs(predicted(b)-w.y)<Math.abs(predicted(a)-w.y)?b:a);
+      const err=w.y-predicted(row);
+      if(Math.abs(err)<.014)sample.push({dx,rel:row-nameHeader.y,dy:w.y-row});
+    }
+    if(sample.length<12)break;
+    // Least squares for dy = (a + b*rel) * dx
+    let s11=0,s12=0,s22=0,t1=0,t2=0;
+    for(const q of sample){const u=q.dx,v=q.dx*q.rel;s11+=u*u;s12+=u*v;s22+=v*v;t1+=u*q.dy;t2+=v*q.dy;}
+    const det=s11*s22-s12*s12;
+    if(Math.abs(det)<1e-12)break;
+    tilt=[(t1*s22-t2*s12)/det,(s11*t2-s12*t1)/det];
+  }
+  if(!tilt.every(Number.isFinite)||Math.abs(tilt[0])>.1||Math.abs(tilt[1])>.2)tilt=[0,0];
+  // Columns also lean with the camera angle: fit horizontal drift against distance below the header.
+  let lean=0;
+  {
+    const centers=COLUMNS.map(([,x,width])=>x+width/2);
+    let num=0,den=0;
+    for(const w of tiltPoints){
+      if(!/^\d/.test(w.text))continue;
+      const rel=w.y-nameHeader.y;if(rel<.05)continue;
+      const err=centers.map(c=>w.x-c).reduce((a,b)=>Math.abs(a)<Math.abs(b)?a:b);
+      if(Math.abs(err)<.012){num+=err*rel;den+=rel*rel;}
+    }
+    if(den>0&&Number.isFinite(num/den)&&Math.abs(num/den)<.1)lean=num/den;
+  }
+  const leanAt=y=>lean*(y-nameHeader.y);
+  const shiftAt=(x,y)=>(tilt[0]+tilt[1]*(y-nameHeader.y))*(x-.4);
   const players=[];
   async function stats(y,prefix,minValue) {
     const result={};
-    for(const [key,x,width] of COLUMNS) result[key]=key==='MIN' && minValue!==undefined ? minValue : await cell(x,y,width,.032,`${prefix}.${key}`,true);
+    for(const [key,x,width] of COLUMNS) result[key]=key==='MIN' && minValue!==undefined ? minValue : await cell(x+leanAt(y),y+shiftAt(x+width/2,y),width,.032,`${prefix}.${key}`,true);
     return result;
   }
   for(let i=0;i<rows.length;i++) {
     const y=rows[i], path=`players.${i}`;
     const nameWords=rowWords.filter(w=>Math.abs(w.y-y)<.013).sort((a,b)=>a.x-b.x);
     const displayedName=await cell(.34,y,.119,.032,`${path}.displayedName`,false,{text:nameWords.map(w=>w.text).join(' '),confidence:Math.min(...nameWords.map(w=>w.confidence))});
-    const min=await cell(.469,y,.036,.032,`${path}.stats.MIN`,true);
+    const min=await cell(.469+leanAt(y),y+shiftAt(.487,y),.036,.032,`${path}.stats.MIN`,true);
     const dnp=min==='DNP';
     const rowStats=dnp ? Object.fromEntries(COLUMNS.map(([k])=>[k,null])) : await stats(y,`${path}.stats`,min);
     players.push({displayedName,dnp,stats:rowStats,confidence:uncertainFields.some(f=>f.path===`${path}.displayedName`)?'LOW':'HIGH'});
@@ -223,6 +272,16 @@ async function readScreenshot(worker, suppliedImage) {
     const pairs = key => { if (played.some(p => !/^\d+-\d+$/.test(p.stats[key] || ''))) return null; const t = played.reduce((a,p) => { const [m,x] = p.stats[key].split('-').map(Number); return [a[0]+m,a[1]+x]; }, [0,0]); return `${t[0]}-${t[1]}`; };
     totals = Object.fromEntries(COLUMNS.map(([key]) => [key, ['FG','3PT','FT'].includes(key) ? pairs(key) : sum(key)]));
     uncertainFields.push({path:'totals',reason:'The Total row is not visible in this screenshot, so team totals were added up from the player rows. Confirm no player is cut off below the list.',confidence:'LOW'});
+  }
+  // Narrow repeated digits ("11") are often read as one digit; accept the repair only when it makes minutes add up to the Total row.
+  {
+    const played=players.filter(p=>!p.dnp&&/^\d+$/.test(p.stats.MIN||'')),want=Number(totals?.MIN);
+    const gap=want-played.reduce((n,p)=>n+Number(p.stats.MIN),0);
+    const ones=played.filter(p=>p.stats.MIN==='1');
+    if(Number.isFinite(want)&&gap>0&&gap%10===0&&ones.length>=gap/10){
+      const pick=ones.slice(0,gap/10);
+      if(ones.length===gap/10)for(const p of pick){p.stats.MIN='11';uncertainFields.push({path:`players.${players.indexOf(p)}.stats.MIN`,reason:'Minutes were repaired from 1 to 11 so the team adds up to the Total row.',confidence:'LOW'});}
+    }
   }
   // This template is deliberately four-period only: overtime layout changes must be reviewed.
   if (located.some(w => /^(OT|OT1|OT2)$/i.test(w.text))) uncertainFields.push({path:'scoreboard',reason:'Overtime layout needs review; this OCR template supports regulation screens.',confidence:'LOW'});
@@ -258,9 +317,44 @@ function createTesseractProvider() {
           return readScreenshot(second, image);
         })) : await images.reduce(async (done, image) => [...await done, await readScreenshot(worker, image)], Promise.resolve([]));
         for (const result of results) { raw.push(result.raw); screens.push(result.screen); }
+        screens.splice(0,screens.length,...mergeSplitTables(screens));
       } finally { await Promise.all(extra.map(w => { w.aborted = true; return w.terminate().catch(() => {}); })); }
       return { raw: JSON.stringify({ engine: 'tesseract', durationMs: Date.now() - startedAt, screenshots: raw, parsed: { screenshots: screens } }) };
     }).catch(error => { if (error.ocrRaw) raw.push(error.ocrRaw); return { raw: JSON.stringify({ engine: 'tesseract', screenshots: raw, error: error.message }), error: error.message }; });
   }, parse(result) { if (result.error) throw new Error(result.error); return JSON.parse(result.raw).parsed; } };
 }
-module.exports = { createTesseractProvider, readScreenshot, detectLayout, withOcrWorker };
+// A cropped table can need two photos (top rows plus the Total row). Merge photos of the same team into one table.
+function mergeSplitTables(screens) {
+  const key = s => normalizeText(s.tableTeamName || '');
+  const merged = [];
+  for (const screen of screens) {
+    const lacksTotal = s => s.uncertainFields.some(f => f.path === 'totals');
+    // Only a photo that is missing its Total row is a partial view; two complete photos of one team are left for review.
+    const target = key(screen) && merged.find(m => key(m) === key(screen) && (lacksTotal(m) || lacksTotal(screen)));
+    if (!target) { merged.push({ ...screen, mediaIds: [screen.mediaId] }); continue; }
+    target.mediaIds.push(screen.mediaId);
+    const known = new Set(target.players.map(p => normalizeText(p.displayedName || '')));
+    // The same row photographed twice may be spelled differently; an identical stat line is the same row.
+    const statKey = p => p.dnp ? 'DNP' : JSON.stringify(p.stats);
+    const seenStats = new Set(target.players.map(statKey));
+    const isNew = p => !known.has(normalizeText(p.displayedName || '')) && !(p.dnp ? false : seenStats.has(statKey(p)));
+    const lead = screen.players.findIndex(p => normalizeText(p.displayedName || '') === normalizeText(target.players[0]?.displayedName || ''));
+    // A photo showing earlier rows than the first one supplies the missing top of the list.
+    if (lead > 0) { const head = screen.players.slice(0, lead).filter(isNew); head.forEach(p => known.add(normalizeText(p.displayedName || ''))); target.players.unshift(...head); }
+    for (const player of screen.players) {
+      if (!isNew(player)) continue;
+      known.add(normalizeText(player.displayedName || ''));
+      target.players.push(player);
+    }
+    // Keep the real Total row, and the fuller scoreboard.
+    const hasTotal = t => t && !target.uncertainFields.some(f => f.path === 'totals');
+    if (!hasTotal(target.totals) && !screen.uncertainFields.some(f => f.path === 'totals')) {
+      target.totals = screen.totals;
+      target.uncertainFields = target.uncertainFields.filter(f => f.path !== 'totals');
+    }
+    if (screen.scoreboard.filter(b => b.teamName).length > target.scoreboard.filter(b => b.teamName).length) target.scoreboard = screen.scoreboard;
+    target.uncertainFields.push({ path: 'players', reason: 'This table was assembled from two photos. Confirm the player order and that nobody is missing.', confidence: 'LOW' });
+  }
+  return merged;
+}
+module.exports = { mergeSplitTables, createTesseractProvider, readScreenshot, detectLayout, withOcrWorker };

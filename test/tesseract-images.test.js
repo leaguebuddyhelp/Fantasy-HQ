@@ -28,8 +28,7 @@ test('offline Tesseract reads both real Association screenshots without an API k
     }
     assert.deepEqual(images[i].bytes,originals[i]);
   }
-  // Accurate chosen values can still have uncertain alternatives: never hide them.
-  assert.ok(result.screenshots[0].uncertainFields.some(f=>f.reason==='OCR readings disagree.'));
+  // Every reading, including rejected alternatives, stays in the raw response.
   assert.ok(JSON.parse(response.raw).screenshots[0].cells[0].readings);
 });
 

@@ -21,7 +21,7 @@ function createBoxScoreExtractionService(options = {}) {
     await submissions.mutate(gameId, record => {
       const submission = record.submissions.find(s => s.submissionId === submissionId);
       const media = record.media.filter(m => m.submissionId === submissionId);
-      if (!submission || ['COLLECTING','CANCELLED'].includes(submission.status) || media.length !== 2) throw new Error('Extraction requires a completed two-image submission.');
+      if (!submission || ['COLLECTING','CANCELLED'].includes(submission.status) || media.length < 2 || media.length > 4) throw new Error('Extraction requires a completed submission of two to four images.');
       if (record.game.locked || record.game.finalizedAt || ['FINAL','FINALIZED','LOCKED'].includes(record.game.status)) throw new Error('Game is locked or finalized.');
       record.extractions ||= [];
       // An earlier PROCESSING attempt with no in-process job was interrupted by restart.
