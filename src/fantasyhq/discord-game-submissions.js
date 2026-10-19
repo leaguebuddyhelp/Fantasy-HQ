@@ -14,8 +14,8 @@ function submissionPayload({ game, submission, media, teamId }) {
     const own = media.some(m => m.teamId === teamId);
     const name = teamId === game.team1Id ? game.team1Name : game.team2Name;
     return {
-      embeds: [new EmbedBuilder().setColor(0xffdc21).setTitle(media.length === 2 ? "BOX SCORES RECEIVED" : "SUBMIT SCORE")
-        .setDescription(media.length === 2 ? "**2 / 2 team box scores received.** Checking scores and stats…" :
+      embeds: [new EmbedBuilder().setColor(0xffdc21).setTitle(media.length >= 2 ? "BOX SCORES RECEIVED" : "SUBMIT SCORE")
+        .setDescription(media.length >= 2 ? "**2 / 2 team box scores received.** Checking scores and stats…" :
           `${own ? "Your box score is stored. Waiting for the other coach." : `Upload **${teamLabel(name)}’s** Association Box Score here. Cropped photos accepted. Keep column headings, every player row and the Total row readable; missing scoreboard details require Staff review.`}\n\n**${media.length} / 2 team box scores received.** ${submission.soloTestAuthorizedBy ? '🧪 Solo test: use Test as the other vacant team to submit its side next.' : 'Each coach submits their own team.'}`)],
       allowedMentions: { parse: [] }, components: media.length < 2 ? [new ActionRowBuilder().addComponents(new ButtonBuilder()
         .setCustomId(`gamecancel:${game.gameId}:${submission.submissionId}`)
@@ -24,7 +24,7 @@ function submissionPayload({ game, submission, media, teamId }) {
   }
   const count = media.length;
   const embed = new EmbedBuilder().setColor(0xffdc21);
-  if (count === 2) {
+  if (count >= 2) {
     embed.setTitle("GAME SUBMISSION RECEIVED")
       .setDescription("**2 / 2 Box Scores Uploaded**\n\nReady to process.\nProcessing will begin next.");
   } else if (count === 1) {

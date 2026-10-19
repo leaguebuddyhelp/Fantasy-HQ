@@ -21,6 +21,19 @@ function createReviewService(submissions) {
     const rosters=source.rosterSnapshot && structuredClone(source.rosterSnapshot);
     if(!rosters) throw new Error('Roster snapshot unavailable. Run extraction again.');
     const teams=submissions.repository.loadLeague(record.game.leagueId,record.game.seasonId).teams;
+    // Players an admin moved or signed onto a game team after extraction are part of that roster even if the page lost its in-memory additions.
+    {
+      const known=new Map(submissions.repository.loadPlayers(record.game.leagueId).map(pl=>[pl.playerId,pl]));
+      const extractedAt=Date.parse(source.timestamp||'');
+      const all=submissions.repository.loadRosterMemberships(record.game.leagueId);
+      for(const teamId of [record.game.team1Id,record.game.team2Id]){
+        rosters[teamId] ||= [];
+        for(const m of all.filter(e=>e.teamId===teamId&&String(e.seasonId)===String(record.game.seasonId)&&e.active!==false&&!e.endedAt&&Date.parse(e.startedAt||'')>=extractedAt)){
+          const pl=known.get(m.playerId);
+          if(pl&&!pl.retiredAt&&!rosters[teamId].some(r=>r.playerId===m.playerId))rosters[teamId].push({playerId:m.playerId,name:pl.name});
+        }
+      }
+    }
     const resolved=normalizeExtraction(input,{game:record.game,media:record.media.filter(m=>m.submissionId===source.submissionId),teams,rosters});
     const all=new Set([...(source.reviewedPaths || []),...(reviewedPaths || [])]);
     const matches={};

@@ -12,7 +12,7 @@ function finalizeValidatedSubmission(record, extractionId, { testMode = false, o
   const sides=extraction.normalized.screenshots;
   const staff=submission.mode==='STAFF_BOTH' && submission.staffAuthorizedBy===submission.submittingUserId && !!submission.staffAuthorizedBy;
   if(submission.mode==='STAFF_BOTH'&&!staff)throw new Error('Missing staff authorization record.');
-  if(staff && (media.length!==2||media.some(m=>m.uploadedBy!==submission.staffAuthorizedBy)))throw new Error('Both screenshots must come from the authorized staff submitter.');
+  if(staff && (media.length<2||media.length>4||media.some(m=>m.uploadedBy!==submission.staffAuthorizedBy)))throw new Error('Both screenshots must come from the authorized staff submitter.');
   const solo = testMode === true && !!submission.soloTestAuthorizedBy && submission.mode === 'TEAM_SIDES'
     && media.every(m => m.uploadedBy === submission.soloTestAuthorizedBy && submission.participants?.[m.teamId] === m.uploadedBy
       && !owners.some(o => o.teamId === m.teamId && o.userId !== m.uploadedBy));

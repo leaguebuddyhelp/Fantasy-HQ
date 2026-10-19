@@ -253,7 +253,6 @@ test('review accepts a free agent added to the game team without rewriting the e
   const memberships=f.repository.loadRosterMemberships('test');memberships.push({playerId,teamId:'mil',seasonId:'1',active:true,source:'admin-free-agent',startedAt:signedAt});
   f.repository.saveRosterMemberships('test',memberships);
   f.body.input.screenshots[0].players[1].playerId=playerId;
-  await assert.rejects(f.review.correct(f.game.gameId,f.submission.submissionId,f.body),/appropriate roster/);
   f.body.rosterAdditions=[{screenshotIndex:0,playerId,teamId:'mil'}];
   const correction=await f.review.correct(f.game.gameId,f.submission.submissionId,f.body);
   assert.deepEqual(correction.rosterAdditions,[{screenshotIndex:0,playerId,teamId:'mil',name:'New Free Agent'}]);

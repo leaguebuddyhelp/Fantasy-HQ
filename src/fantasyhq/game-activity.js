@@ -4,7 +4,7 @@ function activityView(record,now=Date.now()) {
  const game=record.game,latest=record.submissions.at(-1);
  const media=record.media.filter(m=>m.submissionId===latest?.submissionId);
  const complete=game.status==='FINAL'||!!game.finalizedAt;
- const submitted=!!latest && !['COLLECTING','CANCELLED'].includes(latest.status)&&media.length===2;
+ const submitted=!!latest && !['COLLECTING','CANCELLED'].includes(latest.status)&&media.length>=2;
  const teams=[game.team1Id,game.team2Id].map((teamId,i)=>({teamId,name:i?game.team2Name:game.team1Name,...(game.activity?.teams?.[teamId] || {participated:false,count:0,lastActivityAt:null})}));
  const pastDeadline=Number.isFinite(Date.parse(game.deadlineAt))&&now>=Date.parse(game.deadlineAt)&&!complete;
  const status=complete?'COMPLETE':submitted?'GAME SUBMITTED':pastDeadline?'PAST DEADLINE':teams.every(t=>t.participated)?'ACTIVE':teams[0].participated?'WAITING ON TEAM B':teams[1].participated?'WAITING ON TEAM A':'NO ACTIVITY';
