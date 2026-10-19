@@ -7,13 +7,13 @@ const { seasonDraftClass, seasonDraftBoard } = require('../src/shared/season-dra
 
 test('each installed Big Board and Early Top Ten maps exclusively to its numbered season', () => {
     const files = fs.readdirSync('draft_class');
-    for (let season = 1; season <= 4; season++) {
+    for (let season = 1; season <= 5; season++) {
         for (const board of ['Big Board', 'Early Top Ten']) {
             assert.equal(seasonDraftClass(files, season, board), `2k27_CUS0${season} - ${board}.json`);
         }
     }
-    assert.equal(seasonDraftClass(files, 5), '2k27_CUS05 - Big Board.json');
-    assert.throws(() => seasonDraftClass(files, 5, 'Early Top Ten'), /CUS05/);
+    
+    assert.equal(seasonDraftClass(files, 5, 'Early Top Ten'), '2k27_CUS05 - Early Top Ten.json');
     assert.equal(seasonDraftClass(files, 6), '2k27_CUS06 - Big Board.json');
     assert.throws(() => seasonDraftClass(files, 7), /CUS07/);
     assert.throws(() => seasonDraftClass(files, 0), /invalid/);
@@ -34,7 +34,7 @@ test('website boards follow every season and phase, rejecting closed boards and 
         requestHandler({ url, method: 'GET', headers }, { writeHead(code) { status = code; }, end(data) { body = JSON.parse(data); } });
         return { status, body };
     }
-    for (let season = 1; season <= 4; season++) {
+    for (let season = 1; season <= 5; season++) {
         for (const phase of ['SETUP', 'PRESEASON', 'REGULAR_SEASON', 'PLAYOFFS', 'OFFSEASON', 'DRAFT', 'FREE_AGENCY']) {
             repository.saveLeague('season-test', { seasonNumber: season, currentSeasonId: '1', currentPhase: phase });
             const active = ['SETUP', 'PRESEASON'].includes(phase) ? 'top-ten' : 'big-board';
