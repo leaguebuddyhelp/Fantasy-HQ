@@ -26,7 +26,8 @@
     "weakness_1": "Physical Strength",
     "weakness_2": "Three-Point Consistency",
     "weakness_3": "Offensive Experience",
-    "pro_comp": "Victor Wembanyama Lite"
+    "pro_comp": "Victor Wembanyama Lite",
+    "image": "images/2k27-cus04-big-board/C/001-kamoni-williams.png"
   },
   "2": {
     "id_number": 2,
@@ -55,7 +56,8 @@
     "weakness_1": "Interior Strength",
     "weakness_2": "Post Defense",
     "weakness_3": "Rebounding Physicality",
-    "pro_comp": "Defensive John Collins"
+    "pro_comp": "Defensive John Collins",
+    "image": "images/2k27-cus04-big-board/PF/005-olavi-metsala.png"
   },
   "3": {
     "id_number": 3,
@@ -84,7 +86,8 @@
     "weakness_1": "Explosiveness",
     "weakness_2": "Rim Pressure",
     "weakness_3": "Physical Strength",
-    "pro_comp": "Bigger Steve Nash"
+    "pro_comp": "Bigger Steve Nash",
+    "image": "images/2k27-cus04-big-board/PG/002-miro-sanderson.png"
   },
   "4": {
     "id_number": 4,
@@ -113,7 +116,8 @@
     "weakness_1": "Shot Selection",
     "weakness_2": "Playmaking Consistency",
     "weakness_3": "Defensive Focus",
-    "pro_comp": "Bradley Beal"
+    "pro_comp": "Bradley Beal",
+    "image": "images/2k27-cus04-big-board/SG/010-marteese-jefferson.png"
   },
   "5": {
     "id_number": 5,
@@ -142,7 +146,8 @@
     "weakness_1": "Three-Point Shooting",
     "weakness_2": "Half-Court Creation",
     "weakness_3": "Decision-Making",
-    "pro_comp": "Jaylen Brown Lite"
+    "pro_comp": "Jaylen Brown Lite",
+    "image": "images/2k27-cus04-big-board/SG/008-youssouf-toledano.png"
   },
   "6": {
     "id_number": 6,
@@ -171,7 +176,8 @@
     "weakness_1": "Three-Point Range",
     "weakness_2": "Lateral Quickness",
     "weakness_3": "Rim Protection",
-    "pro_comp": "Julius Randle with More Size"
+    "pro_comp": "Julius Randle with More Size",
+    "image": "images/2k27-cus04-big-board/C/042-bradley-washington.png"
   },
   "7": {
     "id_number": 7,
@@ -200,7 +206,8 @@
     "weakness_1": "Finishing Through Contact",
     "weakness_2": "Defensive Consistency",
     "weakness_3": "Athletic Upside",
-    "pro_comp": "Bigger Trey Burke"
+    "pro_comp": "Bigger Trey Burke",
+    "image": "images/2k27-cus04-big-board/PG/013-sky-lewis-jr.png"
   },
   "8": {
     "id_number": 8,
@@ -229,7 +236,8 @@
     "weakness_1": "Shot Creation",
     "weakness_2": "Shooting Consistency",
     "weakness_3": "Half-Court Playmaking",
-    "pro_comp": "Nickeil Alexander-Walker Plus"
+    "pro_comp": "Nickeil Alexander-Walker Plus",
+    "image": "images/2k27-cus04-big-board/SG/003-kione-anthony.png"
   },
   "9": {
     "id_number": 9,
@@ -258,7 +266,8 @@
     "weakness_1": "Interior Size",
     "weakness_2": "Defensive Positioning",
     "weakness_3": "Passing Vision",
-    "pro_comp": "Naz Reid"
+    "pro_comp": "Naz Reid",
+    "image": "images/2k27-cus04-big-board/C/011-hashujani-maliffeno.png"
   },
   "10": {
     "id_number": 10,
@@ -287,6 +296,7 @@
     "weakness_1": "Perimeter Quickness",
     "weakness_2": "Three-Point Volume",
     "weakness_3": "Playmaking",
-    "pro_comp": "Caris LeVert"
+    "pro_comp": "Caris LeVert",
+    "image": "images/2k27-cus04-big-board/SF/018-justus-williams.png"
   }
 }

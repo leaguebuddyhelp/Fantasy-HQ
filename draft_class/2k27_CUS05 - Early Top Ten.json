@@ -27,7 +27,8 @@
     "weakness_1": "Playmaking Consistency",
     "weakness_2": "Three-Point Volume",
     "weakness_3": "Defensive Discipline",
-    "pro_comp": "Devin Booker"
+    "pro_comp": "Devin Booker",
+    "image": "images/2k27-cus05-big-board/SG/004-brycen-terrell.png"
   },
   "2": {
     "id_number": 2,
@@ -57,7 +58,8 @@
     "weakness_1": "Physical Strength",
     "weakness_2": "Defensive Physicality",
     "weakness_3": "Finishing Through Contact",
-    "pro_comp": "Brandon Ingram Lite"
+    "pro_comp": "Brandon Ingram Lite",
+    "image": "images/2k27-cus05-big-board/SF/012-darrell-stevens.png"
   },
   "3": {
     "id_number": 3,
@@ -87,7 +89,8 @@
     "weakness_1": "Three-Point Consistency",
     "weakness_2": "Defensive Discipline",
     "weakness_3": "Lateral Quickness",
-    "pro_comp": "Paolo Banchero"
+    "pro_comp": "Paolo Banchero",
+    "image": "images/2k27-cus05-big-board/PF/005-ka-ron-smith.png"
   },
   "4": {
     "id_number": 4,
@@ -117,7 +120,8 @@
     "weakness_1": "Perimeter Shooting",
     "weakness_2": "Offensive Shot Creation",
     "weakness_3": "Free-Throw Shooting",
-    "pro_comp": "Jalen Duren"
+    "pro_comp": "Jalen Duren",
+    "image": "images/2k27-cus05-big-board/C/001-christian-abayomi.png"
   },
   "5": {
     "id_number": 5,
@@ -147,7 +151,8 @@
     "weakness_1": "Three-Point Consistency",
     "weakness_2": "Half-Court Shot Creation",
     "weakness_3": "Ball Handling",
-    "pro_comp": "Defensive Kelly Oubre Jr."
+    "pro_comp": "Defensive Kelly Oubre Jr.",
+    "image": "images/2k27-cus05-big-board/SF/007-rene-menezes.png"
   },
   "6": {
     "id_number": 6,
@@ -177,7 +182,8 @@
     "weakness_1": "Lateral Quickness",
     "weakness_2": "Physical Strength",
     "weakness_3": "Defensive Mobility",
-    "pro_comp": "Myles Turner"
+    "pro_comp": "Myles Turner",
+    "image": "images/2k27-cus05-big-board/C/011-cody-collins.png"
   },
   "7": {
     "id_number": 7,
@@ -207,7 +213,8 @@
     "weakness_1": "Perimeter Shooting",
     "weakness_2": "Half-Court Shot Creation",
     "weakness_3": "Ball Handling Consistency",
-    "pro_comp": "Josh Smith Lite"
+    "pro_comp": "Josh Smith Lite",
+    "image": "images/2k27-cus05-big-board/SF/015-aaron-mason.png"
   },
   "8": {
     "id_number": 8,
@@ -237,7 +244,8 @@
     "weakness_1": "Perimeter Shooting Consistency",
     "weakness_2": "Turnover Control",
     "weakness_3": "Half-Court Shot Creation",
-    "pro_comp": "Bigger John Wall"
+    "pro_comp": "Bigger John Wall",
+    "image": "images/2k27-cus05-big-board/PG/002-keshaun-simmons.png"
   },
   "9": {
     "id_number": 9,
@@ -267,7 +275,8 @@
     "weakness_1": "Lateral Quickness",
     "weakness_2": "Transition Mobility",
     "weakness_3": "Pick-and-Roll Defense",
-    "pro_comp": "Zach Edey with More Shooting"
+    "pro_comp": "Zach Edey with More Shooting",
+    "image": "images/2k27-cus05-big-board/C/003-zac-thomson.png"
   },
   "10": {
     "id_number": 10,
@@ -297,6 +306,7 @@
     "weakness_1": "Explosive Athleticism",
     "weakness_2": "Defensive Lateral Quickness",
     "weakness_3": "Finishing Through Contact",
-    "pro_comp": "Goran Dragić"
+    "pro_comp": "Goran Dragić",
+    "image": "images/2k27-cus05-big-board/PG/013-niko-marasovic.png"
   }
 }
