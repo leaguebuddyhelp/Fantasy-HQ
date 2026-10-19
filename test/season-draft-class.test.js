@@ -14,7 +14,8 @@ test('each installed Big Board and Early Top Ten maps exclusively to its numbere
     }
     assert.equal(seasonDraftClass(files, 5), '2k27_CUS05 - Big Board.json');
     assert.throws(() => seasonDraftClass(files, 5, 'Early Top Ten'), /CUS05/);
-    assert.throws(() => seasonDraftClass(files, 6), /CUS06/);
+    assert.equal(seasonDraftClass(files, 6), '2k27_CUS06 - Big Board.json');
+    assert.throws(() => seasonDraftClass(files, 7), /CUS07/);
     assert.throws(() => seasonDraftClass(files, 0), /invalid/);
     assert.throws(() => seasonDraftClass([...files, 'other_CUS01 - Big Board.json'], 1), /requires one/);
 });
@@ -69,7 +70,7 @@ test('website boards follow every season and phase, rejecting closed boards and 
     assert.equal(get('/api/league/admin/session',key).body.authenticated,true);
     const unlocked = get('/api/draft-classes', key);
     assert.equal(unlocked.body.canBrowseAll, true);
-    assert.equal(unlocked.body.boards.find(b=>b.id==='big-board').classes.length, 5);
+    assert.equal(unlocked.body.boards.find(b=>b.id==='big-board').classes.length, 6);
     const fifth = get('/api/prospects?board=big-board&class=2k27_CUS05',key);
     assert.equal(fifth.status,200);assert.equal(fifth.body.prospects.length,75);
     assert.equal(fifth.body.prospectStatsAvailable,false);
@@ -86,7 +87,7 @@ test('website boards follow every season and phase, rejecting closed boards and 
     assert.equal(get('/api/draft-classes',{'x-leaguebuddy-admin-key':'assistant-key'}).body.canBrowseAll,false);
     assert.equal(get('/api/draft-classes',{'x-leaguebuddy-admin-key':'commissioner-key'}).body.canBrowseAll,true);
     delete process.env.WEBSITE_ADMIN_KEYS;
-    repository.saveLeague('season-test', { seasonNumber: 6, currentSeasonId: '1', currentPhase:'REGULAR_SEASON' });
+    repository.saveLeague('season-test', { seasonNumber: 7, currentSeasonId: '1', currentPhase:'REGULAR_SEASON' });
     assert.equal(get('/api/draft-classes').status, 404);
     assert.equal(get('/api/prospects?board=big-board').status, 404);
 });
