@@ -838,3 +838,14 @@ test('live position-choice embed lists the ten best undrafted prospects with ori
  assert.equal(payload.components[0].toJSON().components[0].placeholder,'Choose primary position');
  assert.equal(payload.components.length,2);
 });
+
+test('second-round order is strictly worst record first, then point differential', () => {
+    const { recordOrder } = require('../src/fantasyhq/draft-order');
+    const f = fixture({ after() {}, afterEach() {} });
+    const rows = Object.values(f.input.standings.conferences).flat();
+    rows.forEach(r => { r.PCT = 0.5; r.DIFF = 0; });
+    const worst = rows.find(r => r.teamId === 't3'), best = rows.find(r => r.teamId === 't4');
+    worst.PCT = 0; worst.DIFF = -50; best.PCT = 1;
+    const order = recordOrder(f.input);
+    assert.equal(order[0], 't3'); assert.equal(order.at(-1), 't4'); assert.equal(order.length, 30);
+});

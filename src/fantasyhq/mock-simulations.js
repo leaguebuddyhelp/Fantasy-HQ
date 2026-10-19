@@ -163,15 +163,16 @@ function createMockSimulationService({ repository, scoutingService, standingsSer
     }
     function secondRoundProjection(leagueId, weekly) {
         const input = weekly.input, root = rootFor(repository, leagueId), file = path.join(root, `weekly-round2-${hash([input.seasonId,input.currentWeek,input.draftClassId]).slice(0,24)}.json`);
-        const prior = read(file); if (prior?.engineVersion === ENGINE_VERSION && prior.simulationSnapshotId === weekly.simulationSnapshotId) return prior.selections;
+        const orderKey = hash([weekly.orderKey, require('./draft-order').recordOrder(input), repository.loadDraftPicks(leagueId).filter(p => Number(p.round) === 2).map(p => [p.pickId, p.currentOwnerTeamId])]);
+        const prior = read(file); if (prior?.engineVersion === ENGINE_VERSION && prior.simulationSnapshotId === weekly.simulationSnapshotId && prior.orderKey === orderKey) return prior.selections;
         if (input.prospects.length < 60) throw Error('Round 2 requires at least 60 verified prospects.');
         const secondPicks = repository.loadDraftPicks(leagueId).filter(p => Number(p.round) === 2 && Number(p.draftYear) === input.draftYear);
         if (secondPicks.length !== 30 || new Set(secondPicks.map(p=>p.originalTeamId)).size !== 30) throw Error('Initialize all 30 second-round pick assets through league setup.');
-        const base = generateDraftOrder({...input,officialOrder:null},{lottery:false}).order;
+        const base = require('./draft-order').recordOrder(input).map(originalTeamId => ({ originalTeamId }));
         const order = base.map((slot,index)=>{const asset=secondPicks.find(p=>p.originalTeamId===slot.originalTeamId);if(!asset||!input.teams.some(t=>t.teamId===asset.currentOwnerTeamId))throw Error('Reconcile second-round pick ownership first.');return {...slot,pickNumber:index+31,currentOwnerTeamId:asset.currentOwnerTeamId,originalPickAssetId:asset.pickId};});
         const selected = [...weekly.selections], snapshot = byId(leagueId,weekly.simulationSnapshotId), rng = seededRandom(`weekly-round2:${leagueId}:${input.seasonId}:${input.draftClassId}:${input.currentWeek}`);
         for(const slot of order){const p=chooseProspect(input,slot,selected,snapshot,rng);selected.push({...slot,prospectId:p.prospectId,avp:snapshot?.prospectAggregates[p.prospectId]?.avp??null});}
-        const selections=selected.slice(30);locked(root,()=>atomicWrite(file,{engineVersion:ENGINE_VERSION,simulationSnapshotId:weekly.simulationSnapshotId,selections}));return selections;
+        const selections=selected.slice(30);locked(root,()=>atomicWrite(file,{orderKey,engineVersion:ENGINE_VERSION,simulationSnapshotId:weekly.simulationSnapshotId,selections}));return selections;
     }
     function reconcileRequests(leagueId) {
         // Recover events even if a process stopped between the league transaction and enqueue.

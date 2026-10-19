@@ -74,4 +74,11 @@ function generateDraftOrder(input, { rng = Math.random, lottery = true } = {}) {
     });
     return { order, rules, warnings: field.warnings };
 }
-module.exports = { rulesForYear, draftField, generateDraftOrder };
+// Second-round order is strictly worst-to-best record, with no lottery or play-in grouping.
+function recordOrder(input) {
+    const field = draftField(input);
+    return [...field.lottery, ...field.playoff]
+        .sort((a, b) => a.PCT - b.PCT || (a.DIFF || 0) - (b.DIFF || 0) || tieKey(input.draftYear, a.teamId).localeCompare(tieKey(input.draftYear, b.teamId)))
+        .map(t => t.teamId);
+}
+module.exports = { rulesForYear, draftField, generateDraftOrder, recordOrder };
