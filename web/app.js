@@ -1227,7 +1227,7 @@ function normalizePatchValues(payload) {
 
 async function rosterCorrection(action, payload) {
   if (['SETUP', 'PRESEASON'].includes(state.leagueSite?.league?.currentPhase)) return {};
-  const reason = window.prompt('Routine roster edits are closed. Commissioner correction reason (at least 10 characters):');
+  const reason = window.prompt('Routine roster edits are closed. Commissioner correction reason (at least 3 characters):');
   if (!reason) throw Error('Roster correction cancelled.');
   const preview = await adminRequestJson('/api/league/admin/rosters/correction-preview', {
     method: 'POST', body: JSON.stringify({ action, payload, reason }),

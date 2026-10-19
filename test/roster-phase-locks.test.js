@@ -25,7 +25,7 @@ test('live roster correction requires commissioner, reason, exact preview and un
  const args={leagueId:'league',seasonId:'1',playerId:'a-0',fromTeamId:'a',toTeamId:'b',actingUserId:'commish'};
  assert.throws(()=>service.movePlayer(args),/Preview and confirm/);
  assert.throws(()=>prepareRosterCorrection(f.repository,'move',{...args,actingUserId:'coach-a'},'Repair wrong team'),/commissioner/);
- assert.throws(()=>prepareRosterCorrection(f.repository,'move',args,'short'),/10–1000/);
+ assert.throws(()=>prepareRosterCorrection(f.repository,'move',args,'no'),/3–1000/);
  const preview=prepareRosterCorrection(f.repository,'move',args,'Repair imported assignment');
  assert.throws(()=>service.movePlayer({...args,toTeamId:'c',correctionToken:preview.token}),/Preview and confirm/);
  f.repository.saveLeague('league',{currentWeek:5});

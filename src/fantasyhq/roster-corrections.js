@@ -18,7 +18,7 @@ function prepareRosterCorrection(repository, action, args, reason) {
   if (String(args.seasonId) !== context.seasonId) throw Error('Corrections require the active league season.');
   if (!args.actingUserId || args.actingUserId !== context.league.commissionerUserId) throw Error('Only the commissioner can confirm roster corrections.');
   reason = String(reason || '').trim();
-  if (reason.length < 10 || reason.length > 1000) throw Error('Give a correction reason of 10–1000 characters.');
+  if (reason.length < 3 || reason.length > 1000) throw Error('Give a correction reason of 3–1000 characters.');
   for (const [key, row] of pending) if (row.expiresAt <= Date.now()) pending.delete(key);
   const token = randomUUID(), details = payload(action,args);
   pending.set(token, { root: repository.dataRoot, leagueId: args.leagueId, seasonId: context.seasonId, actor: args.actingUserId, action, details: JSON.stringify(stable(details)), source: source(repository,args), reason, expiresAt: Date.now()+300000 });

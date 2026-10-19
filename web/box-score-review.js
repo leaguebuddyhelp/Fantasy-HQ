@@ -229,7 +229,7 @@ async function render() {
             for (const [value, label] of [['FLAT','Flat'],['FRONT','Front-loaded (-5%)'],['BACK','Back-loaded (+5%)']]) structure.add(new Option(label, value));
             const option = el('select'); option.setAttribute('aria-label', 'Final-year option');
             for (const [value, label] of [['None','None'],['Team','Team option'],['Player','Player option']]) option.add(new Option(label, value));
-            const reason = el('input'); reason.required = true; reason.minLength = 10; reason.placeholder = 'At least 10 characters'; reason.setAttribute('aria-label', 'Reason for roster addition');
+            const reason = el('input'); reason.required = true; reason.minLength = 3; reason.placeholder = 'Short reason'; reason.setAttribute('aria-label', 'Reason for roster addition');
             const label = (text, control) => { const node = el('label'); node.append(el('span', text), control); return node; };
             const grams = text => { const t = ` ${String(text || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim()} `; return new Set(Array.from({ length: Math.max(0, t.length - 1) }, (_, k) => t.slice(k, k + 2))); };
             const similarity = (a, b) => { const x = grams(a), y = grams(b); if (!x.size || !y.size) return 0; let shared = 0; for (const gram of x) if (y.has(gram)) shared++; return 2 * shared / (x.size + y.size); };
@@ -258,7 +258,7 @@ async function render() {
               const contractDetails = { salary: salary.value.trim(), years: years.value.trim(), structure: structure.value, option: option.value };
               if (!player.rostered && (!contractDetails.salary || !contractDetails.years)) { note.textContent = 'Enter the salary and contract years for the free agent.'; return; }
               const payload = player.rostered ? { playerId: player.playerId, fromTeamId: player.teamId, toTeamId: teamId } : { teamId, playerId: player.playerId, contractDetails };
-              if (reason.value.trim().length < 10) { note.textContent = 'Enter a reason of at least 10 characters.'; reason.focus(); return; }
+              if (reason.value.trim().length < 3) { note.textContent = 'Enter a short reason.'; reason.focus(); return; }
               add.disabled = true; note.textContent = 'Preparing roster correction…';
               try {
                 if (!correction) {
@@ -268,7 +268,7 @@ async function render() {
                   add.disabled = false;
                   return;
                 }
-                await api(player.rostered ? '/api/league/admin/rosters/move-player' : '/api/league/admin/rosters/assign-free-agent', { ...payload, ...correction, operator });
+                await api(player.rostered ? '/api/league/admin/rosters/move-player' : '/api/league/admin/rosters/assign-free-agent', { ...payload, correctionToken: correction.token, operator });
                 rosterAdditions.push({ screenshotIndex: i, playerId: player.playerId, teamId });
                 if (![...select.options].some(entry => entry.value === player.playerId)) select.add(new Option(player.name, player.playerId));
                 select.value = player.playerId; select.dispatchEvent(new Event('change'));

@@ -55,13 +55,14 @@ test('unmatched review row can sign a free agent to its game team and save the r
  const screen={mediaId:'image',tableTeamName:'Wolves',confidence:'HIGH',scoreboard:[{teamName:'Wolves',finalScore:10,periods:[{label:'Q1',score:10}]}],players:[{displayedName:'New Player',playerId:null,dnp:false,confidence:'HIGH',stats}],totals:stats};
  const extraction={extractionId:'e1',status:'REVIEW_REQUIRED',issues:[],normalized:{screenshots:[{displayedTeamName:'Wolves',teamId:'wolves',scoreboard:[{displayedTeamName:'Wolves',teamId:'wolves'}],players:[{candidates:[]}]}]},rosterSnapshot:{wolves:[]}};
  let payload={game:{gameId:'g',leagueId:'league',seasonId:'1',weekNumber:1,team1Id:'wolves',team2Id:'rockets',team1Name:'Wolves',team2Name:'Rockets',status:'SCHEDULED'},editable:{screenshots:[screen]},extractions:[extraction],teamRecords:[]};
- const calls=[];
+ const calls=[];let assignBody=null;
  await page.route('http://review.test/**',async route=>{
   const request=route.request(),url=new URL(request.url());calls.push([request.method(),url.pathname]);
   if(url.pathname==='/box-score-review.js')return route.fulfill({contentType:'text/javascript',body:fs.readFileSync('web/box-score-review.js','utf8')});
   if(!url.pathname.startsWith('/api/'))return route.fulfill({contentType:'text/html',body:fs.readFileSync('web/box-score-review.html','utf8')});
   if(url.pathname==='/api/league/admin/rosters/free-agents')return route.fulfill({json:{players:[{playerId:'fa',name:'Free Agent',position1:'SG',overall:70}],rostered:[{playerId:'rp',name:'Neu Playr',teamId:'rockets',teamName:'Rockets',rostered:true,position1:'PG',overall:80}]}});
   if(url.pathname==='/api/league/admin/rosters/correction-preview')return route.fulfill({json:{token:'correction-token',reason:'Approved emergency roster addition'}});
+  if(url.pathname==='/api/league/admin/rosters/assign-free-agent'){assignBody=request.postDataJSON();}
   if(url.pathname==='/api/league/admin/rosters/assign-free-agent')return route.fulfill({json:{player:{playerId:'fa',name:'Free Agent'}}});
   if(url.pathname.endsWith('/correct')) {
    const body=request.postDataJSON();
@@ -82,13 +83,14 @@ test('unmatched review row can sign a free agent to its game team and save the r
  await page.getByLabel('Choose player').selectOption('fa');
  await page.getByLabel('Starting annual salary').fill('$1M');
  await page.getByLabel('Contract years').fill('1');
- await page.getByLabel('Reason for roster addition').fill('Approved emergency roster addition');
+ await page.getByLabel('Reason for roster addition').fill('Trade');
  await page.getByRole('button',{name:'Add to roster and match player'}).click();
  await page.getByRole('button',{name:'Confirm and add player'}).click();
  await page.waitForFunction(()=>document.querySelector('#action-status')?.textContent.startsWith('Saved successfully'),null,{timeout:5000});
  assert.equal(await page.getByLabel('New Player roster match').inputValue(),'fa');
  assert.ok(calls.some(([,path])=>path.endsWith('/correction-preview')));
  assert.ok(calls.some(([,path])=>path.endsWith('/assign-free-agent')));
+ assert.equal(assignBody.correctionToken,'correction-token');
  assert.ok(calls.some(([,path])=>path.endsWith('/correct')));
  assert.deepEqual(errors,[]);
 });
