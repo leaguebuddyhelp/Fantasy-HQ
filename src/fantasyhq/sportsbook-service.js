@@ -85,7 +85,7 @@ function createSportsbookService({repository,submissions,now=Date.now}) {
    }
    for(const member of members.filter(m=>teamIds.includes(m.teamId))) {
     const player=players.get(member.playerId),logs=stats.filter(log=>log.playerId===member.playerId&&log.teamId===member.teamId&&log.MIN>=10).slice(-5);
-    if(!player||player.retiredAt||logs.length<3)continue;
+    if(!player||player.retiredAt||logs.length<1)continue;
     for(const metric of ['PTS','REB','AST','3PM']) {
      const values=logs.map(log=>metric==='3PM'?Number(log['3PT'].split('-')[0]):log[metric]);
      const line=half(average(values));if(line<.5)continue;
