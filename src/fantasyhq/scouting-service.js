@@ -12,11 +12,6 @@ const REVEALS = [
     { key: 'potential', label: 'Potential', field: 'potential' },
 ];
 
-function classDirectoryId(fileName) {
-    return String(fileName || '').replace(/\.json$/i, '').replace(/[^a-z0-9]+/gi, '-')
-        .replace(/^-+|-+$/g, '').toLowerCase();
-}
-
 function normalizeSearch(value) {
     return String(value || '').normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().trim();
 }
@@ -57,25 +52,8 @@ function createScoutingService({ repository, draftClassDir = path.join(process.c
             board_number: Number(prospect.board_number ?? prospect.id_number),
         })).filter(prospect => Number.isInteger(prospect.board_number) && prospect.board_number > 0)
             .sort((left, right) => left.board_number - right.board_number);
-        const classId = classDirectoryId(file), imageRoot = path.join(draftClassDir, 'images', classId);
-        const images = new Map();
-        function collect(directory) {
-            if (!fs.existsSync(directory)) return;
-            for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-                const target = path.join(directory, entry.name);
-                if (entry.isDirectory()) collect(target);
-                else if (entry.isFile()) {
-                    const match = entry.name.match(/^(\d{3})-/);
-                    if (!match) continue;
-                    const rank = Number(match[1]), extension = path.extname(entry.name).toLowerCase();
-                    const score = extension === '.webp' ? 3 : extension === '.png' ? 2 : extension === '.jpg' || extension === '.jpeg' ? 1 : 0;
-                    if (!score) continue;
-                    const current = images.get(rank);
-                    if (!current || score > current.score) images.set(rank, { path: target, score });
-                }
-            }
-        }
-        collect(imageRoot);
+        const { prospectImageMap, prospectImageKey } = require('../shared/prospect-images');
+        const images = prospectImageMap(draftClassDir, file);
         return {
             file, boardLabel,
             seasonNumber: context.league.seasonNumber,
@@ -84,7 +62,7 @@ function createScoutingService({ repository, draftClassDir = path.join(process.c
                 const explicitPath = prospect.image ? path.resolve(draftClassDir, prospect.image) : null;
                 const root = `${path.resolve(draftClassDir)}${path.sep}`;
                 const imagePath = explicitPath?.startsWith(root) && fs.existsSync(explicitPath)
-                    && fs.statSync(explicitPath).isFile() ? explicitPath : images.get(prospect.board_number)?.path || null;
+                    && fs.statSync(explicitPath).isFile() ? explicitPath : images.get(prospectImageKey(prospect.name)) || null;
                 return { ...prospect, imagePath };
             }),
         };

@@ -149,3 +149,25 @@ test('Discord scouting exposes production only during offseason and draft withou
   assert.equal(fields.some(field=>field.name==='Production'),available);
  }
 });
+
+test('fallback portraits follow names across reordered ranks and never fill another player’s missing photo', t => {
+    const f = fixture(t);
+    const file = '2k27_CUS01 - Big Board.json';
+    const boardPath = path.join(f.draftClassDir, file);
+    const board = JSON.parse(fs.readFileSync(boardPath));
+    board['1'].name = 'New Player';
+    board['2'].name = 'Léandre Charbonneau';
+    fs.writeFileSync(boardPath, JSON.stringify(board));
+    const directory = path.join(f.draftClassDir, 'images', '2k27-cus01-big-board', 'PF');
+    fs.mkdirSync(directory, { recursive: true });
+    const portrait = path.join(directory, '001-leandre-charbonneau.png');
+    fs.writeFileSync(portrait, 'portrait fixture');
+    const loaded = f.service.boardForContext({ league: { seasonNumber: 1, currentPhase: 'OFFSEASON' } });
+    assert.equal(loaded.prospects.find(p => p.name === 'New Player').imagePath, null);
+    assert.equal(loaded.prospects.find(p => p.name === 'Léandre Charbonneau').imagePath, portrait);
+    const { prospectImageMap, prospectImageKey } = require('../src/shared/prospect-images');
+    const images = prospectImageMap(f.draftClassDir, file);
+    assert.equal(images.get(prospectImageKey('Léandre Charbonneau')), portrait);
+    assert.equal(images.get(prospectImageKey('New Player')), undefined);
+    assert.equal(prospectImageKey('Aaron Jimenez'), prospectImageKey('Aron Jimenez'));
+});

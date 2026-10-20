@@ -242,59 +242,12 @@ function resolveTransferPortalClassFile(selection = null) {
   return resolveClassFile(transferPortalClassFiles(), selection);
 }
 
-function classImageDirectoryId(fileName) {
-  return String(fileName || "")
-    .replace(/\.json$/i, "")
-    .replace(/[^a-z0-9]+/gi, "-")
-    .replace(/^-+|-+$/g, "")
-    .toLowerCase();
-}
-
-function recursiveImageFiles(directory) {
-  if (!fs.existsSync(directory)) return [];
-  return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
-    const nextPath = path.join(directory, entry.name);
-    if (entry.isDirectory()) return recursiveImageFiles(nextPath);
-    return entry.isFile() ? [nextPath] : [];
-  });
-}
-
-function imagePreferenceScore(filePath) {
-  const extension = path.extname(filePath).toLowerCase();
-  if (extension === ".png") return 3;
-  if (extension === ".webp") return 2;
-  if (extension === ".jpg" || extension === ".jpeg") return 1;
-  return 0;
-}
-
-function bundledImageMap(fileName) {
-  const classDirectory = path.join(DRAFT_IMAGE_DIR, classImageDirectoryId(fileName));
-  const images = new Map();
-
-  for (const filePath of recursiveImageFiles(classDirectory)) {
-    const fileNameOnly = path.basename(filePath);
-    const match = fileNameOnly.match(/^(\d{3})-/);
-    if (!match) continue;
-
-    const rank = Number(match[1]);
-    const relativePath = path.relative(DRAFT_CLASS_DIR, filePath).replaceAll(path.sep, "/");
-    const existing = images.get(rank);
-    if (!existing || imagePreferenceScore(relativePath) > imagePreferenceScore(existing)) {
-      images.set(rank, relativePath);
-    }
-  }
-
-  return images;
-}
-
-function withBundledImages(fileName, prospects, rankKey) {
-  const bundledImages = bundledImageMap(fileName);
-  return prospects.map((prospect) => {
-    const rank = Number(prospect[rankKey] || 0);
-    return {
-      ...prospect,
-      image: prospect.image || bundledImages.get(rank) || null,
-    };
+function withBundledImages(fileName, prospects) {
+  const { prospectImageMap, prospectImageKey } = require('./shared/prospect-images');
+  const images = prospectImageMap(DRAFT_CLASS_DIR, fileName);
+  return prospects.map(prospect => {
+    const image = images.get(prospectImageKey(prospect.name));
+    return { ...prospect, image: prospect.image || (image ? path.relative(DRAFT_CLASS_DIR, image).replaceAll(path.sep, '/') : null) };
   });
 }
 
@@ -303,7 +256,7 @@ function topTenPreviewProspects(draftClassFile = null) {
   const raw = readJson(fileName ? path.join(DRAFT_CLASS_DIR, fileName) : "", {});
   const prospects = Object.values(raw || {})
     .sort((a, b) => Number(a.id_number || 0) - Number(b.id_number || 0));
-  return withBundledImages(fileName, prospects, "id_number");
+  return withBundledImages(fileName, prospects);
 }
 
 function recruitingProspects(draftClassFile = null) {

@@ -115,27 +115,7 @@ function publicImageUrl(image) {
 }
 
 function bundledImageMap(fileName) {
-  const classId = String(fileName || "")
-    .replace(/\.json$/i, "")
-    .replace(/[^a-z0-9]+/gi, "-")
-    .replace(/^-+|-+$/g, "")
-    .toLowerCase();
-  const classImageDirectory = path.join(DRAFT_IMAGE_DIR, classId);
-  const images = new Map();
-  if (!fs.existsSync(classImageDirectory)) return images;
-
-  for (const position of fs.readdirSync(classImageDirectory, { withFileTypes: true })) {
-    if (!position.isDirectory()) continue;
-    const positionDirectory = path.join(classImageDirectory, position.name);
-    for (const file of fs.readdirSync(positionDirectory)) {
-      const match = file.match(/^(\d{3})-/);
-      if (!match) continue;
-      const absolutePath = path.join(positionDirectory, file);
-      if (!fs.statSync(absolutePath).isFile()) continue;
-      images.set(Number(match[1]), path.relative(DRAFT_CLASS_DIR, absolutePath).replaceAll(path.sep, "/"));
-    }
-  }
-  return images;
+  return require('./shared/prospect-images').prospectImageMap(DRAFT_CLASS_DIR, fileName);
 }
 
 function readProspects(fileName) {
@@ -145,10 +125,11 @@ function readProspects(fileName) {
     .sort((a, b) => Number(a.board_number || a.id_number || 0) - Number(b.board_number || b.id_number || 0))
     .map((prospect) => {
       const rank = Number(prospect.board_number || prospect.id_number || 0);
+      const bundledImage = bundledImages.get(require('./shared/prospect-images').prospectImageKey(prospect.name));
       return {
         ...prospect,
         rank,
-        image: publicImageUrl(prospect.image || bundledImages.get(rank)),
+        image: publicImageUrl(prospect.image || (bundledImage ? path.relative(DRAFT_CLASS_DIR, bundledImage) : null)),
       };
     });
 }
