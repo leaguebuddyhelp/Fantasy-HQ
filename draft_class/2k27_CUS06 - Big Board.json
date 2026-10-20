@@ -3,82 +3,101 @@
     "board_number": 1,
     "position_1": "SF",
     "name": "Brian Bell",
-    "team": "Memphis"
+    "team": "Memphis",
+    "class": "FR",
+    "image": "images/2k27-cus06-big-board/SF/001-brian-bell.png"
   },
   "2": {
     "board_number": 2,
     "position_1": "SG",
     "name": "Daniel Fernández",
-    "team": "Spain"
+    "team": "Spain",
+    "class": "INTL",
+    "image": "images/2k27-cus06-big-board/SG/002-daniel-fernandez.png"
   },
   "3": {
     "board_number": 3,
     "position_1": "PG",
     "name": "Chase Edwards",
-    "team": "Virginia"
+    "team": "Virginia",
+    "class": "JR"
   },
   "4": {
     "board_number": 4,
-    "position_1": "PG",
-    "name": "Kha'Marion Taylor",
-    "team": "Arkansas"
-  },
-  "5": {
-    "board_number": 5,
     "position_1": "PF",
     "name": "Arkell Williams",
     "team": "Duke",
+    "class": "FR",
     "image": "images/2k27-cus06-big-board/PF/005-arkell-williams.png"
+  },
+  "5": {
+    "board_number": 5,
+    "position_1": "PG",
+    "name": "Kha'Marion Taylor",
+    "team": "Arkansas",
+    "class": "FR"
   },
   "6": {
     "board_number": 6,
     "position_1": "PF",
     "name": "Vukadin Gavrilović",
     "team": "Duke",
+    "class": "FR",
     "image": "images/2k27-cus06-big-board/PF/006-vukadin-gavrilovic.png"
   },
   "7": {
     "board_number": 7,
     "position_1": "SG",
     "name": "Bayley Banks",
-    "team": "Michigan"
+    "team": "Michigan",
+    "class": "FR",
+    "image": "images/2k27-cus06-big-board/SG/007-bayley-banks.png"
   },
   "8": {
     "board_number": 8,
     "position_1": "PF",
     "name": "Derek Allard-Jones",
     "team": "Kentucky",
+    "class": "FR",
     "image": "images/2k27-cus06-big-board/PF/008-derek-allard-jones.png"
   },
   "9": {
     "board_number": 9,
     "position_1": "SG",
     "name": "Zayden Smith IV",
-    "team": "Marquette"
+    "team": "Marquette",
+    "class": "SPH",
+    "image": "images/2k27-cus06-big-board/SG/009-zayden-smith-iv.png"
   },
   "10": {
     "board_number": 10,
     "position_1": "PG",
     "name": "Najeem Williams",
-    "team": "Florida"
+    "team": "Florida",
+    "class": "FR"
   },
   "11": {
     "board_number": 11,
-    "position_1": "SF",
-    "name": "Nate Phillips",
-    "team": "Australia"
+    "position_1": "PF",
+    "name": "Beau Mitchell",
+    "team": "Melbourne United/Australia",
+    "class": "INTL",
+    "image": "images/2k27-cus06-big-board/PF/011-beau-mitchell.png"
   },
   "12": {
     "board_number": 12,
     "position_1": "SG",
     "name": "Josh Simmons",
-    "team": "Texas Tech"
+    "team": "Texas Tech",
+    "class": "SPH",
+    "image": "images/2k27-cus06-big-board/SG/012-josh-simmons.png"
   },
   "13": {
     "board_number": 13,
     "position_1": "C",
     "name": "Jake Collins",
     "team": "USC",
+    "class": "FR",
     "image": "images/2k27-cus06-big-board/C/013-jake-collins.png"
   },
   "14": {
@@ -86,124 +105,152 @@
     "position_1": "C",
     "name": "Dane Burger",
     "team": "Boston College",
+    "class": "SPH",
     "image": "images/2k27-cus06-big-board/C/014-dane-burger.png"
   },
   "15": {
     "board_number": 15,
     "position_1": "SF",
     "name": "Adam Ortega",
-    "team": "Iowa"
+    "team": "Iowa",
+    "class": "SR",
+    "image": "images/2k27-cus06-big-board/SF/015-adam-ortega.png"
   },
   "16": {
     "board_number": 16,
     "position_1": "SG",
     "name": "Aaron Azoulay",
-    "team": "France"
+    "team": "France",
+    "class": "INTL",
+    "image": "images/2k27-cus06-big-board/SG/016-aaron-azoulay.png"
   },
   "17": {
     "board_number": 17,
     "position_1": "PG",
     "name": "Jaylen Mwamonoo",
-    "team": "Illinois"
+    "team": "Illinois",
+    "class": "FR"
   },
   "18": {
     "board_number": 18,
     "position_1": "C",
     "name": "Jumaane Jakande",
     "team": "Oklahoma",
+    "class": "FR",
     "image": "images/2k27-cus06-big-board/C/018-jumaane-jakande.png"
   },
   "19": {
     "board_number": 19,
-    "position_1": "PG",
-    "name": "Corey Dyson",
-    "team": "Oregon"
+    "position_1": "SF",
+    "name": "Noah Jakobsson",
+    "team": "UConn",
+    "class": "SR",
+    "image": "images/2k27-cus06-big-board/SF/019-noah-jakobsson.png"
   },
   "20": {
     "board_number": 20,
-    "position_1": "SG",
-    "name": "Darryon Jenkins",
-    "team": "VCU"
+    "position_1": "PG",
+    "name": "Corey Dyson",
+    "team": "Oregon",
+    "class": "JR"
   },
   "21": {
     "board_number": 21,
     "position_1": "SG",
-    "name": "Dmitry Yaroslavsky",
-    "team": "Texas"
+    "name": "Darryon Jenkins",
+    "team": "VCU",
+    "class": "JR",
+    "image": "images/2k27-cus06-big-board/SG/021-darryon-jenkins.png"
   },
   "22": {
     "board_number": 22,
-    "position_1": "SF",
-    "name": "Tyler Dean",
-    "team": "Colorado State"
+    "position_1": "SG",
+    "name": "Dmitry Yaroslavsky",
+    "team": "Texas",
+    "class": "FR",
+    "image": "images/2k27-cus06-big-board/SG/022-dmitry-yaroslavsky.png"
   },
   "23": {
     "board_number": 23,
     "position_1": "SF",
     "name": "Omontae Miller",
-    "team": "Baylor"
+    "team": "Baylor",
+    "class": "FR",
+    "image": "images/2k27-cus06-big-board/SF/023-omontae-miller.png"
   },
   "24": {
     "board_number": 24,
     "position_1": "SG",
     "name": "Darrell Murphy",
-    "team": "Oklahoma"
+    "team": "Oklahoma",
+    "class": "FR",
+    "image": "images/2k27-cus06-big-board/SG/024-darrell-murphy.png"
   },
   "25": {
     "board_number": 25,
     "position_1": "PG",
     "name": "A.J. Roche",
-    "team": "Michigan"
+    "team": "Michigan",
+    "class": "SR"
   },
   "26": {
     "board_number": 26,
-    "position_1": "SF",
-    "name": "Noah Jakobsson",
-    "team": "UConn"
-  },
-  "27": {
-    "board_number": 27,
     "position_1": "PF",
     "name": "Jan Ebner",
     "team": "Florida",
+    "class": "JR",
     "image": "images/2k27-cus06-big-board/PF/027-jan-ebner.png"
+  },
+  "27": {
+    "board_number": 27,
+    "position_1": "SF",
+    "name": "Tyler Dean",
+    "team": "Colorado State",
+    "class": "JR",
+    "image": "images/2k27-cus06-big-board/SF/027-tyler-dean.png"
   },
   "28": {
     "board_number": 28,
     "position_1": "PG",
     "name": "Misael Metz",
-    "team": "New Zealand"
+    "team": "New Zealand",
+    "class": "INTL"
   },
   "29": {
     "board_number": 29,
     "position_1": "C",
     "name": "Luke Bannerman",
     "team": "Stanford",
+    "class": "SPH",
     "image": "images/2k27-cus06-big-board/C/029-luke-bannerman.png"
   },
   "30": {
     "board_number": 30,
     "position_1": "PG",
     "name": "Josh Boggs",
-    "team": "North Carolina"
+    "team": "North Carolina",
+    "class": "FR"
   },
   "31": {
     "board_number": 31,
     "position_1": "PG",
     "name": "Shamarion Jones",
-    "team": "Kansas"
+    "team": "Kansas",
+    "class": "FR"
   },
   "32": {
     "board_number": 32,
     "position_1": "PG",
     "name": "Alex McAdams",
-    "team": "UNLV"
+    "team": "UNLV",
+    "class": "FR"
   },
   "33": {
     "board_number": 33,
     "position_1": "C",
     "name": "Latrelle Hayes",
     "team": "UCLA",
+    "class": "FR",
     "image": "images/2k27-cus06-big-board/C/033-latrelle-hayes.png"
   },
   "34": {
@@ -211,176 +258,216 @@
     "position_1": "PF",
     "name": "Samba Sow",
     "team": "AS Ville de Dakar/Senegal",
+    "class": "INTL",
     "image": "images/2k27-cus06-big-board/PF/034-samba-sow.png"
   },
   "35": {
     "board_number": 35,
     "position_1": "SG",
     "name": "Daniel Cleveland",
-    "team": "Gonzaga"
+    "team": "Gonzaga",
+    "class": "SR",
+    "image": "images/2k27-cus06-big-board/SG/035-daniel-cleveland.png"
   },
   "36": {
     "board_number": 36,
-    "position_1": "SF",
-    "name": "Shawn Anderson",
-    "team": "Duke"
+    "position_1": "C",
+    "name": "Matthew Osborne",
+    "team": "Texas",
+    "class": "JR",
+    "image": "images/2k27-cus06-big-board/C/037-matthew-osborne.png"
   },
   "37": {
     "board_number": 37,
     "position_1": "C",
-    "name": "Matthew Osborne",
-    "team": "Texas",
-    "image": "images/2k27-cus06-big-board/C/037-matthew-osborne.png"
+    "name": "Éloi Pommier",
+    "team": "Perth Wildcats/France",
+    "class": "INTL"
   },
   "38": {
     "board_number": 38,
-    "position_1": "C",
-    "name": "Éloi Pommier",
-    "team": "Perth Wildcats/France"
+    "position_1": "SF",
+    "name": "Shawn Anderson",
+    "team": "Duke",
+    "class": "SR",
+    "image": "images/2k27-cus06-big-board/SF/038-shawn-anderson.png"
   },
   "39": {
     "board_number": 39,
     "position_1": "SF",
     "name": "Kam Turner",
-    "team": "Xavier"
+    "team": "Xavier",
+    "class": "SPH",
+    "image": "images/2k27-cus06-big-board/SF/039-kam-turner.png"
   },
   "40": {
     "board_number": 40,
     "position_1": "SG",
     "name": "Justyn Simmons",
-    "team": "Wake Forest"
+    "team": "Wake Forest",
+    "class": "JR",
+    "image": "images/2k27-cus06-big-board/SG/040-justyn-simmons.png"
   },
   "41": {
     "board_number": 41,
     "position_1": "SF",
     "name": "Dazhawn Williams",
-    "team": "Maryland"
+    "team": "Washington",
+    "class": "FR",
+    "image": "images/2k27-cus06-big-board/SF/041-dazhawn-williams.png"
   },
   "42": {
     "board_number": 42,
     "position_1": "C",
     "name": "Gela Andronikashvili",
-    "team": "TSU Tbilisi/Republic of Georgia"
+    "team": "TSU Tbilisi/Republic of Georgia",
+    "class": "INTL"
   },
   "43": {
     "board_number": 43,
     "position_1": "PG",
     "name": "Arris Dawson",
-    "team": "Arizona"
+    "team": "Arizona",
+    "class": "SR"
   },
   "44": {
     "board_number": 44,
     "position_1": "PG",
     "name": "Troy Sabo",
-    "team": "Vanderbilt"
+    "team": "Vanderbilt",
+    "class": "SPH"
   },
   "45": {
     "board_number": 45,
     "position_1": "PF",
     "name": "Ryan Adams",
     "team": "Creighton",
+    "class": "SR",
     "image": "images/2k27-cus06-big-board/PF/045-ryan-adams.png"
   },
   "46": {
     "board_number": 46,
     "position_1": "PG",
     "name": "Trey Cortes",
-    "team": "California"
+    "team": "California",
+    "class": "JR"
   },
   "47": {
     "board_number": 47,
     "position_1": "C",
     "name": "Matt McGraw",
     "team": "Miami (OH)",
+    "class": "SR",
     "image": "images/2k27-cus06-big-board/C/047-matt-mcgraw.png"
   },
   "48": {
     "board_number": 48,
     "position_1": "SF",
     "name": "Kash Smith",
-    "team": "Houston"
+    "team": "Houston",
+    "class": "FR",
+    "image": "images/2k27-cus06-big-board/SF/048-kash-smith.png"
   },
   "49": {
     "board_number": 49,
     "position_1": "PG",
     "name": "Neville Jenkins",
-    "team": "Michigan"
+    "team": "Michigan",
+    "class": "JR"
   },
   "50": {
     "board_number": 50,
     "position_1": "C",
     "name": "A.J. Mdogo",
     "team": "Tennessee",
+    "class": "SPH",
     "image": "images/2k27-cus06-big-board/C/050-a-j-mdogo.png"
   },
   "51": {
     "board_number": 51,
     "position_1": "SF",
-    "name": "Javari Stevens",
-    "team": "Houston"
+    "name": "Somondre Williams",
+    "team": "UCLA",
+    "class": "JR",
+    "image": "images/2k27-cus06-big-board/SF/051-somondre-williams.png"
   },
   "52": {
     "board_number": 52,
-    "position_1": "SF",
-    "name": "Somondre Williams",
-    "team": "UCLA"
+    "position_1": "PF",
+    "name": "Brandon Hurst",
+    "team": "Nebraska",
+    "class": "SR",
+    "image": "images/2k27-cus06-big-board/PF/053-brandon-hurst.png"
   },
   "53": {
     "board_number": 53,
     "position_1": "PF",
-    "name": "Brandon Hurst",
-    "team": "Nebraska",
-    "image": "images/2k27-cus06-big-board/PF/053-brandon-hurst.png"
+    "name": "Jacoby David",
+    "team": "Florida State",
+    "class": "FR",
+    "image": "images/2k27-cus06-big-board/PF/054-jacoby-david.png"
   },
   "54": {
     "board_number": 54,
-    "position_1": "PF",
-    "name": "Jacoby David",
-    "team": "Florida State",
-    "image": "images/2k27-cus06-big-board/PF/054-jacoby-david.png"
+    "position_1": "SF",
+    "name": "Javari Stevens",
+    "team": "Houston",
+    "class": "SR",
+    "image": "images/2k27-cus06-big-board/SF/054-javari-stevens.png"
   },
   "55": {
     "board_number": 55,
     "position_1": "SF",
     "name": "Matthew Drake",
-    "team": "Clemson"
+    "team": "Clemson",
+    "class": "SR",
+    "image": "images/2k27-cus06-big-board/SF/055-matthew-drake.png"
   },
   "56": {
     "board_number": 56,
     "position_1": "PF",
     "name": "Myles Dupree",
     "team": "Illinois",
+    "class": "SPH",
     "image": "images/2k27-cus06-big-board/PF/056-myles-dupree.png"
   },
   "57": {
     "board_number": 57,
     "position_1": "SF",
-    "name": "Mahlik Bates",
-    "team": "UTSA"
+    "name": "Maalik Bates",
+    "team": "UTSA",
+    "class": "SR",
+    "image": "images/2k27-cus06-big-board/SF/057-maalik-bates.png"
   },
   "58": {
     "board_number": 58,
     "position_1": "SF",
     "name": "Jack Owens",
-    "team": "Wisconsin"
+    "team": "Wisconsin",
+    "class": "JR",
+    "image": "images/2k27-cus06-big-board/SF/058-jack-owens.png"
   },
   "59": {
     "board_number": 59,
     "position_1": "SG",
     "name": "Vedran Gojak",
-    "team": "Croatia"
+    "team": "Croatia",
+    "class": "INTL",
+    "image": "images/2k27-cus06-big-board/SG/059-vedran-gojak.png"
   },
   "60": {
     "board_number": 60,
     "position_1": "PG",
     "name": "Zaire Hairston",
-    "team": "Iowa State"
+    "team": "Iowa State",
+    "class": "JR"
   },
   "61": {
     "board_number": 61,
     "position_1": "PF",
     "name": "Trenten McMullen",
     "team": "Michigan",
+    "class": "SR",
     "image": "images/2k27-cus06-big-board/PF/061-trenten-mcmullen.png"
   },
   "62": {
@@ -388,6 +475,7 @@
     "position_1": "PF",
     "name": "Dannell Christian",
     "team": "Jacksonville State",
+    "class": "SR",
     "image": "images/2k27-cus06-big-board/PF/062-dannell-christian.png"
   },
   "63": {
@@ -395,6 +483,7 @@
     "position_1": "PF",
     "name": "Mircea Bologa",
     "team": "ALBA Berlin/Romania",
+    "class": "INTL",
     "image": "images/2k27-cus06-big-board/PF/063-mircea-bologa.png"
   },
   "64": {
@@ -402,45 +491,55 @@
     "position_1": "PF",
     "name": "Max Hannah",
     "team": "Wyoming",
+    "class": "JR",
     "image": "images/2k27-cus06-big-board/PF/064-max-hannah.png"
   },
   "65": {
     "board_number": 65,
     "position_1": "SG",
     "name": "Treyvon Williams",
-    "team": "Arkansas"
+    "team": "Arkansas",
+    "class": "SR",
+    "image": "images/2k27-cus06-big-board/SG/065-treyvon-williams.png"
   },
   "66": {
     "board_number": 66,
     "position_1": "C",
     "name": "Malick Kouyaté",
     "team": "Nanterre 92/France",
+    "class": "INTL",
     "image": "images/2k27-cus06-big-board/C/066-malick-kouyate.png"
   },
   "67": {
     "board_number": 67,
     "position_1": "SG",
-    "name": "Aron Jimenez",
-    "team": "Cal Poly"
+    "name": "Aaron Jimenez",
+    "team": "Cal Poly",
+    "class": "SR",
+    "image": "images/2k27-cus06-big-board/SG/067-aron-jimenez.png"
   },
   "68": {
     "board_number": 68,
     "position_1": "C",
     "name": "Vitalii Rudyk",
     "team": "Cherkaski Mavpy/Ukraine",
+    "class": "INTL",
     "image": "images/2k27-cus06-big-board/C/068-vitalii-rudyk.png"
   },
   "69": {
     "board_number": 69,
     "position_1": "SG",
     "name": "Myles Sosa",
-    "team": "Davidson"
+    "team": "Davidson",
+    "class": "SR",
+    "image": "images/2k27-cus06-big-board/SG/069-myles-sosa.png"
   },
   "70": {
     "board_number": 70,
     "position_1": "C",
     "name": "Brandon Kelley",
     "team": "Gonzaga",
+    "class": "JR",
     "image": "images/2k27-cus06-big-board/C/070-brandon-kelley.png"
   },
   "71": {
@@ -448,31 +547,37 @@
     "position_1": "PF",
     "name": "Ben Mullin",
     "team": "Gonzaga",
+    "class": "SR",
     "image": "images/2k27-cus06-big-board/PF/071-ben-mullin.png"
   },
   "72": {
     "board_number": 72,
     "position_1": "SF",
     "name": "Kaenan Wilkerson",
-    "team": "Texas Tech"
+    "team": "Texas Tech",
+    "class": "JR",
+    "image": "images/2k27-cus06-big-board/SF/072-kaenan-wilkerson.png"
   },
   "73": {
     "board_number": 73,
     "position_1": "PF",
     "name": "Justin Boone",
     "team": "Texas",
+    "class": "SR",
     "image": "images/2k27-cus06-big-board/PF/073-justin-boone.png"
   },
   "74": {
     "board_number": 74,
     "position_1": "PG",
     "name": "Itsuki Aoki",
-    "team": "Japan"
+    "team": "Japan",
+    "class": "INTL"
   },
   "75": {
     "board_number": 75,
     "position_1": "PG",
     "name": "Sam Ali",
-    "team": "UCLA"
+    "team": "UCLA",
+    "class": "SR"
   }
 }
