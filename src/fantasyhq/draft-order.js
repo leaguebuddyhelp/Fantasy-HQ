@@ -74,11 +74,14 @@ function generateDraftOrder(input, { rng = Math.random, lottery = true } = {}) {
     });
     return { order, rules, warnings: field.warnings };
 }
-// Second-round order is strictly worst-to-best record, with no lottery or play-in grouping.
-function recordOrder(input) {
-    const field = draftField(input);
-    return [...field.lottery, ...field.playoff]
-        .sort((a, b) => a.PCT - b.PCT || (a.DIFF || 0) - (b.DIFF || 0) || tieKey(input.draftYear, a.teamId).localeCompare(tieKey(input.draftYear, b.teamId)))
-        .map(t => t.teamId);
+// 2027+ (NBA 3-2-1): picks 31-46 reverse the first 16 picks; picks 47-60 follow worst-to-best record among the other 14 teams.
+// Earlier drafts keep strict worst-to-best record for all 30 teams.
+function recordOrder(input, firstRoundTeamIds = null) {
+    const field = draftField(input), byRecord = (a, b) => a.PCT - b.PCT || (a.DIFF || 0) - (b.DIFF || 0) || tieKey(input.draftYear, a.teamId).localeCompare(tieKey(input.draftYear, b.teamId));
+    if (field.rules.id !== 'NBA_321') return [...field.lottery, ...field.playoff].sort(byRecord).map(t => t.teamId);
+    const lotteryIds = new Set(field.lottery.map(t => t.teamId));
+    const top = firstRoundTeamIds && firstRoundTeamIds.length >= 16 && firstRoundTeamIds.slice(0, 16).every(id => lotteryIds.has(id)) && new Set(firstRoundTeamIds.slice(0, 16)).size === 16
+        ? firstRoundTeamIds.slice(0, 16) : [...field.lottery].sort(byRecord).map(t => t.teamId);
+    return [...top].reverse().concat([...field.playoff].sort(byRecord).map(t => t.teamId));
 }
 module.exports = { rulesForYear, draftField, generateDraftOrder, recordOrder };

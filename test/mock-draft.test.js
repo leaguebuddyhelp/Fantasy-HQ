@@ -839,13 +839,27 @@ test('live position-choice embed lists the ten best undrafted prospects with ori
  assert.equal(payload.components.length,2);
 });
 
-test('second-round order is strictly worst record first, then point differential', () => {
+test('pre-2027 second-round order is strictly worst record first, then point differential', () => {
     const { recordOrder } = require('../src/fantasyhq/draft-order');
     const f = fixture({ after() {}, afterEach() {} });
+    f.input.draftYear = 2026;
     const rows = Object.values(f.input.standings.conferences).flat();
     rows.forEach(r => { r.PCT = 0.5; r.DIFF = 0; });
     const worst = rows.find(r => r.teamId === 't3'), best = rows.find(r => r.teamId === 't4');
     worst.PCT = 0; worst.DIFF = -50; best.PCT = 1;
     const order = recordOrder(f.input);
     assert.equal(order[0], 't3'); assert.equal(order.at(-1), 't4'); assert.equal(order.length, 30);
+});
+
+test('2027+ second round reverses the first 16 picks, then orders the other 14 by record', () => {
+    const { recordOrder, draftField } = require('../src/fantasyhq/draft-order');
+    const f = fixture({ after() {}, afterEach() {} });
+    f.input.draftYear = 2027;
+    const field = draftField(f.input);
+    assert.equal(field.rules.id, 'NBA_321'); assert.equal(field.lottery.length, 16);
+    const firstRound = field.lottery.map(t => t.teamId);
+    const order = recordOrder(f.input, firstRound);
+    assert.deepEqual(order.slice(0, 16), [...firstRound].reverse());
+    assert.equal(new Set(order).size, 30);
+    assert.deepEqual(order.slice(16), field.playoff.map(t => t.teamId));
 });
