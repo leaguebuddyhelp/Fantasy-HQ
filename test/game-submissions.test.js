@@ -257,7 +257,11 @@ test('Staff Submit and cancel controls enforce staff access; both forfeit button
   await adapter.button({ ...i, customId: `gamecancel:${f.game.gameId}:${sid}` }); assert.match(reply, /cancelled/);
   const decisions = require('../src/fantasyhq/game-decisions').createGameDecisionService(f.service);
   await decisions.handle({ ...i, customId: `gamedecision:forfeit:${f.game.gameId}:a` });
-  assert.match(reply, /Staff-approved forfeit/);
+  assert.match(reply.content, /Confirm forfeit/);
+  assert.equal(f.service.load(f.game.gameId).game.result, undefined);
+  assert.equal(f.service.load(f.game.gameId).game.status, 'SCHEDULED');
+  await decisions.handle({ ...i, customId: `gamedecision:fconfirm:${f.game.gameId}:a` });
+  assert.match(reply.content, /Staff-approved forfeit/);
   await decisions.handle({ ...i, customId: `gamedecision:forfeit:${f.game.gameId}:b` });
   assert.match(reply, /final/);
   assert.equal(f.service.load(f.game.gameId).game.result.winnerTeamId, 'a');
@@ -265,6 +269,28 @@ test('Staff Submit and cancel controls enforce staff access; both forfeit button
   assert.equal(f.service.load(f.game.gameId).game.result.type, 'FORFEIT');
   assert.deepEqual(f.service.load(f.game.gameId).playerGameStats, []);
   assert.deepEqual(f.service.load(f.game.gameId).game.result.scores, {});
+  const forfeit = f.service.load(f.game.gameId).game;
+  const controls = gamePayload(forfeit).components.flatMap(row=>row.toJSON().components);
+  assert(controls.some(c=>c.custom_id===`gamedecision:undo:${f.game.gameId}`));
+  await decisions.handle({...i, memberPermissions:{has:()=>false}, user:{id:'gm'}, customId:`gamedecision:undo:${f.game.gameId}`});
+  assert.match(reply,/Only league staff/);
+  await decisions.handle({...i,customId:`gamedecision:undo:${f.game.gameId}`});
+  assert.match(reply.content,/Undo this forfeit/);
+  const confirmId=reply.components[0].toJSON().components[0].custom_id;
+  assert(confirmId.length<=100);
+  assert.equal(f.service.load(f.game.gameId).game.status,'FINAL');
+  await decisions.handle({...i,customId:confirmId.replace(forfeit.result.extractionId,'stale')});
+  assert.match(reply,/result changed/);
+  await decisions.handle({...i,customId:confirmId});
+  assert.match(reply.content,/Forfeit reversed/);
+  const reopened=f.service.load(f.game.gameId);
+  assert.equal(reopened.game.locked,false);
+  assert.equal(reopened.game.result,null);
+  assert.equal(reopened.game.matchupDecision,undefined);
+  assert.equal(reopened.resultRevisions.at(-1).game.result.type,'FORFEIT');
+  const start=await f.service.beginSide(f.game.gameId,f.actor);
+  assert.equal(start.submission.status,'COLLECTING');
+
 });
 
 

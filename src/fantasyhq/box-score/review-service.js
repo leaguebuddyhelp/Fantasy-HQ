@@ -154,10 +154,19 @@ function createReviewService(submissions) {
   async function reverse(gameId, submissionId, body) {
     return submissions.mutate(gameId, record => {
       if (record.game.status !== 'FINAL') throw Error('Only a final result can be reversed.');
+      if(body.reopenForfeit===true){
+        if(record.game.seriesId||record.game.result?.type!=='FORFEIT')throw Error('Only active regular-season forfeits can be reopened here.');
+        require('../competition-window').requireCompetitionGame(submissions.repository,record.game,submissions);
+      }
       revisionReason(record, body);
       if (!String(body.operator || '').trim() || String(body.operator).length > 100) throw Error('Enter your commissioner name.');
       if (record.game.result.submissionId !== submissionId || record.submissions.at(-1)?.latestExtractionId !== body.extractionId) throw Error('This review is stale. Reload the latest submission.');
       archive(record, body, 'REVERSED');
+      if(record.game.result?.type==='FORFEIT') {
+        record.game.decisionHistory ||= [];
+        record.game.decisionHistory.push({type:'FORFEIT_REVERSED',by:body.operator,at:new Date().toISOString()});
+        delete record.game.matchupDecision;
+      }
       record.game.result = null; record.game.finalizedAt = null; record.game.locked = false; record.game.status = 'REVIEW_REQUIRED';
       delete record.game.approval; record.game.previousApprovalNotice = record.game.approvalNotice || record.game.previousApprovalNotice; delete record.game.approvalNotice;
       record.playerGameStats = []; record.teamGameStats = []; record.dnpPlayers = [];
