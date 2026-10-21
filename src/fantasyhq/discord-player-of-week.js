@@ -2,13 +2,25 @@ const { EmbedBuilder, AttachmentBuilder } = require('discord.js');
 const { createHash } = require('crypto');
 const { createPlayerOfWeekService } = require('./player-of-week');
 const publishing = new Map();
-function awardPayload(record, players) {
+function awardPayload(record, players, owners = []) {
   const marker = `PLAYER_OF_WEEK:${record.leagueId}:${record.seasonId}:W${record.week}`;
+  const coaches = new Map();
+  for (const winner of record.winners) {
+    const matches = owners.filter(owner => owner.teamId === winner.teamId);
+    const owner = matches.length === 1 ? matches[0] : null;
+    // Conflicting assignments must never notify an arbitrary coach.
+    if (owner && /^\d{17,20}$/.test(owner.userId || '')
+      && owners.filter(other => other.userId === owner.userId).length === 1) {
+      coaches.set(winner.teamId, owner.userId);
+    }
+  }
+  const coachIds = [...new Set(coaches.values())];
   const files = [], embeds = record.winners.map(winner => {
     const s = winner.stats, player = players.find(p => p.playerId === winner.playerId);
+    const coachId = coaches.get(winner.teamId);
     const embed = new EmbedBuilder().setColor(winner.conference === 'East' ? 0x35a76f : 0x3478db)
       .setTitle(`🏆 ${record.testMode ? 'TEST MODE · ' : ''}${winner.conference.toUpperCase()} PLAYER OF THE WEEK · WEEK ${record.week}`)
-      .setDescription(`**${winner.playerName}**\n${require('../shared/team-emojis').teamLabel(winner.teamName)}\n\n🏀 ${s.PTS} PTS · ${s.REB} REB · 🎯 ${s.AST} AST\n🛡️ ${s.STL} STL · ${s.BLK} BLK · ${s.TO} TO\n🔥 ${s['3PM']}/${s['3PA']} 3PT · ${s.FTM}/${s.FTA} FT\n📊 ${s.FGPercent == null ? '—' : Math.round(s.FGPercent) + '%'} FG (${s.FGM}/${s.FGA})\n\n**Why he won**\n${winner.explanation}`)
+      .setDescription(`**${winner.playerName}**\n${require('../shared/team-emojis').teamLabel(winner.teamName)}${coachId ? `\nCoach: <@${coachId}>` : ''}\n\n🏀 ${s.PTS} PTS · ${s.REB} REB · 🎯 ${s.AST} AST\n🛡️ ${s.STL} STL · ${s.BLK} BLK · ${s.TO} TO\n🔥 ${s['3PM']}/${s['3PA']} 3PT · ${s.FTM}/${s.FTA} FT\n📊 ${s.FGPercent == null ? '—' : Math.round(s.FGPercent) + '%'} FG (${s.FGM}/${s.FGA})\n\n**Why he won**\n${winner.explanation}`)
       .setFooter({ text: marker });
     if (player) {
       const card = require('../shared/discord-player-card').nbaPlayerCard({ ...player, teamName: winner.teamName }, marker);
@@ -26,7 +38,7 @@ function awardPayload(record, players) {
   });
   if (!embeds.length) embeds.push(new EmbedBuilder().setColor(0xffdc21).setTitle(`🏆 PLAYER OF THE WEEK · WEEK ${record.week}`).setDescription('No eligible verified player performances this week.').setFooter({ text: marker }));
   if (record.unavailableConferences.length) embeds.at(-1).addFields({ name: 'Eligibility', value: record.unavailableConferences.join(' / ') + ': no eligible verified player performance.' });
-  return { content: '🏆 LEAGUEbuddy Player of the Week', embeds, files, allowedMentions: { parse: [] },
+  return { content: ['🏆 LEAGUEbuddy Player of the Week', ...coachIds.map(id => `<@${id}>`)].join(' '), embeds, files, allowedMentions: { parse: [], users: coachIds },
     nonce: createHash('sha256').update(marker).digest('hex').slice(0, 24), enforceNonce: true };
 }
 function createDiscordPlayerOfWeek({ repository, submissions, now = Date.now }) {
@@ -65,7 +77,7 @@ function createDiscordPlayerOfWeek({ repository, submissions, now = Date.now }) 
       if (!message) {
         service.publication(leagueId, seasonId, week, { status: 'PENDING', at: new Date(now()).toISOString(), channelId });
         record = repository.loadAwards(leagueId).seasons[seasonId].PLAYER_OF_WEEK.weeks[week];
-        message = await channel.send(awardPayload(record, repository.loadPlayers(leagueId)));
+        message = await channel.send(awardPayload(record, repository.loadPlayers(leagueId), repository.loadOwners(leagueId)));
       }
       service.publication(leagueId, seasonId, week, { status: 'DELIVERED', channelId, messageId: message.id, at: new Date(now()).toISOString() });
     })().finally(() => publishing.delete(key));

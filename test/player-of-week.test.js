@@ -89,3 +89,38 @@ test('simulation awards remain isolated and never publish in live Discord', asyn
   let sent=0; const manager=require('../src/fantasyhq/discord-player-of-week').createDiscordPlayerOfWeek({repository:sim.repository,submissions:sim.submissions});
   await manager.publish({channels:{fetch:async()=>{sent++;}}},'l','1',1);assert.equal(sent,0);
 });
+
+test('weekly award tags only the unique assigned coach of the winning team, even after a player trade', () => {
+  const { awardPayload } = require('../src/fantasyhq/discord-player-of-week');
+  const record = {leagueId:'l',seasonId:'1',week:1,unavailableConferences:[],winners:[
+    {conference:'East',playerId:'p1',playerName:'Winner East',teamId:'east',teamName:'East Team',stats:{},explanation:'Verified game'},
+    {conference:'West',playerId:'p2',playerName:'Winner West',teamId:'west',teamName:'West Team',stats:{},explanation:'Verified game'}
+  ]};
+  const east='111111111111111111',west='222222222222222222',traded='333333333333333333';
+  const players=[{playerId:'p1',teamId:'new-team'},{playerId:'p2',teamId:'new-team'}];
+  const owners=[{teamId:'east',userId:east},{teamId:'west',userId:west},{teamId:'new-team',userId:traded}];
+  const payload=awardPayload(record,players,owners);
+  assert.deepEqual(payload.allowedMentions,{parse:[],users:[east,west]});
+  assert.match(payload.content,new RegExp(`<@${east}>`));
+  assert.match(payload.content,new RegExp(`<@${west}>`));
+  assert.ok(!payload.content.includes(traded));
+  assert.match(payload.embeds[0].data.description,new RegExp(`Coach: <@${east}>`));
+  assert.match(payload.embeds[1].data.description,new RegExp(`Coach: <@${west}>`));
+  for(const invalid of [[],[...owners,{teamId:'east',userId:traded}],
+    [...owners,{teamId:'another-team',userId:east}], [{teamId:'east',userId:'@everyone'}]]) {
+    const p=awardPayload(record,[],invalid);
+    assert.ok(!p.allowedMentions.users.includes(east));
+    assert.ok(!p.content.includes(`<@${east}>`));
+    assert.deepEqual(p.allowedMentions.parse,[]);
+  }
+});
+
+test('publishing resolves coaches from current team assignments at send time', async t => {
+  const f=fixture(t);await f.finals();await f.advance();
+  const winners=f.service.list('l'),ids=['111111111111111111','222222222222222222'];
+  f.repository.saveOwners('l',winners.map((w,i)=>({teamId:w.teamId,userId:ids[i]})));
+  let payload;
+  const manager=require('../src/fantasyhq/discord-player-of-week').createDiscordPlayerOfWeek({repository:f.repository,submissions:f.submissions,now:f.now});
+  await manager.publish({channels:{fetch:async()=>({send:async p=>{payload=p;return {id:'award'};}})}},'l','1',1);
+  assert.deepEqual(new Set(payload.allowedMentions.users),new Set(ids));
+});
