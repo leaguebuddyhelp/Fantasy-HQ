@@ -184,3 +184,56 @@ test('Live Mock class choices include installed full boards and exclude early pr
         assert(Object.values(board).length>=60);
     }
 });
+
+test('private scouting survives weekly resets, postseason, draft and restart; a new season starts fresh', t => {
+    const f=fixture(t);
+    f.service.scout('guild','coach-a',1);
+    f.service.scout('guild','coach-a',1);
+    f.repository.saveLeague('league',{currentWeek:2});
+    f.repository.saveSchedule({...f.schedule,weeks:f.schedule.weeks.map(w=>({...w,status:w.week===2?'ACTIVE':'COMPLETED'}))});
+    const next=f.service.inspect('guild','coach-a',1);
+    assert.equal(next.level,2);assert.equal(next.remaining,60);
+    assert.equal(f.service.boardPage('guild','coach-a').prospects[0].level,2);
+    const third=f.service.scout('guild','coach-a',1);
+    assert.equal(third.level,3);assert.equal(third.remaining,50);
+    assert.equal(f.service.inspect('guild','coach-b',1).level,0);
+    const restarted=createScoutingService({repository:f.repository,draftClassDir:f.draftClassDir});
+    assert.equal(restarted.inspect('guild','coach-a',1).level,3);
+    for(const phase of ['PLAYOFFS','OFFSEASON','DRAFT']){
+        f.repository.saveLeague('league',{currentPhase:phase});
+        const saved=restarted.inspect('guild','coach-a',1);
+        assert.equal(saved.level,3);assert(saved.reveals.every(r=>r.unlocked));
+        assert.equal(saved.remaining,null);
+        assert.equal(restarted.boardPage('guild','coach-a').prospects[0].level,3);
+        assert.equal(restarted.inspect('guild','coach-b',1).level,0);
+        assert.throws(()=>restarted.scout('guild','coach-a',2),/active regular-season week/);
+    }
+    f.repository.saveLeague('league',{currentSeasonId:'2',seasonNumber:2,currentPhase:'REGULAR_SEASON',currentWeek:1});
+    f.repository.saveGuildLeagueBinding('guild',{leagueId:'league',seasonId:'2'});
+    f.repository.saveSchedule({leagueId:'league',seasonId:'2',weeks:[{week:1,weekId:'league:2:week:1',status:'ACTIVE',games:[],byes:[]}]});
+    assert.equal(restarted.inspect('guild','coach-a',1).level,0);
+    assert.equal(restarted.inspect('guild','coach-a',1).remaining,60);
+});
+
+test('existing weekly intel is recovered once by highest unlock and stays with the player when ranks move', t => {
+    const f=fixture(t);
+    const file=path.join(f.repository.buildLeaguePaths(f.repository.dataRoot,'league').leagueRoot,'scouting.json');
+    const legacy={schemaVersion:1,seasons:{'1':{weeks:{
+        'old-week':{users:{'coach-a':{spent:10,prospects:{'1':1}}}},
+        'league:1:week:1':{users:{'coach-a':{spent:20,prospects:{'1':2}},'coach-b':{spent:10,prospects:{'2':1}}}}
+    }}}};
+    fs.writeFileSync(file,JSON.stringify(legacy));
+    assert.equal(f.service.inspect('guild','coach-a',1).level,2);
+    assert.equal(f.service.inspect('guild','coach-a',1).remaining,40);
+    assert.equal(f.service.inspect('guild','coach-b',1).level,0);
+    assert.deepEqual(JSON.parse(fs.readFileSync(file)).seasons['1'].weeks,legacy.seasons['1'].weeks);
+    const boardPath=path.join(f.draftClassDir,'2k27_CUS01 - Big Board.json');
+    const board=JSON.parse(fs.readFileSync(boardPath));
+    const first=board['1'],second=board['2'];
+    board['1']={...second,board_number:1};board['2']={...first,board_number:2};
+    fs.writeFileSync(boardPath,JSON.stringify(board));
+    assert.equal(f.service.inspect('guild','coach-a',1).level,0);
+    assert.equal(f.service.inspect('guild','coach-a',2).level,2);
+    assert.equal(f.service.scout('guild','coach-a',2).level,3);
+    assert.equal(f.service.inspect('guild','coach-a',2).remaining,30);
+});

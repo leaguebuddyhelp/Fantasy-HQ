@@ -30,8 +30,8 @@ function scoutingCard(info) {
     embed.addFields({ name: 'Scouting intel', value: intel.join('\n') });
     embed.setFooter({
         text: info.scoutingAvailable === false
-            ? `Season ${info.seasonNumber} · Scouting unlocks during the regular season · ${info.level}/3 ratings unlocked`
-            : `Season ${info.seasonNumber} · Week ${info.weekNumber} · ${info.remaining}/${WEEKLY_POINTS} points remaining · ${info.level}/3 ratings unlocked`
+            ? `Season ${info.seasonNumber} · Saved scouting remains private through the draft · ${info.level}/3 ratings unlocked`
+            : `Season ${info.seasonNumber} · Week ${info.weekNumber} · ${info.remaining}/${WEEKLY_POINTS} points remaining · ${info.level}/3 ratings unlocked · Intel saved through the draft`
     });
 
     const files = [];
@@ -46,15 +46,15 @@ function scoutingCard(info) {
 }
 
 function bigBoardPagePayload(page) {
-    const rows = page.prospects.map(({ prospect }) => {
+    const rows = page.prospects.map(({ prospect, level }) => {
         const positions = [prospect.position_1, prospect.position_2].filter(value => value && value !== 'N/A').join('/');
         const source = prospect.team || prospect.nationality || 'Unknown';
-        return `**#${prospect.board_number} ${prospect.name || 'Prospect'}** · ${positions || '—'} · ${source}`;
+        return `**#${prospect.board_number} ${prospect.name || 'Prospect'}** · ${positions || '—'} · ${source}${level > 0 ? ` · 🔍 ${level}/3 unlocked` : ''}`;
     });
     const embed = new EmbedBuilder().setColor(0xffdc21)
         .setTitle(`Season ${page.seasonNumber} ${page.boardLabel || 'Big Board'}`)
         .setDescription(rows.join('\n') || 'No prospects are available for this season.')
-        .setFooter({ text: `Page ${page.page + 1}/${page.totalPages} · Prospects ${page.start + 1}-${Math.min(page.start + page.prospects.length, page.total)} of ${page.total}` });
+        .setFooter({ text: `Page ${page.page + 1}/${page.totalPages} · Prospects ${page.start + 1}-${Math.min(page.start + page.prospects.length, page.total)} of ${page.total} · Your scouting is private and saved through the draft` });
     const current = page.page;
     const controls = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('bigboard:first').setLabel('First').setStyle(ButtonStyle.Secondary).setDisabled(current === 0),

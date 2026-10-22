@@ -113,6 +113,39 @@ function createScoutingService({ repository, draftClassDir = path.join(process.c
         return state.seasons[seasonKey]?.weeks[weekKey]?.users[userId] || { spent: 0, prospects: {} };
     }
 
+    function prospectKey(board, prospect) {
+        return `${board.file}:${normalizeSearch(prospect.name).replace(/[^a-z0-9]/g, '')}`;
+    }
+
+    function seasonIntel(state, context, userId, board, create = false) {
+        const seasonKey = String(context.seasonId), season = state.seasons[seasonKey];
+        let intel = season?.users?.[userId];
+        if (intel?.legacyImported) return intel;
+        const reports = { ...(intel?.reports || {}) };
+        let legacyFound = false;
+        for (const week of Object.values(season?.weeks || {})) {
+            const old = week.users?.[userId];
+            if (!old) continue;
+            legacyFound = true;
+            for (const [rank, level] of Object.entries(old.prospects || {})) {
+                const prospect = board.prospects.find(p => p.board_number === Number(rank));
+                if (!prospect) continue;
+                const key = prospectKey(board, prospect);
+                // Old weekly unlocks repeated the same ratings; take the highest level, not their sum.
+                reports[key] = Math.max(Number(reports[key] || 0), Math.min(REVEALS.length, Number(level) || 0));
+            }
+        }
+        intel = { reports, legacyImported: true };
+        if (create || legacyFound) {
+            state.seasons[seasonKey] ||= { weeks: {} };
+            state.seasons[seasonKey].users ||= {};
+            state.seasons[seasonKey].users[userId] = intel;
+            // Preserve weekly evidence and budgets while recording stable player identities once.
+            if (legacyFound) saveState(context.league.leagueId, state);
+        }
+        return intel;
+    }
+
     function scoutingContextFor(guildId) {
         const context = contextFor(guildId);
         if (require('../shared/season-draft-class').seasonDraftBoard(context.league.currentPhase) !== 'Big Board') {
@@ -126,7 +159,8 @@ function createScoutingService({ repository, draftClassDir = path.join(process.c
         const prospect = board.prospects.find(item => item.board_number === Number(boardNumber));
         if (!prospect) throw new Error('Choose a prospect from this season’s available scouting board.');
         const state = loadState(context.league.leagueId), user = context.week ? userState(state, context, userId) : { spent: 0, prospects: {} };
-        const level = Math.max(0, Math.min(REVEALS.length, Number(user.prospects[String(prospect.board_number)] || 0)));
+        const intel = seasonIntel(state, context, userId, board);
+        const level = Math.max(0, Math.min(REVEALS.length, Number(intel.reports[prospectKey(board, prospect)] || 0)));
         const remaining = context.week ? Math.max(0, WEEKLY_POINTS - Number(user.spent || 0)) : null;
         return {
             leagueId: context.league.leagueId,
@@ -149,10 +183,11 @@ function createScoutingService({ repository, draftClassDir = path.join(process.c
     function boardPage(guildId, userId, requestedPage = 0) {
         const context = scoutingContextFor(guildId), board = boardForContext(context), state = loadState(context.league.leagueId);
         const user = context.week ? userState(state, context, userId) : { spent: 0, prospects: {} };
+        const intel = seasonIntel(state, context, userId, board);
         const totalPages = Math.max(1, Math.ceil(board.prospects.length / 10));
         const page = Math.max(0, Math.min(totalPages - 1, Number(requestedPage) || 0));
         const start = page * 10, prospects = board.prospects.slice(start, start + 10).map(prospect => {
-            const level = Math.max(0, Math.min(REVEALS.length, Number(user.prospects[String(prospect.board_number)] || 0)));
+            const level = Math.max(0, Math.min(REVEALS.length, Number(intel.reports[prospectKey(board, prospect)] || 0)));
             return {
                 ...context,
                 boardFile: board.file, boardLabel: board.boardLabel,
@@ -192,12 +227,16 @@ function createScoutingService({ repository, draftClassDir = path.join(process.c
             seasonId: before.seasonId,
             week: { weekId: before.weekId },
         }, userId, true);
-        const currentLevel = Math.max(0, Math.min(REVEALS.length, Number(user.prospects[String(before.prospect.board_number)] || 0)));
+        const context = scoutingContextFor(guildId), board = boardForContext(context);
+        const intel = seasonIntel(state, context, userId, board, true);
+        const key = prospectKey(board, before.prospect);
+        const currentLevel = Math.max(0, Math.min(REVEALS.length, Number(intel.reports[key] || 0)));
         if (currentLevel !== before.level || Number(user.spent || 0) !== before.spent) {
             return scout(guildId, userId, boardNumber, position);
         }
         user.spent = before.spent + REVEAL_COST;
         user.prospects[String(before.prospect.board_number)] = currentLevel + 1;
+        intel.reports[key] = currentLevel + 1;
         saveState(before.leagueId, state);
         return inspect(guildId, userId, boardNumber);
     }
