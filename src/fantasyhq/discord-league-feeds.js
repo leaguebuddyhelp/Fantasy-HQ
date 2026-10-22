@@ -12,7 +12,7 @@ const CATEGORIES = [
 const pending = new Map();
 function statsPayload(players, context, scope = 'REGULAR_SEASON') {
     const embed = new EmbedBuilder().setColor(0xffdc21).setTitle('📊 SEASON STAT LEADERS')
-        .setDescription(`Top 5 players in each category · Published after week advancement\nShooting percentages use total makes / attempts. ${scope === 'REGULAR_SEASON' ? `Minimum ${regularSeasonMinimumAttempts(context.league.currentWeek)} attempts per category` : 'Minimum 8 attempts per player game in this scope'}.`)
+        .setDescription(`Top 5 players in each category · Published after week advancement\nShooting percentages use total makes / attempts. ${scope === 'REGULAR_SEASON' ? `FG%: minimum ${regularSeasonMinimumAttempts(context.league.currentWeek)} total attempts` : 'FG%: minimum 8 attempts per game played'}. 3PT% and FT%: minimum 5 attempts per game played.`)
         .setFooter({ text: `Season ${context.league.seasonNumber || context.seasonId} · Week ${context.league.currentWeek || 0} · Updates when the week advances` });
     for (const [label, key, attempts] of CATEGORIES) {
         const leaders = players.filter(p => p.GP > 0 && p[key] != null && Number.isFinite(Number(p[key])) && (!attempts || (p.percentageQualification?.[key]?.eligible ?? require('./stat-qualification').qualifiesForPercentage(p, key, { scope, currentWeek: context.league.currentWeek }))))
