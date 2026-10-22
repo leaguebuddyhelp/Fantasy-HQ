@@ -39,6 +39,15 @@ function createScoutingService({ repository, draftClassDir = path.join(process.c
         return repository.loadSettings(context.league.leagueId)?.discordChannels?.scouting || null;
     }
 
+    function availableDraftClasses() {
+        return fs.readdirSync(draftClassDir).flatMap(file => {
+            const match = file.match(/CUS(\d+)\s*-\s*Big Board\.json$/i);
+            if (!match) return [];
+            const prospects = Object.values(JSON.parse(fs.readFileSync(path.join(draftClassDir,file),'utf8')));
+            return prospects.length >= 60 ? [{ classNumber:Number(match[1]), label:file.replace(/\.json$/i,'') }] : [];
+        }).sort((a,b)=>a.classNumber-b.classNumber);
+    }
+
     function boardFileForSeason(seasonNumber, boardLabel) {
         return require('../shared/season-draft-class').seasonDraftClass(fs.readdirSync(draftClassDir), seasonNumber, boardLabel);
     }
@@ -193,7 +202,7 @@ function createScoutingService({ repository, draftClassDir = path.join(process.c
         return inspect(guildId, userId, boardNumber);
     }
 
-    return { inspect, boardPage, prospects, scout, scoutingHubChannelId, boardForContext, contextFor };
+    return { inspect, boardPage, prospects, scout, scoutingHubChannelId, boardForContext, contextFor, availableDraftClasses };
 }
 
 module.exports = { createScoutingService, REVEALS, REVEAL_COST, WEEKLY_POINTS };

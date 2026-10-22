@@ -182,6 +182,6 @@ function createMockSimulationService({ repository, scoutingService, standingsSer
             if (eventId && String(e.seasonId || e.result?.seasonId || input.seasonId) === input.seasonId && !processed.has(eventId)) requestRefresh(repository, leagueId, e.action, eventId);
         }
     }
-    return { inputFor, active, byId, refresh, requireActive, weeklyProjection, classProjection, secondRoundProjection, reconcileRequests, repository };
+    return { availableDraftClasses: () => scoutingService.availableDraftClasses(), inputFor, active, byId, refresh, requireActive, weeklyProjection, classProjection, secondRoundProjection, reconcileRequests, repository };
 }
 module.exports = { createMockSimulationService, simulate, validateSnapshot, hash };

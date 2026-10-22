@@ -171,3 +171,16 @@ test('fallback portraits follow names across reordered ranks and never fill anot
     assert.equal(images.get(prospectImageKey('New Player')), undefined);
     assert.equal(prospectImageKey('Aaron Jimenez'), prospectImageKey('Aron Jimenez'));
 });
+
+test('Live Mock class choices include installed full boards and exclude early previews', t => {
+    const f=fixture(t);
+    const scouting=createScoutingService({repository:f.repository,draftClassDir:path.resolve('draft_class')});
+    const choices=scouting.availableDraftClasses();
+    assert(choices.some(c=>c.classNumber===6));
+    assert.equal(new Set(choices.map(c=>c.classNumber)).size,choices.length);
+    for(const c of choices){
+        assert.match(c.label,/Big Board$/);
+        const board=JSON.parse(fs.readFileSync(path.join('draft_class',c.label+'.json')));
+        assert(Object.values(board).length>=60);
+    }
+});

@@ -98,7 +98,7 @@ function createDiscordMockDraft({ repository, simulations, live, client = null }
             let settings = repository.loadSettings(leagueId) || {}, channelId = settings.discordChannels?.scouting;
             if (!channelId) throw Error('Repair league channels to configure Scouting Hub.');
             const ch = await guild.channels.fetch(channelId);
-            const payload = { embeds: [embed('🏀 LEAGUEbuddy LIVE MOCK DRAFT', 'Run a private 30-pick first-round mock with league coaches and CPU teams.\n\n👥 Invite coaches → 📋 Choose Base Order or 🎲 Run Lottery → 🔒 Lock Order → ▶️ Start Mock\n\nAvailable before and during the season. Uses the draft class assigned to the current league season. Uses league rosters, pick ownership and 1,000 full 60-pick simulations for AVP.')], components: [row(button('mock:start', 'START LIVE MOCK', ButtonStyle.Primary))], allowedMentions: { parse: [] } };
+            const payload = { embeds: [embed('🏀 LEAGUEbuddy LIVE MOCK DRAFT', 'Run a private 30-pick first-round mock with league coaches and CPU teams.\n\n👥 Invite coaches → 📋 Choose Base Order or 🎲 Run Lottery → 🔒 Lock Order → ▶️ Start Mock\n\nAvailable before and during the season. Choose any available draft class before creating your mock. Uses league rosters, pick ownership and 1,000 full 60-pick simulations for AVP.')], components: [row(button('mock:start', 'START LIVE MOCK', ButtonStyle.Primary))], allowedMentions: { parse: [] } };
             let msg = null;
             if (settings.discordPins?.liveMockMessageId) try { msg = await ch.messages.fetch(settings.discordPins.liveMockMessageId); } catch (e) { if (e.code !== 10008) throw e; }
             if (!msg) {
@@ -335,7 +335,14 @@ function createDiscordMockDraft({ repository, simulations, live, client = null }
             }
             if (id === 'start' || id === 'startclass') {
                 await validateCoach(guild, leagueId, interaction.user.id);
-                const classNumber = Number(repository.loadLeague(leagueId).league.seasonNumber);
+                const classes = simulations.availableDraftClasses();
+                if (id === 'start') {
+                    if (!classes.length) throw Error('No Big Board with at least 60 prospects is available.');
+                    await interaction.editReply({content:'Choose the draft class for your Live Mock.',components:[new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId('mock:startclass').setPlaceholder('Choose draft class').addOptions(classes.slice(0,25).map(c=>({label:c.label.slice(0,100),value:String(c.classNumber),default:c.classNumber===Number(repository.loadLeague(leagueId).league.seasonNumber)}))))]});
+                    return;
+                }
+                const classNumber = Number(interaction.values?.[0]);
+                if (!classes.some(c=>c.classNumber===classNumber)) throw Error('Choose an available draft class. Reopen Start Live Mock.');
                 await simulations.refresh(leagueId,{classNumber});
                 await serial(key(leagueId, `host:${interaction.user.id}`), async () => { const m = live.create(leagueId, interaction.user.id, guild.id, classNumber); await serial(key(leagueId, m.id), () => pump(guild, leagueId, m.id)); const current = live.get(leagueId, m.id); await interaction.editReply({ content: `Your private Live Mock is ready: <#${current.threadId}>`, embeds: [], components: [] }); });
                 return;

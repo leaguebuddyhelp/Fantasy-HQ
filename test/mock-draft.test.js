@@ -25,7 +25,7 @@ function fixture(t, { clock = Date.now(), alternateClasses = false } = {}) {
     repository.saveLeague('l', { currentSeasonId: '1', seasonNumber: 1, currentPhase: 'REGULAR_SEASON', currentWeek: 2, guildId: 'guild' }); repository.saveTeams('l', input.teams); repository.saveSettings('l', { testMode: true, discordChannels: { scouting: 'hub' } }); repository.saveGuildLeagueBinding('guild', { leagueId: 'l', seasonId: '1' }); repository.saveDraftPicks('l', input.picks);
     repository.saveOwners('l', input.teams.map((t, i) => ({ teamId: t.teamId, userId: `u${i}` })));
     atomicWrite(path.join(repository.buildLeaguePaths(dataRoot, 'l').leagueRoot, 'role-ownership.json'), { roleIds: Object.fromEntries(input.teams.map((t, i) => [t.teamId, `r${i}`])), conflicts: [] });
-    const scoutingService = { boardForContext: c => ({ file: alternateClasses && c.league.seasonNumber > 1 ? `class${c.league.seasonNumber}.json` : 'class.json', prospects: input.prospects.map(p => alternateClasses && c.league.seasonNumber > 1 ? { ...p, name: `CUS${c.league.seasonNumber} ${p.name}` } : p) }) }, standingsService = { getStandings: () => input.standings }, rosterService = { currentRosterEntries: () => [] };
+    const scoutingService = { availableDraftClasses:()=>Array.from({length:alternateClasses?4:1},(_,i)=>({classNumber:i+1,label:`CUS${i+1} Big Board`})), boardForContext: c => ({ file: alternateClasses && c.league.seasonNumber > 1 ? `class${c.league.seasonNumber}.json` : 'class.json', prospects: input.prospects.map(p => alternateClasses && c.league.seasonNumber > 1 ? { ...p, name: `CUS${c.league.seasonNumber} ${p.name}` } : p) }) }, standingsService = { getStandings: () => input.standings }, rosterService = { currentRosterEntries: () => [] };
     const simulations = createMockSimulationService({ repository, scoutingService, standingsService, rosterService });
     const snapshot = structuredClone(saved); snapshot.input = simulations.inputFor('l'); snapshot.draftClassId = 'class'; snapshot.metadata.processedEvents = [];
     const root = rootFor(repository, 'l'); atomicWrite(path.join(root, 'snapshots', `${snapshot.id}.json`), snapshot); atomicWrite(path.join(root, 'active.json'), { id: snapshot.id });
@@ -552,21 +552,25 @@ test('lottery result embed offers start and rerun controls, refreshes after reru
     assert.equal(latest.components.length, 0);
 });
 
-test('live start automatically uses the current season and ignores stale class selectors', async t => {
+test('live start offers class selection and keeps the chosen class through lottery, locking and picks', async t => {
     const f = fixture(t, { alternateClasses: true }), d = discordFixture(f);
     f.repository.saveLeague('l', { seasonNumber: 2 });
     f.repository.saveDraftPicks('l', f.input.picks.map(p => ({ ...p, draftYear: 2028 })));
     const start = d.interaction('mock:start'); await d.workflow.handle(start);
-    let m=f.live.all('l')[0];assert.equal(m.classNumber,2);assert.equal(m.draftClassId,'class2');
-    assert.match(start.replies.at(-1).content,/private Live Mock is ready/);
-    const legacy=d.interaction('mock:startclass');legacy.values=['4'];await d.workflow.handle(legacy);
-    assert.equal(f.live.all('l').length,1);assert.equal(f.live.all('l')[0].classNumber,2);
-    assert.throws(()=>f.live.create('l','u0','guild',4),/current league season automatically/);
+    assert.equal(f.live.all('l').length,0);
+    const menu=start.replies.at(-1).components[0].toJSON().components[0];
+    assert.deepEqual(menu.options.map(o=>o.value),['1','2','3','4']);
+    assert.equal(menu.options.find(o=>o.default).value,'2');
+    const selected=d.interaction('mock:startclass');selected.values=['4'];await d.workflow.handle(selected);
+    let m=f.live.all('l')[0];assert.equal(m.classNumber,4);assert.equal(m.draftClassId,'class4');
+    assert.match(selected.replies.at(-1).content,/private Live Mock is ready/);
+    const invalid=d.interaction('mock:startclass');invalid.values=['999'];await d.workflow.handle(invalid);
+    assert.match(invalid.replies.at(-1).content,/available draft class/);
     f.live.lottery('l', m.id, { id: 'u0' }); m = f.live.lock('l', m.id, { id: 'u0' });
-    assert.ok(m.input.prospects.every(p => p.prospectId.startsWith('class2:')));
+    assert.ok(m.input.prospects.every(p => p.prospectId.startsWith('class4:')));
     f.live.setAvailable('l', m.id, 'u0', false); m = f.live.start('l', m.id, { id: 'u0' });
     m = f.live.commit('l', m.id, { expectedPick: 1, type: 'CPU' });
-    assert.match(m.selections[0].prospect.name, /^CUS2/);
+    assert.match(m.selections[0].prospect.name, /^CUS4/);
 });
 test('weekly mocks follow seasons 1 through 4, remain stable and reject class overrides', async t => {
     const f = fixture(t, { alternateClasses: true });
@@ -796,12 +800,13 @@ test('full-draft AVP covers 60 picks and selected-class snapshots survive defaul
  assert.ok(Object.values(fifth.prospectAggregates).some(a=>a.avp>30));
  assert.ok(Object.values(fifth.prospectAggregates).every(a=>a.frequencyByPick.length===60&&a.availabilityByPick.length===60));
  const live=createLiveMockService({repository:f.repository,simulations:market});
- assert.throws(()=>live.create('l','u0','guild',5),/current league season automatically/);
+ const selected=live.create('l','u0','guild',5);assert.equal(selected.classNumber,5);assert.equal(selected.simulationSnapshotId,fifth.id);
  const first=await market.refresh('l',{seed:'class-one-full-draft'});assert.match(first.draftClassId,/CUS01/);
  const restarted=createMockSimulationService(options);
  assert.equal(restarted.requireActive('l',restarted.inputFor('l',5)).id,fifth.id);
  assert.equal(restarted.requireActive('l').id,first.id);
  assert.equal(restarted.byId('l',fifth.id).draftClassId,fifth.draftClassId);
+ const resumed=createLiveMockService({repository:f.repository,simulations:restarted}).get('l',selected.id);assert.equal(resumed.classNumber,5);assert.equal(resumed.simulationSnapshotId,fifth.id);
  await assert.rejects(restarted.classProjection('l',5),/automatically/);
 });
 
