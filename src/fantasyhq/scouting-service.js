@@ -207,8 +207,7 @@ function createScoutingService({ repository, draftClassDir = path.join(process.c
         const context = scoutingContextFor(guildId), board = boardForContext(context);
         const query = normalizeSearch(focused);
         const requestedPosition = String(position || '').trim().toUpperCase();
-        return board.prospects.filter(prospect => (!requestedPosition || [prospect.position_1, prospect.position_2]
-            .some(value => String(value || '').trim().toUpperCase() === requestedPosition)) && (!query || [prospect.name, prospect.team, prospect.position_1, prospect.position_2]
+        return board.prospects.filter(prospect => (!requestedPosition || String(prospect.position_1 || '').trim().toUpperCase() === requestedPosition) && (!query || [prospect.name, prospect.team, prospect.position_1, prospect.position_2]
                 .some(value => normalizeSearch(value).includes(query)))).slice(0, 25)
             .map(prospect => ({ name: `#${prospect.board_number} ${prospect.name}`.slice(0, 100), value: String(prospect.board_number) }));
     }
@@ -217,9 +216,8 @@ function createScoutingService({ repository, draftClassDir = path.join(process.c
         const before = inspect(guildId, userId, boardNumber);
         if (!before.scoutingAvailable) throw new Error('Scouting points are available during an active regular-season week.');
         const requestedPosition = String(position || '').trim().toUpperCase();
-        if (requestedPosition && ![before.prospect.position_1, before.prospect.position_2]
-            .some(value => String(value || '').trim().toUpperCase() === requestedPosition)) {
-            throw new Error(`That prospect does not match the selected ${requestedPosition} position.`);
+        if (requestedPosition && String(before.prospect.position_1 || '').trim().toUpperCase() !== requestedPosition) {
+            throw new Error(`That prospect does not match the selected ${requestedPosition} position; use the prospect’s primary position.`);
         }
         if (!before.nextReveal) throw new Error('You have already unlocked all three scouting ratings for this prospect.');
         if (before.remaining < REVEAL_COST) throw new Error('You are out of scouting points for this league week. Points reset next week and do not roll over.');

@@ -237,3 +237,19 @@ test('existing weekly intel is recovered once by highest unlock and stays with t
     assert.equal(f.service.scout('guild','coach-a',2).level,3);
     assert.equal(f.service.inspect('guild','coach-a',2).remaining,30);
 });
+
+test('scout position selection uses primary position only and rejects secondary-position submissions without charging points', t => {
+    const f=fixture(t);
+    assert.deepEqual(f.service.prospects('guild','','PG'),[{name:'#1 Léandre Charbonneau',value:'1'}]);
+    assert.deepEqual(f.service.prospects('guild','','SG'),[]);
+    assert.deepEqual(f.service.prospects('guild','','C'),[]);
+    assert.deepEqual(f.service.prospects('guild','leandre','SG'),[]);
+    assert.throws(()=>f.service.scout('guild','coach-a',1,'SG'),/primary position/);
+    assert.throws(()=>f.service.scout('guild','coach-a',2,'C'),/primary position/);
+    assert.equal(f.service.inspect('guild','coach-a',1).remaining,60);
+    assert.equal(f.service.inspect('guild','coach-a',1).level,0);
+    const unlocked=f.service.scout('guild','coach-a',1,' pg ');
+    assert.equal(unlocked.level,1);assert.equal(unlocked.remaining,50);
+    const sf=f.service.prospects('guild','','SF');
+    assert.deepEqual(sf.map(p=>Number(p.value)),Array.from({length:23},(_,i)=>i+3));
+});
