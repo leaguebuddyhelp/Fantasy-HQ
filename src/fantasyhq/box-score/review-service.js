@@ -5,7 +5,7 @@ function editable(extraction) {
   if (extraction.correctedInput) return structuredClone(extraction.correctedInput);
   return structuredClone({ screenshots: extraction.normalized.screenshots.map(s => ({ mediaId:s.mediaId, tableTeamName:s.displayedTeamName,
     confidence:s.confidence, uncertainFields:[], scoreboard:s.scoreboard.map(b=>({teamName:b.displayedTeamName,finalScore:b.finalScore,periods:b.periods})),
-    players:s.players.map(p=>({displayedName:p.displayedName,playerId:p.playerId,dnp:p.dnp,confidence:p.confidence,stats:p.stats.raw || {}})), totals:s.totals.raw || {} })) });
+    players:s.players.map(p=>({displayedName:p.displayedName,playerId:p.playerId,unassignedDnp:p.unassignedDnp===true,dnp:p.dnp,confidence:p.confidence,stats:p.stats.raw || {}})), totals:s.totals.raw || {} })) });
 }
 function createReviewService(submissions) {
   function validate(record, source, input, reviewedPaths, rosterAdditions = []) {
@@ -69,7 +69,10 @@ function createReviewService(submissions) {
       s.players.forEach((p,j)=>{
         const key=`screenshots.${i}.players.${j}`;
         if(all.has(key))p.confidence='HIGH';
-        if(p.playerId){
+        if(p.unassignedDnp===true){
+          if(p.dnp!==true||p.playerId)throw Error('An unassigned row must be DNP with no roster player.');
+          matches[key]=null;
+        } else if(p.playerId){
           if(!(rosters[teamId] || []).some(r=>r.playerId===p.playerId))throw new Error('Player must belong to the appropriate roster.');
           matches[key]=p.playerId;
         }

@@ -26,6 +26,7 @@ function finalizeValidatedSubmission(record, extractionId, { testMode = false, o
   for(const side of sides) {
     if(!media.some(m=>m.mediaId===side.mediaId)||(!staff && media.find(m=>m.mediaId===side.mediaId)?.teamId!==side.teamId))throw new Error('Screenshot ownership does not match.');
     for(const row of side.players) {
+      if(row.unassignedDnp===true && row.dnp===true && !row.playerId && extraction.provider==='commissioner-correction' && extraction.actor?.operator) continue;
       if(!row.playerId)throw new Error('Every player must have a resolved roster match.');
       const identity={gameId:record.game.gameId,teamId:side.teamId,playerId:row.playerId};
       if(row.dnp) dnpPlayers.push(identity);

@@ -396,3 +396,38 @@ test('cropped scoreboard requires explicit staff evidence and missing identities
  await review.approve(f.game.gameId,f.submission.submissionId,{extractionId:completed.extractionId,operator:'Staff'});
  assert.equal(f.submissions.load(f.game.gameId).game.status,'FINAL');
 });
+
+test('Staff can leave DNP rows unassigned without automatic rematching or creating a player DNP record',async t=>{
+  const f=await reviewFixture(t);fixReview(f);
+  for(const index of [10,11]) Object.assign(f.body.input.screenshots[0].players[index],{unassignedDnp:true,dnp:true,playerId:null});
+  const revised=await f.review.correct(f.game.gameId,f.submission.submissionId,f.body);
+  assert.deepEqual(revised.issues,[]);
+  for(const index of [10,11]){
+    const p=revised.normalized.screenshots[0].players[index];
+    assert.equal(p.playerId,null);assert.equal(p.dnp,true);assert.equal(p.unassignedDnp,true);
+    assert.equal(p.matchMethod,'staff-unassigned-dnp');
+  }
+  const resaved=await f.review.correct(f.game.gameId,f.submission.submissionId,{...f.body,extractionId:revised.extractionId,input:editable(revised)});
+  assert.deepEqual(resaved.issues,[]);assert.equal(resaved.normalized.screenshots[0].players[10].playerId,null);
+  await f.review.approve(f.game.gameId,f.submission.submissionId,{extractionId:resaved.extractionId,operator:'Approver'});
+  const record=f.submissions.load(f.game.gameId);
+  assert.deepEqual(record.game.result.scores,{mil:120,cle:116});
+  assert.equal(record.playerGameStats.length,20);assert.equal(record.dnpPlayers.length,6);
+  assert(record.dnpPlayers.every(p=>p.playerId&&!['0-10','0-11'].includes(p.playerId)));
+  assert.equal(record.extractions.find(e=>e.extractionId===f.original.extractionId).normalized.screenshots[0].players[10].unassignedDnp,false);
+});
+
+test('unassigned DNP requires an explicit Staff correction and never bypasses played-row totals',async t=>{
+  const f=await reviewFixture(t);fixReview(f);
+  Object.assign(f.body.input.screenshots[0].players[0],{unassignedDnp:true,playerId:null,dnp:false});
+  await assert.rejects(f.review.correct(f.game.gameId,f.submission.submissionId,f.body),/must be DNP/);
+  f.body.input.screenshots[0].players[0].dnp=true;
+  const revised=await f.review.correct(f.game.gameId,f.submission.submissionId,f.body);
+  assert(revised.issues.some(i=>i.code==='PLAYER_POINTS_MATCH'));
+  await assert.rejects(f.review.approve(f.game.gameId,f.submission.submissionId,{extractionId:revised.extractionId,operator:'Approver'}));
+  const raw=sample(),ctx=context();
+  Object.assign(raw.screenshots[0].players[10],{unassignedDnp:true,displayedName:'Unknown DNP',playerId:null});
+  const output=normalizeExtraction(raw,ctx);
+  assert(output.issues.some(i=>i.code==='PLAYER_MATCH_NEEDED'));
+  assert.equal(output.normalized.screenshots[0].players[10].unassignedDnp,false);
+});

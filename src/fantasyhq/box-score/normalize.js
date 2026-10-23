@@ -140,12 +140,13 @@ function normalizeExtraction(raw, { game, media, teams, rosters, playerMatches =
       const match = playerMatch(player.displayedName, rosters[teamId] || [], learnedAliases);
       const candidates = match.candidates;
       const explicit = (rosters[teamId] || []).find(r => r.playerId === playerMatches[p]);
-      const playerId = explicit?.playerId || (match.automatic && player.confidence === 'HIGH' ? candidates[0].playerId : null);
-      if (!playerId) issue('PLAYER_MATCH_NEEDED', p, 'Player match needed; no unique high-confidence roster match.',
+      const unassignedDnp = Object.hasOwn(playerMatches, p) && playerMatches[p] === null && player.dnp === true;
+      const playerId = unassignedDnp ? null : explicit?.playerId || (match.automatic && player.confidence === 'HIGH' ? candidates[0].playerId : null);
+      if (!playerId && !unassignedDnp) issue('PLAYER_MATCH_NEEDED', p, 'Player match needed; no unique high-confidence roster match.',
         { displayedName: player.displayedName, candidates: candidates.map(c => ({ playerId:c.playerId, name:c.name })) });
       if (playerId && matchedIds.has(playerId)) issue('DUPLICATE_PLAYER', p, 'Player appears more than once.');
       matchedIds.add(playerId);
-      return { displayedName: player.displayedName ?? null, playerId, matchMethod:explicit?'commissioner':match.method, matchScore:match.score ?? null, dnp: player.dnp ?? null,
+      return { displayedName: player.displayedName ?? null, playerId, unassignedDnp, matchMethod:unassignedDnp?'staff-unassigned-dnp':explicit?'commissioner':match.method, matchScore:match.score ?? null, dnp: player.dnp ?? null,
         confidence: confidence(player.confidence,p), stats: stats(player.stats,`${p}.stats`,player.dnp === true),
         candidates: candidates.map(c => ({ playerId:c.playerId, name:c.name })) };
     });

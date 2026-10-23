@@ -192,9 +192,18 @@ async function render() {
     }
     for (const [j, p] of screen.players.entries()) {
       const row = el('tr'), cell = el('td'); cell.append(el('span', p.displayedName));
-      const select = el('select'); select.setAttribute('aria-label', `${p.displayedName} roster match`); select.dataset.path = `${base}.players.${j}.playerId`; select.append(new Option('Select roster player…', ''));
-      for (const candidate of roster) select.append(new Option(candidate.name, candidate.playerId)); select.value = p.playerId || ''; if (!p.playerId) select.classList.add('review-problem');
-      select.addEventListener('change', () => { p.playerId = select.value || null; markDirty(); }); cell.append(select);
+      const select = el('select'); select.setAttribute('aria-label', `${p.displayedName} roster match`); select.dataset.path = `${base}.players.${j}.playerId`; select.append(new Option('Select roster player…', ''),new Option('No player / DNP (leave unassigned)', '__unassigned_dnp__'));
+      for (const candidate of roster) select.append(new Option(candidate.name, candidate.playerId)); select.value = p.unassignedDnp ? '__unassigned_dnp__' : p.playerId || ''; if (!p.playerId && !p.unassignedDnp) select.classList.add('review-problem');
+      select.addEventListener('change', () => {
+        p.unassignedDnp = select.value === '__unassigned_dnp__';
+        p.playerId = p.unassignedDnp ? null : select.value || null;
+        if(p.unassignedDnp) p.dnp = true;
+        const checkbox = row.querySelector('input[type="checkbox"]');
+        if(checkbox) checkbox.checked = p.dnp === true;
+        for(const n of row.querySelectorAll('[data-stat]')) n.disabled = p.dnp === true;
+        select.classList.toggle('review-problem',!p.playerId&&!p.unassignedDnp);
+        markDirty();
+      }); cell.append(select);
       const candidates = latest.normalized.screenshots[i]?.players?.[j]?.candidates || [];
       const suggestions = candidates.filter(candidate => candidate.playerId !== p.playerId).slice(0, 3);
       if (suggestions.length) {
@@ -288,7 +297,7 @@ async function render() {
         cell.append(verify);
       }
       row.append(cell);
-      const dnp = el('td'); dnp.append(input(p.dnp, `${base}.players.${j}.dnp`, v => { p.dnp = v; for (const n of row.querySelectorAll('[data-stat]')) n.disabled = v; }, 'checkbox')); row.append(dnp);
+      const dnp = el('td'); dnp.append(input(p.dnp, `${base}.players.${j}.dnp`, v => { p.dnp = v; if(!v&&p.unassignedDnp){p.unassignedDnp=false;select.value='';select.classList.add('review-problem');} for (const n of row.querySelectorAll('[data-stat]')) n.disabled = v; }, 'checkbox')); row.append(dnp);
       for (const field of fields) { const td = el('td'); const n = input(p.stats[field], `${base}.players.${j}.stats.${field}`, v => p.stats[field] = v); n.dataset.stat = field; n.disabled = p.dnp === true; td.append(n); row.append(td); } table.append(row);
     }
     const totals = el('tr'); totals.append(el('th', 'Team totals'), el('td'));
